@@ -5,12 +5,12 @@ use action::{NativeActionHandle, ProcessAction};
 use native_graph::{NativeGraph as CoreNativeGraph, NativeStep};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rivetoo_graph::{Arc as GraphArc, NodeId};
+use rivlet::{Arc as GraphArc, NodeId};
 
 type ProcessDeclaration = (String, String, Vec<String>, String, HashMap<String, String>);
 
 /// Python-visible opaque ownership of one complete Rust declaration graph.
-#[pyclass(frozen, module = "rivetoo_graph._native", skip_from_py_object)]
+#[pyclass(frozen, module = "rivlet._native", skip_from_py_object)]
 #[derive(Clone)]
 pub(crate) struct NativeGraph {
     graph: CoreNativeGraph,

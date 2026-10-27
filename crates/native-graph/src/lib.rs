@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 use action::NativeActionHandle;
-use rivetoo_graph::{
+use rivlet::{
     Arc, DeclarationNode, DeclarationPrerequisite, DeclaredGraph, DeclaredNodeKind,
     GraphCompilation, GraphDeclaration, GraphId, NodeActivation, NodeId,
 };
@@ -132,7 +132,7 @@ pub enum NativeGraphError {
     EmptyGraphLabel,
     EmptyStepLabel,
     UnknownStep(NodeId),
-    Declaration(rivetoo_graph::DeclarationError),
+    Declaration(rivlet::DeclarationError),
 }
 
 impl Display for NativeGraphError {
@@ -164,7 +164,7 @@ impl Error for NativeGraphError {
 #[cfg(test)]
 mod tests {
     use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
-    use rivetoo_graph::{Arc, NodeId};
+    use rivlet::{Arc, NodeId};
 
     use super::{NativeGraph, NativeStep};
 

@@ -9,7 +9,7 @@ import statistics
 from time import perf_counter
 from typing import Literal
 
-from rivetoo_graph import (
+from rivlet import (
     Graph,
     ResultEdge,
     StaticCondition,

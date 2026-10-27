@@ -59,7 +59,7 @@ step id、label path 与父结果作用域，再进入同一个编译执行流�
 
 位置：
 
-- [src/rivetoo_graph/render/](../../src/rivetoo_graph/render/)
+- [src/rivlet/render/](../../src/rivlet/render/)
 
 当前渲染接口分两类：
 
@@ -84,7 +84,7 @@ step id、label path 与父结果作用域，再进入同一个编译执行流�
 
 位置：
 
-- [src/rivetoo_graph/runtime/run.py](../../src/rivetoo_graph/runtime/run.py)
+- [src/rivlet/runtime/run.py](../../src/rivlet/runtime/run.py)
 
 当前运行选项拆成两类：
 

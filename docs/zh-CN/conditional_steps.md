@@ -9,7 +9,7 @@
 
 ## 声明
 
-定义见 [model.py](../../src/rivetoo_graph/model.py)：
+定义见 [model.py](../../src/rivlet/model.py)：
 
 ```python
 Step(action=..., label=..., condition=...)
@@ -105,7 +105,7 @@ A --[condition]--> B
 - 条件为假时，不再等待其余 after prerequisite。
 - composite 保留子图边界，不占用 worker，也不成为 no-op leaf。
 
-[compile.py](../../src/rivetoo_graph/compile.py) 将条件边归一化为
+[compile.py](../../src/rivlet/compile.py) 将条件边归一化为
 CompiledConditionalDependency，将运行时 Step.condition 归一化为节点的
 CompiledRuntimeCondition，不把节点条件改写成条件边。
 

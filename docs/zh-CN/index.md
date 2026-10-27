@@ -1,11 +1,11 @@
-# rivetoo-graph
+# Rivlet
 
 [English](../index.md) | 简体中文
 
-`rivetoo-graph` 是一个显式、可组合的 Python DAG 声明与执行库。Python 导入入口为：
+`rivlet` 是一个显式、可组合的 Python DAG 声明与执行库。Python 导入入口为：
 
 ```python
-from rivetoo_graph import Graph, GraphExecution, Step
+from rivlet import Graph, GraphExecution, Step
 ```
 
 库本身提供：

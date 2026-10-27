@@ -3,14 +3,32 @@ requires = ["maturin>=1.9,<2"]
 build-backend = "maturin"
 
 [project]
-name = "rivetoo-graph"
+name = "rivlet"
 version = "0.1.0"
-description = "显式、可组合的 Python DAG 声明与执行库"
+description = "Explicit, composable workflows with a Python API and a Rust execution core"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.13"
 dependencies = []
+authors = [{name = "ririv"}]
+keywords = ["dag", "workflow", "task-graph", "concurrency", "rust"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
+    "Programming Language :: Rust",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+
+[project.urls]
+Homepage = "https://github.com/ririv/rivlet"
+Repository = "https://github.com/ririv/rivlet"
+Documentation = "https://github.com/ririv/rivlet/blob/main/docs/index.md"
+Issues = "https://github.com/ririv/rivlet/issues"
 
 [dependency-groups]
 dev = [
@@ -21,8 +39,9 @@ dev = [
 
 [tool.maturin]
 manifest-path = "crates/python/Cargo.toml"
-module-name = "rivetoo_graph._native"
+module-name = "rivlet._native"
 python-source = "src"
+include = [{path = "tests/**/*", format = "sdist"}]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from rivetoo_graph import (
+from rivlet import (
     AsyncGraphRunOptions,
     Graph,
     GraphEventDeliveryError,
@@ -236,7 +236,7 @@ def test_stop_handler_registered_after_stop_runs_immediately() -> None:
 
 
 def test_no_subscription_constructs_no_events(monkeypatch) -> None:
-    from rivetoo_graph.runtime import state
+    from rivlet.runtime import state
 
     def unexpected(*args, **kwargs):
         pytest.fail("disabled event delivery must not construct events")

@@ -11,17 +11,17 @@ import statistics
 import time
 from typing import TYPE_CHECKING
 
-from rivetoo_graph import Graph, Step
-from rivetoo_graph._native import _experimental_run_tokio_callbacks
-from rivetoo_graph.compile import compile_graph
-from rivetoo_graph.runtime.batch_driver import run_threaded_session
-from rivetoo_graph.runtime.compiled import CompiledExecutionHost
-from rivetoo_graph.runtime.state import GraphExecutionState
+from rivlet import Graph, Step
+from rivlet._native import _experimental_run_tokio_callbacks
+from rivlet.compile import compile_graph
+from rivlet.runtime.batch_driver import run_threaded_session
+from rivlet.runtime.compiled import CompiledExecutionHost
+from rivlet.runtime.state import GraphExecutionState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from rivetoo_graph.compile import GraphCompilation
+    from rivlet.compile import GraphCompilation
 
 
 def _compilation(nodes: int) -> GraphCompilation:

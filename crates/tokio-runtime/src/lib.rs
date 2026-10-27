@@ -4,7 +4,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
-use rivetoo_graph::{
+use rivlet::{
     CompiledExecutionGraph, ConditionRequest, ConditionResolution, ExecutionEvent,
     ExecutionSession, ExecutionUpdate, NodeId, SessionError,
 };
@@ -124,7 +124,7 @@ where
             }
         }
 
-        if batch.status() != rivetoo_graph::SessionStatus::Running && tasks.is_empty() {
+        if batch.status() != rivlet::SessionStatus::Running && tasks.is_empty() {
             break;
         }
         if tasks.is_empty() {

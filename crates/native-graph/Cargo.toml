@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 action = { path = "../action" }
-rivetoo-graph = { path = "../core" }
+rivlet = { path = "../core" }
 
 [lints]
 workspace = true

@@ -4,7 +4,7 @@ from dataclasses import dataclass, replace
 
 import pytest
 
-from rivetoo_graph import (
+from rivlet import (
     CompiledCompositeRef,
     CompiledConditionalDependency,
     CompiledRuntimeCondition,
@@ -97,7 +97,7 @@ def test_compile_graph_flattens_nested_graph_and_preserves_structure() -> None:
 
 
 def test_pruned_native_side_tables_keep_only_compiled_nodes() -> None:
-    from rivetoo_graph._native import compile_declaration
+    from rivlet._native import compile_declaration
 
     removed = Step(
         lambda: None,

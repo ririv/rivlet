@@ -6,7 +6,7 @@ from typing import Literal, assert_type
 
 import pytest
 
-from rivetoo_graph import (
+from rivlet import (
     AsyncGraphRunOptions,
     Graph,
     GraphExecution,
@@ -18,7 +18,7 @@ from rivetoo_graph import (
     StepRunContext,
     ThreadGraphRunOptions,
 )
-from rivetoo_graph.runtime import GraphExecutionState
+from rivlet.runtime import GraphExecutionState
 
 
 @dataclass

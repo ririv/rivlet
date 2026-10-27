@@ -3,7 +3,7 @@ use std::sync::Mutex;
 use action::{NativeActionContext, NativeActionExecutor, NativeActionHandle};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use rivetoo_graph::{
+use rivlet::{
     ConditionId, ConditionResolution, ExecutionBatch, ExecutionSession, ExecutionUpdate, NodeId,
     SessionStatus,
 };
@@ -23,7 +23,7 @@ pub(crate) struct NativeActionBinding {
 }
 
 /// Rust action ownership aligned with compiled execution node indexes.
-#[pyclass(frozen, module = "rivetoo_graph._native", skip_from_py_object)]
+#[pyclass(frozen, module = "rivlet._native", skip_from_py_object)]
 #[derive(Clone)]
 pub(crate) struct NativeActionBindings {
     actions: Vec<Option<NativeActionHandle>>,
@@ -57,13 +57,13 @@ enum NativeDispatch {
 }
 
 /// Rust-owned session that dispatches Rust actions without a Python callback.
-#[pyclass(frozen, module = "rivetoo_graph._native")]
+#[pyclass(frozen, module = "rivlet._native")]
 pub(crate) struct NativeMixedExecutionSession {
     state: Mutex<MixedExecutionState>,
     actions: NativeDispatch,
 }
 
-#[pyclass(frozen, module = "rivetoo_graph._native")]
+#[pyclass(frozen, module = "rivlet._native")]
 pub(crate) struct NativeMixedExecutionBatch {
     actions: Vec<usize>,
     conditions: Vec<(usize, usize)>,

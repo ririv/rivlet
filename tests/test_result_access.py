@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from rivetoo_graph import (
+from rivlet import (
     Graph,
     GraphExecution,
     GraphExecutionState,

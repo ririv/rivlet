@@ -1,11 +1,11 @@
-# rivetoo-graph
+# Rivlet
 
 English | [简体中文](./zh-CN/index.md)
 
-`rivetoo-graph` is an explicit, composable DAG declaration and execution library:
+`rivlet` is an explicit, composable DAG declaration and execution library:
 
 ```python
-from rivetoo_graph import Graph, GraphExecution, Step
+from rivlet import Graph, GraphExecution, Step
 ```
 
 ## Features
@@ -80,6 +80,8 @@ interfaces. There are no implicit branches for a particular host application.
   enter the same Rust compiler used for statically declared graphs.
 
 ## Languages
+
+For distribution coverage and the PyPI workflow, see [releasing](./releasing.md).
 
 English is the default. Chinese pages live in [zh-CN/](./zh-CN/index.md), with the
 same filenames and a language link on each page. Update both versions when

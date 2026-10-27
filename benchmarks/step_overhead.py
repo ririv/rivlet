@@ -8,9 +8,9 @@ import time
 from functools import partial
 from typing import TYPE_CHECKING
 
-from rivetoo_graph import Graph, Step
-from rivetoo_graph.compile import compile_graph
-from rivetoo_graph.runtime import (
+from rivlet import Graph, Step
+from rivlet.compile import compile_graph
+from rivlet.runtime import (
     GraphExecutionControl,
     ParallelGraphExecutor,
     SerialGraphExecutor,
@@ -19,7 +19,7 @@ from rivetoo_graph.runtime import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from rivetoo_graph.compile import GraphCompilation
+    from rivlet.compile import GraphCompilation
 
 
 def _noop() -> None:

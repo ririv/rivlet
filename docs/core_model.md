@@ -17,7 +17,7 @@ are assigned when nodes are mounted.
 
 ## Pure topology
 
-`rivetoo_graph.topology` provides domain-independent Python types:
+`rivlet.topology` provides domain-independent Python types:
 
 - `Arc[NodeT]`: a directed connection from source to target.
 - `DirectedTopology[NodeT]`: nodes and arcs, with predecessor, successor, and
@@ -31,7 +31,7 @@ including cross-subgraph capability bindings. See [topology complexity](./topolo
 
 ## Graph
 
-Defined in [model.py](../src/rivetoo_graph/model.py), `Graph` contains:
+Defined in [model.py](../src/rivlet/model.py), `Graph` contains:
 
 - `label: str | None`
 - `steps: tuple[Step, ...]`
@@ -258,7 +258,7 @@ wiring boundaries. The condition itself carries no producer references.
 
 ## GraphExecution
 
-Defined in [execution.py](../src/rivetoo_graph/execution.py), GraphExecution binds a declaration to
+Defined in [execution.py](../src/rivlet/execution.py), GraphExecution binds a declaration to
 one execution:
 
 ```python
@@ -300,7 +300,7 @@ its own event loop.
 
 ## GraphCompilation
 
-The compiler in [compile.py](../src/rivetoo_graph/compile.py) evaluates static
+The compiler in [compile.py](../src/rivlet/compile.py) evaluates static
 conditions, assigns mounted identities and labels, and lowers runtime conditions
 and capability bindings.
 
@@ -402,7 +402,7 @@ does not create a default dictionary or resolve objects from a registry.
 from dataclasses import dataclass, field
 from threading import Lock
 
-from rivetoo_graph import GraphExecution, Step, StepRunContext, ThreadGraphRunOptions
+from rivlet import GraphExecution, Step, StepRunContext, ThreadGraphRunOptions
 
 
 @dataclass
@@ -448,7 +448,7 @@ explicit Steps.
 Subscribe separately to step transitions when needed:
 
 ```python
-from rivetoo_graph import GraphExecution, StepExecutionEvent
+from rivlet import GraphExecution, StepExecutionEvent
 
 
 class Events:

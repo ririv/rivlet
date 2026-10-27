@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 from _pytest.logging import LogCaptureFixture
 
-from rivetoo_graph import (
+from rivlet import (
     AsyncGraphRunOptions,
     ConditionalPrerequisite,
     Graph,
@@ -40,9 +40,9 @@ from rivetoo_graph import (
     render_live_graph_execution,
     runtime_condition,
 )
-from rivetoo_graph._native import NativeGraph, _native_process_graph
-from rivetoo_graph.compile import compile_graph
-from rivetoo_graph.runtime.compiled import CompiledExecutionHost
+from rivlet._native import NativeGraph, _native_process_graph
+from rivlet.compile import compile_graph
+from rivlet.runtime.compiled import CompiledExecutionHost
 
 
 @dataclass(frozen=True, slots=True)
@@ -1680,7 +1680,7 @@ def test_compiled_runtime_when_true_activates_composite() -> None:
 def test_graph_execution_run_logs_step_skip_by_condition(
     caplog: LogCaptureFixture,
 ) -> None:
-    caplog.set_level(logging.DEBUG, logger="rivetoo_graph.runtime.compiled")
+    caplog.set_level(logging.DEBUG, logger="rivlet.runtime.compiled")
     probe = Step(label="probe", action=LeafAction(fn=lambda _ctx: True))
     build = Step(
         label="build",

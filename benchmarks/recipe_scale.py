@@ -7,9 +7,9 @@ import statistics
 import time
 from typing import TYPE_CHECKING
 
-from rivetoo_graph import Graph, Step
-from rivetoo_graph.compile import compile_graph
-from rivetoo_graph.runtime import (
+from rivlet import Graph, Step
+from rivlet.compile import compile_graph
+from rivlet.runtime import (
     GraphExecutionControl,
     GraphExecutionState,
     ParallelGraphExecutor,
@@ -18,7 +18,7 @@ from rivetoo_graph.runtime import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from rivetoo_graph.compile import GraphCompilation
+    from rivlet.compile import GraphCompilation
 
 
 def _recipe_graph(recipe_index: int, *, steps: int) -> Graph:

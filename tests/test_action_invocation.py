@@ -7,7 +7,7 @@ from typing import Literal, Never
 
 import pytest
 
-from rivetoo_graph import (
+from rivlet import (
     Graph,
     GraphExecution,
     GraphExecutionControl,
@@ -17,7 +17,7 @@ from rivetoo_graph import (
     Step,
     StepId,
 )
-from rivetoo_graph.runtime import ParallelGraphExecutor
+from rivlet.runtime import ParallelGraphExecutor
 
 
 def _execute(graph: Graph, workers: int) -> GraphResultStore:

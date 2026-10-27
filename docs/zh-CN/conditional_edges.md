@@ -32,7 +32,7 @@ ConditionalPrerequisite 只接收 RuntimeCondition。两者求值时机不同：
 
 静态条件不读取 action 结果。平台、链接方式或配置选项等业务条件由宿主定义。
 
-[static_condition.py](../../src/rivetoo_graph/static_condition.py) 只要求不透明 payload
+[static_condition.py](../../src/rivlet/static_condition.py) 只要求不透明 payload
 和展示说明：
 
 ```python
@@ -114,7 +114,7 @@ checks 和 build 都仍然存在。组合多个 StaticConditions 时，每条规
 
 ## 运行时条件
 
-[model.py](../../src/rivetoo_graph/model.py) 中的 RuntimeCondition 包含：
+[model.py](../../src/rivlet/model.py) 中的 RuntimeCondition 包含：
 
 ```python
 class RuntimeCondition:

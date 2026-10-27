@@ -15,7 +15,7 @@ integration.
   Adapters connect complete graphs rather than exposing individual actions to Python.
 - `crates/topology` uses only the Rust standard library for integer nodes,
   adjacency indexes, and DAG algorithms. It knows nothing about actions or domains.
-- `crates/core` (package `rivetoo-graph`) depends on the workspace topology crate,
+- `crates/core` (package `rivlet`) depends on the workspace topology crate,
   not third-party libraries. It owns declaration compilation, capability resolution,
   the compiled execution graph, and scheduling.
 - `crates/python` is the private PyO3 adapter. It converts declarations into integer

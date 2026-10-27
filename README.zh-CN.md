@@ -1,8 +1,12 @@
-# rivetoo-graph
+# Rivlet
 
 [English](./README.md) | 简体中文
 
-`rivetoo-graph` 是一个显式、可组合的 Python DAG 声明与执行库。
+Rivlet 是一个显式、可组合的 Python DAG 声明与执行库。
+
+发行包和 Python 导入名统一为 `rivlet`：安装使用 `pip install rivlet`，代码使用
+`from rivlet import ...`，不保留 `rivetoo_graph` 兼容包。
+wheel 覆盖范围和发布流程见[发行说明](./docs/zh-CN/releasing.md)。
 
 它提供图、步骤、条件依赖、同步与异步执行、运行状态、结果读取和执行视图渲染。
 库本身不依赖宿主的日志、终端或请求状态；宿主能力通过独立端口显式接入。
@@ -19,7 +23,7 @@
 Python 导入入口为：
 
 ```python
-from rivetoo_graph import Graph, GraphExecution, Step
+from rivlet import Graph, GraphExecution, Step
 ```
 
 `main` 的声明编译、执行图校验和调度状态机由 Rust 实现；Python 保留声明 API、
@@ -39,7 +43,7 @@ maturin develop
 ## 简单示例
 
 ```python
-from rivetoo_graph import GraphExecution, Step, ThreadGraphRunOptions
+from rivlet import GraphExecution, Step, ThreadGraphRunOptions
 
 prepare = Step(lambda: print("prepare"), label="prepare")
 validate = Step(lambda: print("validate"), label="validate")

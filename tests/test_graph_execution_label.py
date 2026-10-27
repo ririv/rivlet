@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from rivetoo_graph import (
+from rivlet import (
     Graph,
     GraphExecution,
     GraphRenderOptions,

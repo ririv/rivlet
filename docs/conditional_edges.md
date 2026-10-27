@@ -39,7 +39,7 @@ boundary: a false internal edge does not make the whole composite finish early.
 A static condition is known at compilation time and does not read action results.
 Examples include a host-defined platform, linkage, or feature selection.
 
-[static_condition.py](../src/rivetoo_graph/static_condition.py) models a condition as
+[static_condition.py](../src/rivlet/static_condition.py) models a condition as
 an opaque payload and a display description:
 
 ```python
@@ -132,7 +132,7 @@ The DSL does not automatically merge repeated Step objects.
 ## Runtime conditions
 
 Runtime conditions are evaluated during execution, often from a cache probe or
-other Step result. In [model.py](../src/rivetoo_graph/model.py), they contain:
+other Step result. In [model.py](../src/rivlet/model.py), they contain:
 
 ```python
 class RuntimeCondition:

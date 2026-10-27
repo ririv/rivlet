@@ -4,7 +4,7 @@ use std::sync::Arc;
 use action::NativeActionHandle;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rivetoo_graph::{
+use rivlet::{
     CapabilityBinding, ConditionId, DeclarationNode, DeclarationPrerequisite, DeclaredGraph,
     DeclaredNodeKind, GraphDeclaration, GraphId, NodeActivation, NodeId, RuntimeCondition,
 };
@@ -23,8 +23,8 @@ struct PythonTypes<'py> {
 
 impl<'py> PythonTypes<'py> {
     fn import(py: Python<'py>) -> PyResult<Self> {
-        let model = py.import("rivetoo_graph.model")?;
-        let capability = py.import("rivetoo_graph.capability")?;
+        let model = py.import("rivlet.model")?;
+        let capability = py.import("rivlet.capability")?;
         Ok(Self {
             graph: model.getattr("Graph")?,
             conditional_edge: model.getattr("ConditionalEdge")?,
@@ -667,7 +667,7 @@ fn require_capability_port<'py>(
 }
 
 /// Native compilation plus opaque Python declaration metadata.
-#[pyclass(frozen, module = "rivetoo_graph._native")]
+#[pyclass(frozen, module = "rivlet._native")]
 pub(crate) struct NativeDeclarationCompilation {
     pub(crate) graph: NativeCompiledExecutionGraph,
     declaration_nodes: Vec<usize>,

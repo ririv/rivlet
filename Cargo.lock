@@ -23,7 +23,7 @@ name = "native-graph"
 version = "0.1.0"
 dependencies = [
  "action",
- "rivetoo-graph",
+ "rivlet",
 ]
 
 [[package]]
@@ -117,7 +117,7 @@ dependencies = [
  "action",
  "native-graph",
  "pyo3",
- "rivetoo-graph",
+ "rivlet",
  "tokio-runtime",
 ]
 
@@ -131,7 +131,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "rivetoo-graph"
+name = "rivlet"
 version = "0.1.0"
 dependencies = [
  "topology",
@@ -167,7 +167,7 @@ dependencies = [
 name = "tokio-runtime"
 version = "0.1.0"
 dependencies = [
- "rivetoo-graph",
+ "rivlet",
  "tokio",
 ]
 

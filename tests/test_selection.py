@@ -1,6 +1,6 @@
 import pytest
 
-from rivetoo_graph import (
+from rivlet import (
     MultipleStaticBranchesSelectedError,
     NoStaticBranchSelectedError,
     StaticBranch,

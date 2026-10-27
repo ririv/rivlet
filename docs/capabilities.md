@@ -26,7 +26,7 @@ A Graph may declare several input and output ports:
 Ports reference real Steps. They do not create empty actions or synthetic event nodes.
 
 ```python
-from rivetoo_graph import Capability, CapabilityInterface
+from rivlet import Capability, CapabilityInterface
 
 capability_123 = Capability("123")
 

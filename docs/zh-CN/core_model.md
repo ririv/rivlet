@@ -16,7 +16,7 @@ GraphExecutionState
 
 ## 纯拓扑层
 
-`rivetoo_graph.topology` 提供不携带执行或领域行为的基础图结构：
+`rivlet.topology` 提供不携带执行或领域行为的基础图结构：
 
 - `Arc[NodeT]`
   - 一条从 `source` 指向 `target` 的有向边
@@ -38,7 +38,7 @@ GraphExecutionState
 
 位置：
 
-- [src/rivetoo_graph/model.py](../../src/rivetoo_graph/model.py)
+- [src/rivlet/model.py](../../src/rivlet/model.py)
 
 `Graph` 是声明态执行 DAG，包含：
 
@@ -320,7 +320,7 @@ cache_miss = runtime_condition(
 
 位置：
 
-- [src/rivetoo_graph/execution.py](../../src/rivetoo_graph/execution.py)
+- [src/rivlet/execution.py](../../src/rivlet/execution.py)
 
 `GraphExecution` 把声明图绑定到一次执行：
 
@@ -376,7 +376,7 @@ state = await GraphExecution(graph=graph).arun(
 
 位置：
 
-- [src/rivetoo_graph/compile.py](../../src/rivetoo_graph/compile.py)
+- [src/rivlet/compile.py](../../src/rivlet/compile.py)
 
 Rust 编译路径会把声明期已知子图转换为统一执行结构：
 
@@ -478,7 +478,7 @@ O(V + K)；没有绑定时不遍历图。
 from dataclasses import dataclass, field
 from threading import Lock
 
-from rivetoo_graph import GraphExecution, Step, StepRunContext, ThreadGraphRunOptions
+from rivlet import GraphExecution, Step, StepRunContext, ThreadGraphRunOptions
 
 
 @dataclass
@@ -524,7 +524,7 @@ trace、timing 和展示，不修改执行结果，也不替代显式 Step。
 需要跟踪步骤状态时，显式订阅独立的执行事件：
 
 ```python
-from rivetoo_graph import GraphExecution, StepExecutionEvent
+from rivlet import GraphExecution, StepExecutionEvent
 
 
 class Events:

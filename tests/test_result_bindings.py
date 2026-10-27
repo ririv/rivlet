@@ -5,7 +5,7 @@ from typing import Literal
 
 import pytest
 
-from rivetoo_graph import (
+from rivlet import (
     AsyncGraphRunOptions,
     ConditionalPrerequisite,
     Graph,

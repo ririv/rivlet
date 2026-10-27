@@ -9,7 +9,7 @@ import threading
 import time
 from dataclasses import dataclass, field
 
-from rivetoo_graph import (
+from rivlet import (
     AsyncGraphRunOptions,
     Graph,
     GraphExecution,

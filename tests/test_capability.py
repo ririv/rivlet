@@ -4,7 +4,7 @@ from threading import Event
 
 import pytest
 
-from rivetoo_graph import (
+from rivlet import (
     AnyProviderRequirement,
     Capability,
     CapabilityInterface,

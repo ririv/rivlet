@@ -2,7 +2,7 @@
 
 [English](../rust-architecture.md) | 简体中文
 
-`rivetoo-graph` 保留 Python 声明 API，正式执行使用 Rust 声明编译器和调度状态机。
+`rivlet` 保留 Python 声明 API，正式执行使用 Rust 声明编译器和调度状态机。
 Rust 持有完整的编译图、调度索引和单次执行状态；Python 保留任意 callable、
 结果对象与宿主集成。
 
@@ -21,7 +21,7 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 只依赖 Rust 标准库，持有整数节点、邻接索引和 DAG 算法
   - 不认识 action、条件或宿主领域
 - `crates/core`
-  - package 名为 `rivetoo-graph`
+  - package 名为 `rivlet`
   - 依赖 workspace 内的 topology，不依赖第三方库
   - 持有声明编译、编译执行图、能力解析和调度状态机
 - `crates/python`

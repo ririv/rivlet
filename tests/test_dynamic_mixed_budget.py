@@ -7,7 +7,7 @@ import sys
 
 import pytest
 
-from rivetoo_graph import (
+from rivlet import (
     AsyncGraphRunOptions,
     Capability,
     CapabilityInterface,
@@ -24,7 +24,7 @@ from rivetoo_graph import (
     ThreadGraphRunOptions,
     resolve_capability_requirements,
 )
-from rivetoo_graph._native import _native_process_graph
+from rivlet._native import _native_process_graph
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])

@@ -7,7 +7,7 @@ mod native_graph;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rivetoo_graph::{
+use rivlet::{
     Arc as TopologyArc, CapabilityBinding, CapabilityId, CapabilityRequirement,
     CompiledExecutionGraph as CoreCompiledExecutionGraph, ComponentId, ConditionId,
     ConditionResolution, DagTopology, DeclaredGraph, DeclaredNode, DirectedTopology,
@@ -20,12 +20,12 @@ use std::sync::Arc;
 
 /// Rust-owned structural execution graph.
 #[derive(Clone)]
-#[pyclass(frozen, module = "rivetoo_graph._native", skip_from_py_object)]
+#[pyclass(frozen, module = "rivlet._native", skip_from_py_object)]
 struct NativeCompiledExecutionGraph {
     pub(crate) graph: Arc<CoreCompiledExecutionGraph>,
 }
 
-#[pyclass(frozen, module = "rivetoo_graph._native")]
+#[pyclass(frozen, module = "rivlet._native")]
 pub(crate) struct NativeExecutionBatch {
     pub(crate) actions: Vec<usize>,
     pub(crate) conditions: Vec<(usize, usize)>,
@@ -68,7 +68,7 @@ impl NativeExecutionBatch {
     }
 }
 
-#[pyclass(module = "rivetoo_graph._native")]
+#[pyclass(module = "rivlet._native")]
 struct NativeExecutionSession {
     session: ExecutionSession,
 }

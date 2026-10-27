@@ -1,8 +1,8 @@
-# rivetoo-graph
+# Rivlet
 
 English | [简体中文](./README.zh-CN.md)
 
-`rivetoo-graph` is an explicit, composable DAG declaration and execution library
+Rivlet is an explicit, composable DAG declaration and execution library
 with a Python API and a Rust execution core.
 
 It provides steps, subgraphs, conditional dependencies, thread-based and async
@@ -31,6 +31,10 @@ See [Rust architecture](./docs/rust-architecture.md) for implementation boundari
 
 ## Local development
 
+Install the published package with `pip install rivlet`. The Python import name
+is also `rivlet`; there is no `rivetoo_graph` compatibility package.
+See [release policy](./docs/releasing.md) for wheel coverage and publishing.
+
 You need Python 3.13 or later, a Rust toolchain, and maturin. With a virtual
 environment activated, install the native extension into that environment:
 
@@ -43,7 +47,7 @@ The native extension is required. There is no pure-Python execution fallback.
 ## Quick example
 
 ```python
-from rivetoo_graph import GraphExecution, Step, ThreadGraphRunOptions
+from rivlet import GraphExecution, Step, ThreadGraphRunOptions
 
 prepare = Step(lambda: print("prepare"), label="prepare")
 validate = Step(lambda: print("validate"), label="validate")

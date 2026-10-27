@@ -2,7 +2,7 @@
 
 [English](../native-graphs.md) | 简体中文
 
-`rivetoo-graph` 允许一张 Python 声明图挂载完整的 Rust 原生子图。两者最终进入同一份
+`rivlet` 允许一张 Python 声明图挂载完整的 Rust 原生子图。两者最终进入同一份
 Rust `CompiledExecutionGraph`，共享依赖、层级、失败传播和并发预算，但不会把原生子图
 拆成一组 Python action：
 

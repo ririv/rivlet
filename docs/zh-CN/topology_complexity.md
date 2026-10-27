@@ -10,7 +10,7 @@ Python 哈希表操作按平均 O(1) 计，宿主自定义节点的 hash / equal
 
 | 入口 | 实现 | 用途 |
 | --- | --- | --- |
-| `rivetoo_graph.topology` | Python，DAG 校验使用 `graphlib` | 可哈希领域节点的通用有向图 |
+| `rivlet.topology` | Python，DAG 校验使用 `graphlib` | 可哈希领域节点的通用有向图 |
 | `crates/topology` | Rust，整数节点与邻接索引 | 执行图声明校验和编译后 DAG 校验 |
 
 Python 的 `DirectedTopology` 并不是 Rust topology 的逐方法 FFI 包装。
@@ -45,7 +45,7 @@ Python 的 `DirectedTopology` 并不是 Rust topology 的逐方法 FFI 包装。
 条件边在声明时保守参与无环校验，即使其静态条件在随后编译时为假。
 `inputs` 的遍历来自显式数据依赖，不是拓扑排序额外制造的业务关系。
 
-当前 [model.py](../../src/rivetoo_graph/model.py) 的实际链路是：
+当前 [model.py](../../src/rivlet/model.py) 的实际链路是：
 
 ```text
 验证 Step 并分配本层整数索引

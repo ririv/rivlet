@@ -26,7 +26,7 @@ B requires 123
 它们引用真实 Step，不会生成空 action、事件 Step 或其它假节点。
 
 ```python
-from rivetoo_graph import Capability, CapabilityInterface
+from rivlet import Capability, CapabilityInterface
 
 capability_123 = Capability("123")
 

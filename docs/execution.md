@@ -49,7 +49,7 @@ In both modes:
 
 ## Rendering
 
-See [render/](../src/rivetoo_graph/render/).
+See [render/](../src/rivlet/render/).
 
 `render_graph(...)` and `render_graph_mermaid(...)` accept Graph or
 GraphCompilation and require an explicit `root_label`. They do not infer the
@@ -65,7 +65,7 @@ Execution views use recorded condition results; they do not rerun predicates.
 
 ## Run options
 
-[Run options](../src/rivetoo_graph/runtime/run.py) form a union:
+[Run options](../src/rivlet/runtime/run.py) form a union:
 
 - `ThreadGraphRunOptions(workers=..., observer=...)`
 - `AsyncGraphRunOptions(concurrency=..., observer=...)`

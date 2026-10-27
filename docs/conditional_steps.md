@@ -10,7 +10,7 @@ composites, and NativeGraph composites.
 
 ## Declaration
 
-Defined in [model.py](../src/rivetoo_graph/model.py):
+Defined in [model.py](../src/rivlet/model.py):
 
 ```python
 Step(action=..., label=..., condition=...)
@@ -119,7 +119,7 @@ requested in a batch and returns results through advance.
 - A skipped node no longer blocks downstream work by waiting on unused prerequisites.
 - A composite remains a real subgraph boundary, not a no-op leaf.
 
-In [compile.py](../src/rivetoo_graph/compile.py), conditional edges lower to
+In [compile.py](../src/rivlet/compile.py), conditional edges lower to
 CompiledConditionalDependency, while runtime Step.condition lowers to
 CompiledRuntimeCondition on the node itself. Step conditions are not rewritten
 as conditional edges.
