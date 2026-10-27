@@ -1,6 +1,6 @@
 # Rivlet
 
-English | [简体中文](./README.zh-CN.md)
+English | [简体中文](https://github.com/ririv/rivlet/blob/main/README.zh-CN.md)
 
 Rivlet is an explicit, composable DAG declaration and execution library
 with a Python API and a Rust execution core.
@@ -27,13 +27,13 @@ and the scheduling state machine. Python retains graph declarations, arbitrary
 callables, result objects, and host integration. Complete Rust-native subgraphs
 can join the same execution graph and concurrency budget.
 
-See [Rust architecture](./docs/rust-architecture.md) for implementation boundaries.
+See [Rust architecture](https://github.com/ririv/rivlet/blob/main/docs/rust-architecture.md) for implementation boundaries.
 
 ## Local development
 
 Install the published package with `pip install rivlet`. The Python import name
 is also `rivlet`; there is no `rivetoo_graph` compatibility package.
-See [release policy](./docs/releasing.md) for wheel coverage and publishing.
+See [release policy](https://github.com/ririv/rivlet/blob/main/docs/releasing.md) for wheel coverage and publishing.
 
 You need Python 3.13 or later, a Rust toolchain, and maturin. With a virtual
 environment activated, install the native extension into that environment:
@@ -66,8 +66,8 @@ After `prepare`, the `checks` subgraph can run `validate` and `test` concurrentl
 actual concurrency. An ordinary action failure blocks dependent work while
 unrelated branches continue; the run ultimately reports the failures.
 
-See the [documentation](./docs/index.md) for the model, composition API, and execution rules.
+See the [documentation](https://github.com/ririv/rivlet/blob/main/docs/index.md) for the model, composition API, and execution rules.
 
 ## License
 
-This project is licensed under the [MIT License](./LICENSE).
+This project is licensed under the [MIT License](https://github.com/ririv/rivlet/blob/main/LICENSE).
