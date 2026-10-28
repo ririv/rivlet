@@ -81,6 +81,9 @@ interfaces. There are no implicit branches for a particular host application.
 
 ## Languages
 
+Step failure provenance and event delivery rules are documented in
+[failure events](./failure_events.md).
+
 For distribution coverage and the PyPI workflow, see [releasing](./releasing.md).
 
 English is the default. Chinese pages live in [zh-CN/](./zh-CN/index.md), with the

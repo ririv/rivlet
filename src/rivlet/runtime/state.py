@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from pathlib import Path
 
-    from ..events import StepEventSink
+    from ..events import StepBlockCause, StepEventSink, StepFailureCause, StepTransition
     from ..model import StepId, StepLabelPath
     from ..results import GraphResultStore, GraphResultView
 
@@ -99,7 +99,7 @@ class GraphExecutionState:
             if self._results is None:
                 self._results = GraphResultStore()
 
-    def _emit(self, step_id: StepId, phase: StepExecutionPhase) -> None:
+    def _emit(self, step_id: StepId, transition: StepTransition) -> None:
         if self._events is None:
             return
         # 未订阅时只执行上面的 O(1) 分支，不构造事件或读取标签映射。
@@ -107,7 +107,7 @@ class GraphExecutionState:
             with self._lock:
                 path = self._events.paths[step_id]
             try:
-                self._events.sink.emit(StepExecutionEvent(step_id, path, phase))
+                self._events.sink.emit(StepExecutionEvent(step_id, path, transition))
             except Exception as error:
                 raise GraphEventDeliveryError("step event delivery failed") from error
 
@@ -303,15 +303,15 @@ class GraphExecutionState:
         if step_id in self._node_failures:
             raise RuntimeError(f"node already failed or blocked: {step_id}")
 
-    def record_failed_step(self, step_id: StepId) -> None:
+    def record_failed_step(self, step_id: StepId, cause: StepFailureCause) -> None:
         self._record_node_failure(step_id, GraphNodeFailure.FAILED)
         if self._events is not None:
-            self._emit(step_id, StepExecutionPhase.FAILED)
+            self._emit(step_id, cause)
 
-    def record_blocked_step(self, step_id: StepId) -> None:
+    def record_blocked_step(self, step_id: StepId, cause: StepBlockCause) -> None:
         self._record_node_failure(step_id, GraphNodeFailure.BLOCKED)
         if self._events is not None:
-            self._emit(step_id, StepExecutionPhase.BLOCKED)
+            self._emit(step_id, cause)
 
     def _record_node_failure(self, step_id: StepId, failure: GraphNodeFailure) -> None:
         with self._lock:

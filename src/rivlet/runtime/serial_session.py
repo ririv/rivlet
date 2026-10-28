@@ -76,7 +76,9 @@ def run_serial_definition(root: SessionDefinition) -> None:
                         try:
                             host.raise_failures()
                         except Exception as error:
-                            parent.definition.host.record_failure(node, error)
+                            parent.definition.host.record_subgraph_failure(
+                                node, host, error
+                            )
                             success = False
                         else:
                             complete()

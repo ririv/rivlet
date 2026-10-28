@@ -3,6 +3,7 @@
 pub mod capability;
 pub mod declaration;
 pub mod execution;
+pub mod failure;
 pub mod lowering;
 pub mod session;
 
@@ -18,6 +19,7 @@ pub use execution::{
     CapabilityBinding, CompiledExecutionGraph, ConditionId, ExecutionGraphError, ExecutionNode,
     ExecutionNodeKind, Prerequisite, RuntimeCondition,
 };
+pub use failure::{BlockCause, ConditionSite, FailureCause};
 pub use lowering::{
     DeclaredGraph, DeclaredNode, DeclaredNodeKind, ExecutionGraphDeclaration, GraphId,
     LoweringError,

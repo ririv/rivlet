@@ -1,19 +1,21 @@
 //! Python adapter for the Rust graph core.
 
 mod declaration;
+mod events;
 mod experiment;
 mod mixed_execution;
 mod native_graph;
 
+use events::{EncodedEvent, encode_event};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::{
     Arc as TopologyArc, CapabilityBinding, CapabilityId, CapabilityRequirement,
     CompiledExecutionGraph as CoreCompiledExecutionGraph, ComponentId, ConditionId,
     ConditionResolution, DagTopology, DeclaredGraph, DeclaredNode, DirectedTopology,
-    ExecutionBatch, ExecutionEvent, ExecutionGraphDeclaration, ExecutionSession, ExecutionUpdate,
-    GraphId, NodeId, Prerequisite, ProviderSelection, RequirementId, RuntimeCondition,
-    SessionStatus, TopologyError, resolve_capabilities,
+    ExecutionBatch, ExecutionGraphDeclaration, ExecutionSession, ExecutionUpdate, GraphId, NodeId,
+    Prerequisite, ProviderSelection, RequirementId, RuntimeCondition, SessionStatus, TopologyError,
+    resolve_capabilities,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -29,7 +31,7 @@ struct NativeCompiledExecutionGraph {
 pub(crate) struct NativeExecutionBatch {
     pub(crate) actions: Vec<usize>,
     pub(crate) conditions: Vec<(usize, usize)>,
-    pub(crate) events: Vec<(u8, usize, Option<bool>)>,
+    pub(crate) events: Vec<EncodedEvent>,
     pub(crate) finished: bool,
 }
 
@@ -51,14 +53,7 @@ impl From<ExecutionBatch> for NativeExecutionBatch {
 #[pymethods]
 impl NativeExecutionBatch {
     #[allow(clippy::type_complexity)]
-    fn parts(
-        &self,
-    ) -> (
-        Vec<usize>,
-        Vec<(usize, usize)>,
-        Vec<(u8, usize, Option<bool>)>,
-        bool,
-    ) {
+    fn parts(&self) -> (Vec<usize>, Vec<(usize, usize)>, Vec<EncodedEvent>, bool) {
         (
             self.actions.clone(),
             self.conditions.clone(),
@@ -110,18 +105,6 @@ impl NativeExecutionSession {
             )
             .map(NativeExecutionBatch::from)
             .map_err(|error| PyValueError::new_err(error.to_string()))
-    }
-}
-
-pub(crate) fn encode_event(event: &ExecutionEvent) -> (u8, usize, Option<bool>) {
-    match *event {
-        ExecutionEvent::ConditionEvaluated { node, value } => (0, node.index(), Some(value)),
-        ExecutionEvent::ConditionSkipped(node) => (1, node.index(), None),
-        ExecutionEvent::CompositeEntered(node) => (2, node.index(), None),
-        ExecutionEvent::CompositeCompleted(node) => (3, node.index(), None),
-        ExecutionEvent::NodeSkipped(node) => (4, node.index(), None),
-        ExecutionEvent::NodeFailed(node) => (7, node.index(), None),
-        ExecutionEvent::NodeBlocked(node) => (8, node.index(), None),
     }
 }
 

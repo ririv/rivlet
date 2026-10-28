@@ -29,10 +29,22 @@ if TYPE_CHECKING:
     )
     from .errors import GraphError
     from .events import (
+        ActionFailed,
+        BlockedByCondition,
+        BlockedByConditionInput,
+        BlockedByDependency,
+        BlockedByParent,
+        ConditionSite,
+        EdgeConditionSite,
         GraphEventDeliveryError,
+        NodeConditionSite,
+        StepBlockCause,
         StepEventSink,
         StepExecutionEvent,
         StepExecutionPhase,
+        StepFailureCause,
+        StepTransition,
+        SubgraphFailed,
     )
     from .execution import GraphExecution
     from .execution_output import (
@@ -122,6 +134,18 @@ _EXPORT_GROUPS = (
     (
         ".events",
         (
+            "ActionFailed",
+            "BlockedByCondition",
+            "BlockedByConditionInput",
+            "BlockedByDependency",
+            "BlockedByParent",
+            "ConditionSite",
+            "EdgeConditionSite",
+            "NodeConditionSite",
+            "SubgraphFailed",
+            "StepFailureCause",
+            "StepBlockCause",
+            "StepTransition",
             "GraphEventDeliveryError",
             "StepEventSink",
             "StepExecutionEvent",
@@ -266,6 +290,18 @@ _EXPORT_GROUPS = (
 __all__ = [
     "GraphEventDeliveryError",
     "StepEventSink",
+    "ActionFailed",
+    "BlockedByCondition",
+    "BlockedByConditionInput",
+    "BlockedByDependency",
+    "BlockedByParent",
+    "ConditionSite",
+    "EdgeConditionSite",
+    "NodeConditionSite",
+    "SubgraphFailed",
+    "StepFailureCause",
+    "StepBlockCause",
+    "StepTransition",
     "StepExecutionEvent",
     "StepExecutionPhase",
     "CapabilitiesInput",

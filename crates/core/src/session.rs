@@ -4,6 +4,7 @@ use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
 use crate::execution::{CompiledExecutionGraph, ConditionId, ExecutionNodeKind, Prerequisite};
+use crate::failure::{BlockCause, ConditionSite, FailureCause};
 use topology::NodeId;
 
 /// Runtime state of one compiled execution node.
@@ -84,8 +85,8 @@ pub enum ExecutionEvent {
     CompositeEntered(NodeId),
     CompositeCompleted(NodeId),
     NodeSkipped(NodeId),
-    NodeFailed(NodeId),
-    NodeBlocked(NodeId),
+    NodeFailed { node: NodeId, cause: FailureCause },
+    NodeBlocked { node: NodeId, cause: BlockCause },
 }
 
 /// Whether a returned batch leaves more work or completes the session.
@@ -337,7 +338,10 @@ impl ExecutionSession {
             self.states[node.index()] = if outcome.is_ok() {
                 NodeState::Finished
             } else {
-                self.pending_events.push(ExecutionEvent::NodeFailed(node));
+                self.pending_events.push(ExecutionEvent::NodeFailed {
+                    node,
+                    cause: FailureCause::Action,
+                });
                 NodeState::Failed
             };
             self.notify_terminal(node);
@@ -438,12 +442,16 @@ impl ExecutionSession {
         if let Some(condition) = node.condition()
             && !explicitly_skipped
         {
-            let Some(outcome) = self.condition_value(node_id, condition) else {
+            let Some(outcome) = self.condition_value(node_id, ConditionSite::Node(condition))
+            else {
                 return;
             };
-            let Ok(value) = outcome else {
-                self.block_node(node_id);
-                return;
+            let value = match outcome {
+                Ok(value) => value,
+                Err(cause) => {
+                    self.block_node(node_id, cause);
+                    return;
+                }
             };
             self.pending_events
                 .push(ExecutionEvent::ConditionEvaluated {
@@ -459,8 +467,8 @@ impl ExecutionSession {
             match self.prerequisite_satisfied(node_id, *prerequisite) {
                 Ok(true) => {}
                 Ok(false) => return,
-                Err(()) => {
-                    self.block_node(node_id);
+                Err(cause) => {
+                    self.block_node(node_id, cause);
                     return;
                 }
             }
@@ -482,23 +490,29 @@ impl ExecutionSession {
         &mut self,
         target: NodeId,
         prerequisite: Prerequisite,
-    ) -> Result<bool, ()> {
+    ) -> Result<bool, BlockCause> {
         match prerequisite {
             Prerequisite::Required(node) => self.prerequisite_ready(node),
             Prerequisite::Conditional { node, condition } => {
-                match self.condition_value(target, condition) {
+                match self.condition_value(
+                    target,
+                    ConditionSite::Edge {
+                        condition,
+                        prerequisite: node,
+                    },
+                ) {
                     Some(Ok(true)) => self.prerequisite_ready(node),
                     Some(Ok(false)) => Ok(true),
-                    Some(Err(())) => Err(()),
+                    Some(Err(cause)) => Err(cause),
                     None => Ok(false),
                 }
             }
         }
     }
 
-    fn prerequisite_ready(&self, node: NodeId) -> Result<bool, ()> {
+    fn prerequisite_ready(&self, node: NodeId) -> Result<bool, BlockCause> {
         if self.states[node.index()].is_failure() {
-            Err(())
+            Err(BlockCause::Prerequisite(node))
         } else {
             Ok(self.is_terminal(node))
         }
@@ -507,21 +521,25 @@ impl ExecutionSession {
     fn condition_value(
         &mut self,
         node: NodeId,
-        condition: ConditionId,
-    ) -> Option<Result<bool, ()>> {
+        site: ConditionSite,
+    ) -> Option<Result<bool, BlockCause>> {
+        let condition = site.condition();
         let spec = &self.graph.conditions()[condition.index()];
-        if spec
+        if let Some(input) = spec
             .reads()
             .iter()
-            .any(|read| self.states[read.index()].is_failure())
+            .find(|read| self.states[read.index()].is_failure())
         {
-            return Some(Err(()));
+            return Some(Err(BlockCause::ConditionInput {
+                condition: site,
+                input: *input,
+            }));
         }
         if spec.reads().iter().any(|read| !self.is_terminal(*read)) {
             return None;
         }
         if let Some(value) = self.condition_values[condition.index()] {
-            return Some(value);
+            return Some(value.map_err(|()| BlockCause::Condition(site)));
         }
         if !self.condition_requested[condition.index()] {
             self.condition_requested[condition.index()] = true;
@@ -554,10 +572,13 @@ impl ExecutionSession {
             .children(composite)
             .unwrap()
             .iter()
-            .any(|child| self.states[child.index()].is_failure());
-        if failed {
-            self.pending_events
-                .push(ExecutionEvent::NodeFailed(composite));
+            .find(|child| self.states[child.index()].is_failure())
+            .copied();
+        if let Some(child) = failed {
+            self.pending_events.push(ExecutionEvent::NodeFailed {
+                node: composite,
+                cause: FailureCause::Child(child),
+            });
             self.states[composite.index()] = NodeState::Failed;
         } else {
             self.pending_events
@@ -567,15 +588,24 @@ impl ExecutionSession {
         self.notify_terminal(composite);
     }
 
-    fn block_node(&mut self, node: NodeId) {
+    fn block_node(&mut self, node: NodeId, cause: BlockCause) {
         // 尚未激活的子图整体不可进入；每个后代只访问一次，不逐节点回溯祖先。
         // 阻断本身为 O(V_blocked + E_out)，额外栈空间 O(V_blocked)。
-        let mut pending = vec![node];
-        while let Some(blocked) = pending.pop() {
-            pending.extend_from_slice(self.graph.children(blocked).unwrap());
+        // 只携带本次转换实际观察到的一个直接原因，O(1)；不复制传递失败链。
+        let mut pending = vec![(node, cause)];
+        while let Some((blocked, cause)) = pending.pop() {
+            pending.extend(
+                self.graph
+                    .children(blocked)
+                    .unwrap()
+                    .iter()
+                    .map(|child| (*child, BlockCause::Parent(blocked))),
+            );
             self.states[blocked.index()] = NodeState::Blocked;
-            self.pending_events
-                .push(ExecutionEvent::NodeBlocked(blocked));
+            self.pending_events.push(ExecutionEvent::NodeBlocked {
+                node: blocked,
+                cause,
+            });
             for dependent in self.graph.dependents(blocked).unwrap().to_vec() {
                 self.queue_evaluation(dependent);
             }
@@ -655,10 +685,14 @@ impl ExecutionSession {
 mod tests {
     use std::sync::Arc;
 
-    use super::{ConditionResolution, ExecutionSession, ExecutionUpdate, NodeState, SessionStatus};
+    use super::{
+        ConditionResolution, ExecutionEvent, ExecutionSession, ExecutionUpdate, NodeState,
+        SessionStatus,
+    };
     use crate::execution::{
         CompiledExecutionGraph, ConditionId, ExecutionNode, Prerequisite, RuntimeCondition,
     };
+    use crate::failure::{BlockCause, ConditionSite, FailureCause};
     use topology::NodeId;
 
     fn node(index: usize) -> NodeId {
@@ -697,6 +731,10 @@ mod tests {
         assert_eq!(session.state(node(0)), Some(NodeState::Blocked));
         assert_eq!(session.state(node(1)), Some(NodeState::Blocked));
         assert_eq!(session.state(node(2)), Some(NodeState::Finished));
+        assert!(last.events().contains(&ExecutionEvent::NodeBlocked {
+            node: node(0),
+            cause: BlockCause::Condition(ConditionSite::Node(condition)),
+        }));
     }
 
     #[test]
@@ -726,6 +764,24 @@ mod tests {
         assert!(last.actions().is_empty());
         assert_eq!(session.state(node(0)), Some(NodeState::Failed));
         assert_eq!(session.state(node(count - 1)), Some(NodeState::Blocked));
+        assert_eq!(last.events().len(), count);
+        assert_eq!(
+            last.events()[0],
+            ExecutionEvent::NodeFailed {
+                node: node(0),
+                cause: FailureCause::Action
+            }
+        );
+        // 每个节点仅保存直接前置：总记录 O(V)，不会为每个节点复制整条失败链。
+        for (index, event) in last.events().iter().enumerate().skip(1) {
+            assert_eq!(
+                *event,
+                ExecutionEvent::NodeBlocked {
+                    node: node(index),
+                    cause: BlockCause::Prerequisite(node(index - 1))
+                }
+            );
+        }
     }
 
     #[test]

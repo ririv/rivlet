@@ -34,6 +34,7 @@ from rivlet import Graph, GraphExecution, Step
 - [核心模型](./core_model.md)
 - [拓扑复杂度与实现开销](./topology_complexity.md)
 - [执行语义](./execution.md)
+- [失败事件与直接原因](./failure_events.md)
 - [Python 图与 Rust 原生图](./native-graphs.md)
 - [条件边](./conditional_edges.md)
 - [条件 Step](./conditional_steps.md)

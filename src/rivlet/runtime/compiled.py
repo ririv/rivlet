@@ -10,6 +10,16 @@ from ..compile import (
     GraphCompilation,
 )
 from ..errors import GraphError
+from ..events import (
+    ActionFailed,
+    BlockedByCondition,
+    BlockedByConditionInput,
+    BlockedByDependency,
+    BlockedByParent,
+    EdgeConditionSite,
+    NodeConditionSite,
+    SubgraphFailed,
+)
 from ..model import Graph
 from ..observe import GraphObservationEvent, GraphObservationPhase
 from ..option import Nothing
@@ -18,10 +28,11 @@ from .control import GraphExecutionStopped
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+    from .._native import NativeExecutionEvent
     from ..model import StepId
     from ..observe import GraphObserver
     from .control import GraphExecutionControl
-    from .session_tree import LeafInvocation
+    from .session_tree import BatchExecutionHost, LeafInvocation
     from .state import GraphExecutionState
 
 logger = logging.getLogger(__name__)
@@ -59,6 +70,8 @@ class CompiledExecutionHost:
         }
         self._forwarded_skip_step_ids: set[StepId] = set()
         self._failures: list[Exception] = []
+        self._first_failure: StepId | None = None
+        self._dynamic_failure_sources: dict[int, StepId] | None = None
         self.state._register_event_paths(
             (node.id, node.context.label_path) for node in compilation._native_nodes
         )
@@ -100,45 +113,115 @@ class CompiledExecutionHost:
         logger.error("Graph node failed: %s: %s", path, error)
         self._failures.append(error)
 
+    def failure_step_id(self) -> StepId:
+        if self._first_failure is None:
+            raise GraphError("failed child session has no failed execution node")
+        return self._first_failure
+
+    def record_subgraph_failure(
+        self, node: int, child: BatchExecutionHost, error: Exception
+    ) -> None:
+        # 子 session 返回前已转发其实际失败事件；只保存直接来源，不扫描传递闭包。
+        if self._dynamic_failure_sources is None:
+            self._dynamic_failure_sources = {}
+        self._dynamic_failure_sources[node] = child.failure_step_id()
+        self.record_failure(node, error)
+
     def raise_failures(self) -> None:
         if len(self._failures) == 1:
             raise self._failures[0]
         if self._failures:
             raise ExceptionGroup("Graph execution failed", self._failures)
 
-    def apply_events(self, events: list[tuple[int, int, bool | None]]) -> None:
-        for kind, node, value in events:
-            match kind:
-                case 0:
-                    if value is None:
-                        raise GraphError("condition event is missing its value")
+    def apply_events(self, events: list[NativeExecutionEvent]) -> None:
+        for event in events:
+            match event:
+                case (0, node, value):
                     self.record_condition(node, value)
-                case 1:
+                case (1, node):
                     self.record_condition_skip(node)
-                case 2:
+                case (2, node):
                     self.enter_composite(node)
-                case 3:
+                case (3, node):
                     self.complete_composite(node)
-                case 4:
+                case (4, node):
                     step_id = self.compilation._native_node(node).id
                     self.state.record_skipped_step(step_id)
-                case 5:
+                case (5, node):
                     step = self._require_native_step(node)
                     self.state.record_step(step.id, step.context.label_path)
-                case 6:
+                case (6, node):
                     step = self._require_native_step(node)
                     self.state.record_result(step.id, None)
                     self.state.complete_step(step.id)
-                case 7:
-                    self.state.record_failed_step(
-                        self.compilation._native_node(node).id
+                case (7, node):
+                    step_id = self._failure_step(node)
+                    source = (
+                        None
+                        if self._dynamic_failure_sources is None
+                        else self._dynamic_failure_sources.pop(node, None)
                     )
-                case 8:
+                    self.state.record_failed_step(
+                        step_id,
+                        ActionFailed() if source is None else SubgraphFailed(source),
+                    )
+                case (8, node, source):
                     self.state.record_blocked_step(
-                        self.compilation._native_node(node).id
+                        self._failure_step(node),
+                        BlockedByDependency(self.compilation._native_node(source).id),
+                    )
+                case (9, node, condition):
+                    self.state.record_blocked_step(
+                        self._failure_step(node),
+                        BlockedByCondition(NodeConditionSite(condition)),
+                    )
+                case (10, node, condition, source):
+                    self.state.record_blocked_step(
+                        self._failure_step(node),
+                        BlockedByConditionInput(
+                            NodeConditionSite(condition),
+                            self.compilation._native_node(source).id,
+                        ),
+                    )
+                case (11, node, source):
+                    self.state.record_blocked_step(
+                        self._failure_step(node),
+                        BlockedByParent(self.compilation._native_node(source).id),
+                    )
+                case (12, node, source):
+                    self.state.record_failed_step(
+                        self._failure_step(node),
+                        SubgraphFailed(self.compilation._native_node(source).id),
+                    )
+                case (13, node, condition, prerequisite):
+                    self.state.record_blocked_step(
+                        self._failure_step(node),
+                        BlockedByCondition(
+                            EdgeConditionSite(
+                                condition,
+                                self.compilation._native_node(prerequisite).id,
+                            )
+                        ),
+                    )
+                case (14, node, condition, prerequisite, source):
+                    self.state.record_blocked_step(
+                        self._failure_step(node),
+                        BlockedByConditionInput(
+                            EdgeConditionSite(
+                                condition,
+                                self.compilation._native_node(prerequisite).id,
+                            ),
+                            self.compilation._native_node(source).id,
+                        ),
                     )
                 case _:
-                    raise GraphError(f"unknown native execution event: {kind}")
+                    raise GraphError(f"unknown native execution event: {event}")
+
+    def _failure_step(self, node: int) -> StepId:
+        step_id = self.compilation._native_node(node).id
+        if self._first_failure is None:
+            self._first_failure = step_id
+        return step_id
 
     def evaluate_condition(self, node: int, condition: int) -> bool:
         compiled_node = self.compilation._native_node(node)

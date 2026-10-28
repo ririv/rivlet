@@ -1,4 +1,12 @@
-from typing import Protocol
+from typing import Literal, Protocol
+
+type NativeExecutionEvent = (
+    tuple[Literal[0], int, bool]
+    | tuple[Literal[1, 2, 3, 4, 5, 6, 7], int]
+    | tuple[Literal[8, 9, 11, 12], int, int]
+    | tuple[Literal[10, 13], int, int, int]
+    | tuple[Literal[14], int, int, int, int]
+)
 
 class NativeGraph:
     @property
@@ -14,7 +22,7 @@ class ExperimentalCallbackHost(Protocol):
         requests: list[tuple[int, int]],
     ) -> list[tuple[int, bool | None]]: ...
     def raise_failures(self) -> None: ...
-    def apply_events(self, events: list[tuple[int, int, bool | None]]) -> None: ...
+    def apply_events(self, events: list[NativeExecutionEvent]) -> None: ...
     def run_leaf(self, node: int) -> object: ...
     def stop_requested(self) -> bool: ...
     def request_stop(self) -> None: ...
@@ -104,7 +112,7 @@ class NativeExecutionBatch:
     ) -> tuple[
         list[int],
         list[tuple[int, int]],
-        list[tuple[int, int, bool | None]],
+        list[NativeExecutionEvent],
         bool,
     ]: ...
 
@@ -124,7 +132,7 @@ class NativeMixedExecutionBatch:
     ) -> tuple[
         list[int],
         list[tuple[int, int]],
-        list[tuple[int, int, bool | None]],
+        list[NativeExecutionEvent],
         bool,
         int,
         list[tuple[int, str]],

@@ -8,11 +8,10 @@ use rivlet::{
     SessionStatus,
 };
 
-use crate::NativeExecutionBatch;
+use crate::{NativeExecutionBatch, events::EncodedEvent};
 
 const NATIVE_ACTION_STARTED: u8 = 5;
 const NATIVE_ACTION_COMPLETED: u8 = 6;
-type EncodedEvent = (u8, usize, Option<bool>);
 type ActionOutcome = (NodeId, Result<(), ()>);
 type NativeFailure = (usize, String);
 
@@ -67,7 +66,7 @@ pub(crate) struct NativeMixedExecutionSession {
 pub(crate) struct NativeMixedExecutionBatch {
     actions: Vec<usize>,
     conditions: Vec<(usize, usize)>,
-    events: Vec<(u8, usize, Option<bool>)>,
+    events: Vec<EncodedEvent>,
     finished: bool,
     native_running: usize,
     failures: Vec<NativeFailure>,
@@ -81,7 +80,7 @@ impl NativeMixedExecutionBatch {
     ) -> (
         Vec<usize>,
         Vec<(usize, usize)>,
-        Vec<(u8, usize, Option<bool>)>,
+        Vec<EncodedEvent>,
         bool,
         usize,
         Vec<NativeFailure>,
@@ -191,7 +190,7 @@ impl NativeMixedExecutionSession {
                         )
                         .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
                     state.native_running += 1;
-                    events.push((NATIVE_ACTION_STARTED, node.index(), None));
+                    events.push(EncodedEvent::Lifecycle(NATIVE_ACTION_STARTED, node.index()));
                 }
                 None => python_actions.push(node.index()),
             }
@@ -231,7 +230,7 @@ impl NativeMixedExecutionSession {
             match completion.into_result() {
                 Ok(()) => {
                     completed.push((NodeId::new(node), Ok(())));
-                    events.push((NATIVE_ACTION_COMPLETED, node, None));
+                    events.push(EncodedEvent::Lifecycle(NATIVE_ACTION_COMPLETED, node));
                 }
                 Err(error) => {
                     completed.push((NodeId::new(node), Err(())));

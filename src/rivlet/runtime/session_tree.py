@@ -10,8 +10,10 @@ if TYPE_CHECKING:
     from .._native import (
         NativeActionBindings,
         NativeCompiledExecutionGraph,
+        NativeExecutionEvent,
         NativeMixedExecutionSession,
     )
+    from ..model import StepId
 
 
 type LeafOutcome = DynamicSubgraph | None
@@ -25,8 +27,12 @@ class BatchExecutionHost(Protocol):
         self, requests: list[tuple[int, int]]
     ) -> list[tuple[int, bool | None]]: ...
     def record_failure(self, node: int, error: Exception) -> None: ...
+    def failure_step_id(self) -> StepId: ...
+    def record_subgraph_failure(
+        self, node: int, child: BatchExecutionHost, error: Exception
+    ) -> None: ...
     def raise_failures(self) -> None: ...
-    def apply_events(self, events: list[tuple[int, int, bool | None]]) -> None: ...
+    def apply_events(self, events: list[NativeExecutionEvent]) -> None: ...
     def run_leaf(self, node: int) -> LeafInvocation: ...
     def stop_requested(self) -> bool: ...
     def request_stop(self) -> None: ...
@@ -232,7 +238,9 @@ class SessionTree:
                 try:
                     run.definition.host.raise_failures()
                 except Exception as error:
-                    parent.definition.host.record_failure(node, error)
+                    parent.definition.host.record_subgraph_failure(
+                        node, run.definition.host, error
+                    )
                     parent.completed.append((node, False))
                 else:
                     complete()

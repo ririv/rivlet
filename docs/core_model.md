@@ -466,7 +466,12 @@ paths for static subgraphs, runtime-created subgraphs, Python, and native action
 Composite start/completion events consume no action slot and do not depend on the
 dynamic/compiled presentation mode. Blocked and skipped nodes need no start event.
 
-Callbacks execute synchronously and serially; keep them short, as their cost is
+`event.transition` carries typed direct failure/blockage causes; `.phase` is derived
+from that single fact. See [failure events](./failure_events.md) for subgraph,
+condition, capability, identity, and construction rules.
+
+Callbacks execute synchronously and serially, but are not bound to the coordinator
+thread; keep them short, as their cost is
 part of execution time. A callback failure raises `GraphEventDeliveryError` and
 stops execution, without relabeling a completed Step as failed. Without `events`,
 no events, label index, message text, or result copies are constructed. Events do
