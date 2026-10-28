@@ -14,6 +14,16 @@ macOS arm64（macOS 11 起）。同时提供源码包。其它平台需要兼容
 原生扩展是必需依赖，没有纯 Python 兜底实现。项目尚处于 1.0 之前；首次公开发布
 不等于承诺 API 已稳定。
 
+## 版本规则
+
+在 0.x 阶段，破坏公开 API 的变更提升次版本；兼容修复提升修订版本。已经发布的
+产物不能覆盖。
+
+0.2.0 新增强类型的直接失败与阻断来源。步骤事件消费方把 `event.phase` 改为
+`event.state`，`StepExecutionPhase` 改为 `StepExecutionState`。构造事件使用
+`state_detail=`，只读的 `state` 从中推导，不保留旧名称别名。完整模型与迁移边界见
+[失败事件](./failure_events.md)。这次发行没有增加检查点恢复、自动重试或事件序号。
+
 ## 验证与发布
 
 `.github/workflows/publish.yml` 提供两个明确入口：

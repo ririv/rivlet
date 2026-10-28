@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "action"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "heck"
@@ -20,7 +20,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "native-graph"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "action",
  "rivlet",
@@ -112,7 +112,7 @@ dependencies = [
 
 [[package]]
 name = "python"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "action",
  "native-graph",
@@ -132,7 +132,7 @@ dependencies = [
 
 [[package]]
 name = "rivlet"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "topology",
 ]
@@ -165,7 +165,7 @@ dependencies = [
 
 [[package]]
 name = "tokio-runtime"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "rivlet",
  "tokio",
@@ -173,7 +173,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "unicode-ident"

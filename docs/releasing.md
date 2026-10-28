@@ -16,6 +16,18 @@ a source build; they are not claimed as wheel-tested platforms.
 Rivlet requires the native extension. There is no Python-only fallback.
 The project is pre-1.0; a first public release does not guarantee API stability.
 
+## Versioning
+
+During 0.x development, breaking public API changes increment the minor version;
+compatible fixes increment the patch version. Published files are never replaced.
+
+Version 0.2.0 adds typed direct failure and blockage sources. Step event consumers
+must replace `event.phase` with `event.state` and `StepExecutionPhase` with
+`StepExecutionState`. Event construction uses `state_detail=`; its value also
+determines the read-only `state`. There are no old-name aliases. See
+[failure events](./failure_events.md) for the complete model and migration boundary.
+This release adds no checkpoint restoration, automatic retry, or event numbering.
+
 ## Validation and publication
 
 `.github/workflows/publish.yml` supports two explicit entry points:

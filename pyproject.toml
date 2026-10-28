@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rivlet"
-version = "0.1.0"
+version = "0.2.0"
 description = "Explicit, composable workflows with a Python API and a Rust execution core"
 readme = "README.md"
 license = "MIT"
