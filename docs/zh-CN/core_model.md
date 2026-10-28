@@ -529,19 +529,20 @@ from rivlet import GraphExecution, StepExecutionEvent
 
 class Events:
     def emit(self, event: StepExecutionEvent) -> None:
-        print(event.step_id, event.label_path, event.phase)
+        print(event.step_id, event.label_path, event.state)
 
 
 execution = GraphExecution(graph=graph, events=Events())
 execution.run()
 ```
 
-`StepExecutionPhase` 有 `STARTED`、`COMPLETED`、`FAILED`、`BLOCKED`、`SKIPPED`。
+`StepExecutionState` 有 `STARTED`、`COMPLETED`、`FAILED`、`BLOCKED`、`SKIPPED`。
 状态已提交后才通知；静态子图、动态子图、Python 和原生步骤都使用挂载后的身份与
 标签路径。组合边界的开始/完成事件不占动作名额，也不依赖 dynamic/compiled 展示模式。
 被阻塞或跳过的节点不会先收到开始事件。
 
-`event.transition` 保存和类型表达的直接失败／阻断原因，`.phase` 从这一份事实派生。
+`event.state_detail` 保存生命周期状态或和类型表达的直接失败／阻断原因，`.state`
+从这一份事实派生，表示这次事件的状态，不是实时状态快照。
 子图、条件、能力边、身份及构造规则见[失败事件](./failure_events.md)。
 
 事件回调同步、串行执行，但线程不固定，不保证在协调线程，应保持短小，耗时会计入

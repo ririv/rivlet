@@ -7,14 +7,16 @@ Python 动作、原生动作、能力边、静态子图和动作返回的动态�
 
 ## 事件模型
 
-`StepExecutionEvent` 包含 `step_id`、`label_path` 和 `transition`。现有 `.phase`
-仍可读取，但从 `transition` 派生，不与原因各保存一份可能矛盾的事实。
+`StepExecutionEvent` 包含 `step_id`、`label_path` 和 `state_detail`。只读属性
+`state` 从 `state_detail` 派生，不与原因各保存一份可能矛盾的事实。它表示这次事件
+记录的状态，不是步骤的实时状态快照。`StepExecutionStateDetail` 是生命周期状态
+与具体失败／阻断原因组成的和类型。
 
-| transition | phase | 含义 |
+| state_detail | state | 含义 |
 | --- | --- | --- |
-| `StepExecutionPhase.STARTED` | STARTED | 节点已开始 |
-| `StepExecutionPhase.COMPLETED` | COMPLETED | 节点已完成 |
-| `StepExecutionPhase.SKIPPED` | SKIPPED | 节点被跳过 |
+| `StepExecutionState.STARTED` | STARTED | 节点已开始 |
+| `StepExecutionState.COMPLETED` | COMPLETED | 节点已完成 |
+| `StepExecutionState.SKIPPED` | SKIPPED | 节点被跳过 |
 | `ActionFailed()` | FAILED | 当前节点的 Python 或原生动作失败 |
 | `SubgraphFailed(source)` | FAILED | 一个实际子节点失败或被阻断 |
 | `BlockedByDependency(source)` | BLOCKED | 实际需要的前置节点失败或被阻断 |
@@ -42,7 +44,7 @@ from rivlet import (
 
 class Events:
     def emit(self, event: StepExecutionEvent) -> None:
-        match event.transition:
+        match event.state_detail:
             case ActionFailed():
                 print(event.step_id, "action failed")
             case SubgraphFailed(source=source):
@@ -56,7 +58,7 @@ class Events:
             case BlockedByParent(source=source):
                 print(event.step_id, "parent blocked:", source)
             case _:
-                print(event.step_id, event.phase)
+                print(event.step_id, event.state)
 
 
 GraphExecution(graph, events=Events()).run()
@@ -94,7 +96,9 @@ GraphExecution(graph, events=Events()).run()
 
 ## 构造兼容性
 
-订阅方继续读取 `event.phase`，不需要修改。手工构造事件时，使用 `transition=`，
-替代 0.1.0 的 `phase=` 构造字段。FAILED、BLOCKED 只能通过相应的和类型表达，
-不另外提供可能与 phase 矛盾的可选原因。这影响事件构造和 dataclass 序列化，
+相对 0.1.0，订阅方改用 `event.state`，替代 `event.phase`；枚举改为
+`StepExecutionState`，替代 `StepExecutionPhase`。手工构造事件时，使用
+`state_detail=`，替代旧的 `phase=` 构造字段，不保留旧名称别名。
+FAILED、BLOCKED 只能通过相应的和类型表达，不另外提供可能与 state 矛盾的可选原因。
+这影响事件读取、构造和 dataclass 序列化，
 因此正式发布时按 0.x 的破坏性变更提升次版本，不能覆盖已发布的 0.1.0 文件。

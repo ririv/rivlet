@@ -8,7 +8,7 @@ if TYPE_CHECKING:
     from .model import StepId, StepLabelPath
 
 
-class StepExecutionPhase(StrEnum):
+class StepExecutionState(StrEnum):
     STARTED = "started"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -80,40 +80,41 @@ type StepFailureCause = ActionFailed | SubgraphFailed
 type StepBlockCause = (
     BlockedByDependency | BlockedByCondition | BlockedByConditionInput | BlockedByParent
 )
-type StepLifecyclePhase = Literal[
-    StepExecutionPhase.STARTED, StepExecutionPhase.COMPLETED, StepExecutionPhase.SKIPPED
+type StepLifecycleState = Literal[
+    StepExecutionState.STARTED, StepExecutionState.COMPLETED, StepExecutionState.SKIPPED
 ]
-type StepTransition = StepLifecyclePhase | StepFailureCause | StepBlockCause
+type StepExecutionStateDetail = StepLifecycleState | StepFailureCause | StepBlockCause
 
 
 @dataclass(frozen=True, slots=True)
 class StepExecutionEvent:
-    """One committed step transition, independent of presentation messages."""
+    """One committed step execution state with its typed details."""
 
     step_id: StepId
     label_path: StepLabelPath
-    transition: StepTransition
+    state_detail: StepExecutionStateDetail
 
     @property
-    def phase(self) -> StepExecutionPhase:
-        match self.transition:
+    def state(self) -> StepExecutionState:
+        """Derive this event's state, not a live snapshot of the step."""
+        match self.state_detail:
             case (
-                StepExecutionPhase.STARTED
-                | StepExecutionPhase.COMPLETED
-                | StepExecutionPhase.SKIPPED
+                StepExecutionState.STARTED
+                | StepExecutionState.COMPLETED
+                | StepExecutionState.SKIPPED
             ):
-                return self.transition
+                return self.state_detail
             case ActionFailed() | SubgraphFailed():
-                return StepExecutionPhase.FAILED
+                return StepExecutionState.FAILED
             case (
                 BlockedByDependency()
                 | BlockedByCondition()
                 | BlockedByConditionInput()
                 | BlockedByParent()
             ):
-                return StepExecutionPhase.BLOCKED
+                return StepExecutionState.BLOCKED
             case _:
-                assert_never(self.transition)
+                assert_never(self.state_detail)
 
 
 class StepEventSink(Protocol):

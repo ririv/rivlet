@@ -121,7 +121,8 @@ handlers are called before any handler failures are raised together.
 ## Step execution events
 
 Pass `events=StepEventSink` to GraphExecution to receive `StepExecutionEvent`
-values with a StepId, label path, and `StepExecutionPhase`:
+values with a StepId, label path, typed `state_detail`, and a derived
+`state: StepExecutionState`:
 `STARTED`, `COMPLETED`, `FAILED`, `BLOCKED`, or `SKIPPED`.
 Static and runtime-generated subgraphs and Rust-native actions use the same
 interface. Events describe committed transitions; composite events do not depend

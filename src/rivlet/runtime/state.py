@@ -6,13 +6,18 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from ..events import GraphEventDeliveryError, StepExecutionEvent, StepExecutionPhase
+from ..events import GraphEventDeliveryError, StepExecutionEvent, StepExecutionState
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from pathlib import Path
 
-    from ..events import StepBlockCause, StepEventSink, StepFailureCause, StepTransition
+    from ..events import (
+        StepBlockCause,
+        StepEventSink,
+        StepExecutionStateDetail,
+        StepFailureCause,
+    )
     from ..model import StepId, StepLabelPath
     from ..results import GraphResultStore, GraphResultView
 
@@ -99,7 +104,7 @@ class GraphExecutionState:
             if self._results is None:
                 self._results = GraphResultStore()
 
-    def _emit(self, step_id: StepId, transition: StepTransition) -> None:
+    def _emit(self, step_id: StepId, state_detail: StepExecutionStateDetail) -> None:
         if self._events is None:
             return
         # 未订阅时只执行上面的 O(1) 分支，不构造事件或读取标签映射。
@@ -107,7 +112,7 @@ class GraphExecutionState:
             with self._lock:
                 path = self._events.paths[step_id]
             try:
-                self._events.sink.emit(StepExecutionEvent(step_id, path, transition))
+                self._events.sink.emit(StepExecutionEvent(step_id, path, state_detail))
             except Exception as error:
                 raise GraphEventDeliveryError("step event delivery failed") from error
 
@@ -233,7 +238,7 @@ class GraphExecutionState:
                 raise RuntimeError(f"cannot skip an already executed step: {step_id}")
             self._skipped_steps.add(step_id)
         if self._events is not None:
-            self._emit(step_id, StepExecutionPhase.SKIPPED)
+            self._emit(step_id, StepExecutionState.SKIPPED)
 
     def record_step(self, step_id: StepId, label_path: StepLabelPath) -> None:
         """记录 step 已开始执行及其实际挂载路径。"""
@@ -252,7 +257,7 @@ class GraphExecutionState:
             self._step_label_paths[step_id] = label_path
             self._executed_steps.append(step_id)
         if self._events is not None:
-            self._emit(step_id, StepExecutionPhase.STARTED)
+            self._emit(step_id, StepExecutionState.STARTED)
 
     def complete_step(self, step_id: StepId) -> None:
         """记录 step 的 action 或完整子图已经成功完成。"""
@@ -267,7 +272,7 @@ class GraphExecutionState:
                 raise RuntimeError(f"step was completed more than once: {step_id}")
             self._completed_steps.add(step_id)
         if self._events is not None:
-            self._emit(step_id, StepExecutionPhase.COMPLETED)
+            self._emit(step_id, StepExecutionState.COMPLETED)
 
     def enter_composite(self, step_id: StepId) -> None:
         """记录非执行组合边界已经激活。"""
@@ -281,7 +286,7 @@ class GraphExecutionState:
             self._entered_composites.add(step_id)
             emit = self._events is not None and step_id not in self._step_label_paths
         if emit:
-            self._emit(step_id, StepExecutionPhase.STARTED)
+            self._emit(step_id, StepExecutionState.STARTED)
 
     def complete_composite(self, step_id: StepId) -> None:
         """记录组合边界成功完成；失败子图不会进入此状态。"""
@@ -297,7 +302,7 @@ class GraphExecutionState:
             self._completed_composites.add(step_id)
             emit = self._events is not None and step_id not in self._completed_steps
         if emit:
-            self._emit(step_id, StepExecutionPhase.COMPLETED)
+            self._emit(step_id, StepExecutionState.COMPLETED)
 
     def _require_not_failed(self, step_id: StepId) -> None:
         if step_id in self._node_failures:

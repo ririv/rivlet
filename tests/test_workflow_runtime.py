@@ -19,7 +19,7 @@ from rivlet import (
     SerialGraphExecutor,
     Step,
     StepExecutionEvent,
-    StepExecutionPhase,
+    StepExecutionState,
     StepId,
     StepRunContext,
     ThreadGraphRunOptions,
@@ -100,7 +100,7 @@ def test_events_report_committed_transitions_without_reclassifying_sink_failure(
     class Sink:
         def emit(self, event: StepExecutionEvent) -> None:
             events.append(event)
-            if event.phase is StepExecutionPhase.COMPLETED:
+            if event.state is StepExecutionState.COMPLETED:
                 assert event.step_id in execution.execution_state.completed_steps
                 raise ValueError("sink unavailable")
 
@@ -109,9 +109,9 @@ def test_events_report_committed_transitions_without_reclassifying_sink_failure(
     )
     with pytest.raises(GraphEventDeliveryError, match="step event delivery failed"):
         execution.run()
-    assert [event.phase for event in events] == [
-        StepExecutionPhase.STARTED,
-        StepExecutionPhase.COMPLETED,
+    assert [event.state for event in events] == [
+        StepExecutionState.STARTED,
+        StepExecutionState.COMPLETED,
     ]
     assert events[0].label_path == ("task",)
     assert execution.execution_state.node_failures == {}
@@ -146,12 +146,12 @@ def test_events_and_failure_propagation_cross_dynamic_boundaries(asynchronous) -
             else ThreadGraphRunOptions(workers=2)
         )
     assert calls == ["independent"]
-    terminal = {event.label_path: event.phase for event in events}
-    assert terminal[("parent", "failed")] is StepExecutionPhase.FAILED
-    assert terminal[("parent", "blocked")] is StepExecutionPhase.BLOCKED
-    assert terminal[("parent",)] is StepExecutionPhase.FAILED
-    assert terminal[("downstream",)] is StepExecutionPhase.BLOCKED
-    assert terminal[("independent",)] is StepExecutionPhase.COMPLETED
+    terminal = {event.label_path: event.state for event in events}
+    assert terminal[("parent", "failed")] is StepExecutionState.FAILED
+    assert terminal[("parent", "blocked")] is StepExecutionState.BLOCKED
+    assert terminal[("parent",)] is StepExecutionState.FAILED
+    assert terminal[("downstream",)] is StepExecutionState.BLOCKED
+    assert terminal[("independent",)] is StepExecutionState.COMPLETED
 
 
 def test_skip_event_has_a_label_without_running_the_action() -> None:
@@ -166,8 +166,8 @@ def test_skip_event_has_a_label_without_running_the_action() -> None:
         events=Sink(),
     )
     execution.run()
-    assert [(event.label_path, event.phase) for event in events] == [
-        (("skip",), StepExecutionPhase.SKIPPED),
+    assert [(event.label_path, event.state) for event in events] == [
+        (("skip",), StepExecutionState.SKIPPED),
     ]
 
 
@@ -257,11 +257,11 @@ def test_composite_events_are_independent_of_presentation_mode(mode) -> None:
     GraphExecution(Graph(steps=(Step(child, label="child"),)), events=Sink()).run(
         mode=mode
     )
-    assert [(event.label_path, event.phase) for event in events] == [
-        (("child",), StepExecutionPhase.STARTED),
-        (("child", "leaf"), StepExecutionPhase.STARTED),
-        (("child", "leaf"), StepExecutionPhase.COMPLETED),
-        (("child",), StepExecutionPhase.COMPLETED),
+    assert [(event.label_path, event.state) for event in events] == [
+        (("child",), StepExecutionState.STARTED),
+        (("child", "leaf"), StepExecutionState.STARTED),
+        (("child", "leaf"), StepExecutionState.COMPLETED),
+        (("child",), StepExecutionState.COMPLETED),
     ]
 
 

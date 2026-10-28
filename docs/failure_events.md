@@ -9,14 +9,17 @@ this model.
 
 ## Event model
 
-`StepExecutionEvent` contains `step_id`, `label_path`, and `transition`. Its existing
-`phase` attribute is derived from the transition, not a second independent fact.
+`StepExecutionEvent` contains `step_id`, `label_path`, and `state_detail`.
+The read-only `state` property is derived from `state_detail`, not stored as a
+second independent fact. It describes the state recorded by this event, not a
+live snapshot of the step. `StepExecutionStateDetail` is the union of lifecycle
+states and typed failure/blockage causes.
 
-| Transition | Phase | Meaning |
+| State detail | State | Meaning |
 | --- | --- | --- |
-| `StepExecutionPhase.STARTED` | STARTED | The node started |
-| `StepExecutionPhase.COMPLETED` | COMPLETED | The node completed |
-| `StepExecutionPhase.SKIPPED` | SKIPPED | The node was skipped |
+| `StepExecutionState.STARTED` | STARTED | The node started |
+| `StepExecutionState.COMPLETED` | COMPLETED | The node completed |
+| `StepExecutionState.SKIPPED` | SKIPPED | The node was skipped |
 | `ActionFailed()` | FAILED | The node's own Python or native action failed |
 | `SubgraphFailed(source)` | FAILED | An actual child failed or was blocked |
 | `BlockedByDependency(source)` | BLOCKED | A required predecessor failed or was blocked |
@@ -45,7 +48,7 @@ from rivlet import (
 
 class Events:
     def emit(self, event: StepExecutionEvent) -> None:
-        match event.transition:
+        match event.state_detail:
             case ActionFailed():
                 print(event.step_id, "action failed")
             case SubgraphFailed(source=source):
@@ -59,7 +62,7 @@ class Events:
             case BlockedByParent(source=source):
                 print(event.step_id, "parent blocked:", source)
             case _:
-                print(event.step_id, event.phase)
+                print(event.step_id, event.state)
 
 
 GraphExecution(graph, events=Events()).run()
@@ -103,9 +106,11 @@ unchanged. Hosts remain responsible for labels and the data they persist.
 
 ## Construction compatibility
 
-Subscribers reading `event.phase` remain source-compatible. Manual construction
-uses `transition=` instead of the `phase=` constructor field from 0.1.0. Failed
-and blocked phases require their typed transitions, not an optional cause that
-could contradict a phase. This changes construction and dataclass serialization,
+Compared with 0.1.0, subscribers use `event.state` instead of `event.phase`, and
+`StepExecutionState` replaces `StepExecutionPhase`. Manual construction uses
+`state_detail=` instead of the old `phase=` field. Failed and blocked states
+require their typed details, not an optional cause that could contradict a state.
+There are no aliases for the old names. This changes the reading API, construction,
+and dataclass serialization,
 so publication requires a minor-version release under the pre-1.0 version policy.
 It must not overwrite the published 0.1.0 files.

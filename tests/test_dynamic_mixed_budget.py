@@ -19,7 +19,7 @@ from rivlet import (
     Option,
     Step,
     StepExecutionEvent,
-    StepExecutionPhase,
+    StepExecutionState,
     StepRunContext,
     ThreadGraphRunOptions,
     resolve_capability_requirements,
@@ -81,10 +81,10 @@ change(-1)
     assert state["peak"] <= 2
     native_events = [event for event in events if event.label_path[-1] == "process"]
     assert (
-        sum(event.phase is StepExecutionPhase.STARTED for event in native_events) == 4
+        sum(event.state is StepExecutionState.STARTED for event in native_events) == 4
     )
     assert (
-        sum(event.phase is StepExecutionPhase.COMPLETED for event in native_events) == 4
+        sum(event.state is StepExecutionState.COMPLETED for event in native_events) == 4
     )
 
 

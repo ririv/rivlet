@@ -28,9 +28,9 @@ from rivlet import (
     SerialGraphExecutor,
     Step,
     StepExecutionEvent,
-    StepExecutionPhase,
+    StepExecutionState,
+    StepExecutionStateDetail,
     StepId,
-    StepTransition,
     SubgraphFailed,
     ThreadGraphRunOptions,
     resolve_capability_requirements,
@@ -46,11 +46,11 @@ class Events:
     def emit(self, event: StepExecutionEvent) -> None:
         self.items.append(event)
 
-    def failures(self) -> dict[StepId, StepTransition]:
+    def failures(self) -> dict[StepId, StepExecutionStateDetail]:
         return {
-            event.step_id: event.transition
+            event.step_id: event.state_detail
             for event in self.items
-            if event.phase in (StepExecutionPhase.FAILED, StepExecutionPhase.BLOCKED)
+            if event.state in (StepExecutionState.FAILED, StepExecutionState.BLOCKED)
         }
 
 
@@ -125,7 +125,7 @@ def test_predicate_failure_is_not_an_action_or_dependency_failure(
     else:
         assert isinstance(site, NodeConditionSite)
     assert not any(
-        event.step_id == StepId((1,)) and event.phase is StepExecutionPhase.STARTED
+        event.step_id == StepId((1,)) and event.state is StepExecutionState.STARTED
         for event in events.items
     )
 

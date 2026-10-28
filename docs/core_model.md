@@ -453,21 +453,22 @@ from rivlet import GraphExecution, StepExecutionEvent
 
 class Events:
     def emit(self, event: StepExecutionEvent) -> None:
-        print(event.step_id, event.label_path, event.phase)
+        print(event.step_id, event.label_path, event.state)
 
 
 execution = GraphExecution(graph=graph, events=Events())
 execution.run()
 ```
 
-`StepExecutionPhase` contains `STARTED`, `COMPLETED`, `FAILED`, `BLOCKED`, and
+`StepExecutionState` contains `STARTED`, `COMPLETED`, `FAILED`, `BLOCKED`, and
 `SKIPPED`. Events follow committed transitions, using mounted identities and label
 paths for static subgraphs, runtime-created subgraphs, Python, and native actions.
 Composite start/completion events consume no action slot and do not depend on the
 dynamic/compiled presentation mode. Blocked and skipped nodes need no start event.
 
-`event.transition` carries typed direct failure/blockage causes; `.phase` is derived
-from that single fact. See [failure events](./failure_events.md) for subgraph,
+`event.state_detail` carries lifecycle states or typed direct failure/blockage
+causes; `.state` is derived from that single fact and describes this event, not a
+live snapshot. See [failure events](./failure_events.md) for subgraph,
 condition, capability, identity, and construction rules.
 
 Callbacks execute synchronously and serially, but are not bound to the coordinator

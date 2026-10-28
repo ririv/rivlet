@@ -153,8 +153,9 @@ action 可以调用 `ctx.control.stop_requested()` 或 `ctx.control.require_runn
 
 ## 步骤执行事件
 
-通过 `GraphExecution(events=...)` 显式传入 `StepEventSink`，接收包含 StepId、标签路径
-及 `StepExecutionPhase` 的 `StepExecutionEvent`：`STARTED`、`COMPLETED`、`FAILED`、
+通过 `GraphExecution(events=...)` 显式传入 `StepEventSink`，接收包含 StepId、标签路径、
+结构化 `state_detail` 及派生 `state: StepExecutionState` 的 `StepExecutionEvent`：
+`STARTED`、`COMPLETED`、`FAILED`、
 `BLOCKED`、`SKIPPED`。静态子图、动态子图和原生动作使用同一接口。通知发生在状态
 提交之后，组合边界的事件不依赖展示模式。回调同步、串行执行；回调失败以
 `GraphEventDeliveryError` 停止执行，不撤销已提交状态。未订阅时不创建事件对象或事件
