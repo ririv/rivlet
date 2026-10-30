@@ -2,71 +2,172 @@
 
 English | [简体中文](https://github.com/ririv/rivlet/blob/main/README.zh-CN.md)
 
-Rivlet is an explicit, composable DAG declaration and execution library
-with a Python API and a Rust execution core.
+Rivlet is a Python library for composing and running task graphs, with a Rust
+execution core. Write your tasks as Python functions, connect them explicitly,
+and reuse whole workflows as subgraphs.
 
-It provides steps, subgraphs, conditional dependencies, thread-based and async
-execution, result access, execution state, and graph rendering. Logging, terminal
-integration, and request-level control belong to the host application and are
-connected through explicit interfaces.
+Use it for build pipelines, automation, data processing, or validation workflows
+that need clear dependencies and controlled concurrency. It runs inside your
+application; it is not a distributed workflow service.
 
-## When to use it
+## What you can do
 
-- Compose build or automation tasks with explicit dependencies.
-- Run independent data-processing or validation tasks concurrently, then join them.
-- Reuse subgraphs inside a larger workflow while keeping execution observable.
+- **Compose steps and subgraphs:** use `>>` for ordering and `|` for independent
+  branches, without flattening reusable subgraphs.
+- **Connect readiness ports:** let a consumer prepare early and wait only where
+  it actually needs a provider's output, not for the provider's entire workflow.
+- **Make data flow explicit:** bind step results to action and condition arguments
+  through result edges; order-only dependencies need no result passing.
+- **Control execution:** run synchronous or asynchronous Python tasks with explicit
+  concurrency limits. Runtime-created subgraphs share the same action budget.
+- **Inspect what happened:** render graphs, query results, and subscribe to typed
+  execution events. A failed step blocks dependent work while independent branches
+  continue; the overall run still reports failure.
 
-This is an in-process task graph library, not a distributed workflow service.
-Your application owns the actions and integration; the library handles dependency
-ordering and execution state.
+## Install
 
-## Architecture
-
-On `main`, Rust implements declaration compilation, execution-graph validation,
-and the scheduling state machine. Python retains graph declarations, arbitrary
-callables, result objects, and host integration. Complete Rust-native subgraphs
-can join the same execution graph and concurrency budget.
-
-See [Rust architecture](https://github.com/ririv/rivlet/blob/main/docs/rust-architecture.md) for implementation boundaries.
-
-## Local development
-
-Install the published package with `pip install rivlet`. The Python import name
-is also `rivlet`; there is no `rivetoo_graph` compatibility package.
-See [release policy](https://github.com/ririv/rivlet/blob/main/docs/releasing.md) for wheel coverage and publishing.
-
-You need Python 3.13 or later, a Rust toolchain, and maturin. With a virtual
-environment activated, install the native extension into that environment:
+Requires Python 3.13 or later:
 
 ```bash
-maturin develop
+pip install rivlet
 ```
 
-The native extension is required. There is no pure-Python execution fallback.
+Prebuilt wheels are available for CPython 3.13–3.15 on Linux x86_64 (glibc 2.28+)
+and macOS arm64 (macOS 11+). These installations need no Rust toolchain.
+Other platforms require a source build; see
+[distribution support](https://github.com/ririv/rivlet/blob/main/docs/releasing.md).
 
-## Quick example
+## Compose steps and reusable subgraphs
 
 ```python
-from rivlet import GraphExecution, Step, ThreadGraphRunOptions
+from rivlet import Graph, GraphExecution, Step, ThreadGraphRunOptions
+
+
+def checks() -> Graph:
+    validate = Step(lambda: print("validate"), label="validate")
+    test = Step(lambda: print("test"), label="test")
+    return (validate | test).graph(label="checks")
+
 
 prepare = Step(lambda: print("prepare"), label="prepare")
-validate = Step(lambda: print("validate"), label="validate")
-test = Step(lambda: print("test"), label="test")
 finish = Step(lambda: print("finish"), label="finish")
 
-checks = (validate | test).graph(label="checks")
-graph = (prepare >> checks >> finish).graph(label="example")
+graph = (prepare >> checks() >> finish).graph(label="example")
 GraphExecution(graph=graph).run(ThreadGraphRunOptions(workers=2))
 ```
 
 After `prepare`, the `checks` subgraph can run `validate` and `test` concurrently.
 `finish` waits for both to succeed; their print order is not guaranteed.
 
-`>>` declares ordering; `|` composes independent branches. Run options determine
-actual concurrency. An ordinary action failure blocks dependent work while
-unrelated branches continue; the run ultimately reports the failures.
+`checks()` returns an ordinary `Graph`, ready to place in other workflows. Nesting
+it preserves its boundary and internal dependencies. `>>` waits for the whole
+left-hand step or subgraph; `|` adds no dependency between its branches. Actual
+concurrency comes from the run options, not from `|` alone.
 
-See the [documentation](https://github.com/ririv/rivlet/blob/main/docs/index.md) for the model, composition API, and execution rules.
+Declarations and runs are separate: `Graph` describes the workflow;
+`GraphExecution(graph)` owns one run. Create a new execution to run the declaration
+again. You can also declare the same wiring without the DSL; see the
+[core model](https://github.com/ririv/rivlet/blob/main/docs/core_model.md).
+
+## Connect subgraphs through input and output ports
+
+Sometimes a downstream workflow needs only one intermediate result, not the
+completion of an entire upstream subgraph. A capability names that readiness
+contract. Its output identifies the step that makes it ready; its input identifies
+where the consumer starts needing it.
+
+This complete example connects two otherwise independent subgraphs:
+
+```python
+from rivlet import (
+    Capability,
+    CapabilityBinding,
+    CapabilityInterface,
+    Graph,
+    GraphExecution,
+    Step,
+    ThreadGraphRunOptions,
+)
+
+data_ready = Capability("validated-data")
+
+fetch = Step(lambda: print("fetch data"), label="fetch")
+validate = Step(lambda: print("validate data"), label="validate")
+archive = Step(lambda: print("archive data"), label="archive")
+producer_graph = (fetch >> validate >> archive).graph(
+    label="producer",
+    capabilities=CapabilityInterface(outputs={data_ready: validate}),
+)
+
+prepare = Step(lambda: print("prepare consumer"), label="prepare")
+process = Step(lambda: print("process data"), label="process")
+report = Step(lambda: print("report results"), label="report")
+consumer_graph = (prepare >> process >> report).graph(
+    label="consumer",
+    capabilities=CapabilityInterface(inputs={data_ready: process}),
+)
+
+producer = producer_graph.step()
+consumer = consumer_graph.step()
+graph = Graph(
+    label="pipeline",
+    steps=(producer, consumer),
+    edges=(
+        CapabilityBinding(source=producer, target=consumer, capability=data_ready),
+    ),
+)
+GraphExecution(graph).run(ThreadGraphRunOptions(workers=3))
+```
+
+```text
+producer: fetch → validate [output] → archive
+                     │ validated-data
+                     ▼
+consumer: prepare → process [input] → report
+```
+
+The consumer can prepare immediately. Once validation succeeds, `process` can run
+without waiting for `archive`, provided its own preparation has also completed.
+The overall execution still waits for both subgraphs to finish.
+
+Matching port names do **not** create dependencies: `CapabilityBinding` explicitly
+connects this producer and consumer. Ports synchronize readiness; they do not
+transfer Python return values or inspect external data. Use result edges for
+argument passing, and publish an output only when later steps will no longer
+invalidate what the consumer reads.
+
+This is different from `producer_graph >> consumer_graph`, which waits for the
+entire producer before starting any consumer step. For selecting among providers,
+multiple inputs, and failure behavior, see
+[capability ports](https://github.com/ririv/rivlet/blob/main/docs/capabilities.md).
+
+### Forward an interface when wrapping a subgraph
+
+Using `producer_graph` from the previous example:
+
+```python
+setup = Step(lambda: print("set up producer"), label="setup")
+wrapped = (setup >> producer_graph).graph(
+    label="wrapped producer",
+    capabilities=producer_graph,
+)
+```
+
+`capabilities=producer_graph` explicitly exposes the child's input and output
+ports on the wrapper. Omit it and the wrapper exposes no ports. You can forward
+only one direction or declare a new interface with `CapabilityInterface`.
+
+## Explore more
+
+- [Result inputs and action context](https://github.com/ririv/rivlet/blob/main/docs/core_model.md#results-and-runtime-context)
+- [Conditional steps](https://github.com/ririv/rivlet/blob/main/docs/conditional_steps.md) and [conditional edges](https://github.com/ririv/rivlet/blob/main/docs/conditional_edges.md)
+- [Async execution, cancellation, and failure propagation](https://github.com/ririv/rivlet/blob/main/docs/execution.md)
+- [Typed failure events](https://github.com/ririv/rivlet/blob/main/docs/failure_events.md)
+- [All documentation](https://github.com/ririv/rivlet/blob/main/docs/index.md)
+
+For contributors: [local development and checks](https://github.com/ririv/rivlet/blob/main/docs/development.md),
+[architecture](https://github.com/ririv/rivlet/blob/main/docs/rust-architecture.md),
+and [releasing](https://github.com/ririv/rivlet/blob/main/docs/releasing.md).
 
 ## License
 

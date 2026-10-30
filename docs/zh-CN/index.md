@@ -40,6 +40,7 @@ from rivlet import Graph, GraphExecution, Step
 - [条件 Step](./conditional_steps.md)
 - [能力依赖与子图端口](./capabilities.md)
 - [Rust 架构与语言边界](./rust-architecture.md)
+- [本地开发与检查](./development.md)
 
 ## 历史基准
 

@@ -41,6 +41,7 @@ domain workflows are connected explicitly, not read from implicit global facilit
 - [Conditional steps](./conditional_steps.md)
 - [Capability dependencies and subgraph ports](./capabilities.md)
 - [Rust architecture and language boundaries](./rust-architecture.md)
+- [Local development and checks](./development.md)
 
 ## Historical benchmarks
 
