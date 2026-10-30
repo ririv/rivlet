@@ -27,8 +27,9 @@ maturin develop --release --locked
 激活虚拟环境后执行：
 
 ```bash
-ruff check src tests benchmarks
-pyright src
+python scripts/check_release.py
+ruff check src scripts tests benchmarks
+pyright src scripts
 python -m pytest tests
 cargo test --locked --workspace --exclude python
 cargo clippy --locked --workspace --all-targets -- -D warnings

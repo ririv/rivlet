@@ -29,8 +29,9 @@ Python-only execution fallback.
 With the virtual environment activated:
 
 ```bash
-ruff check src tests benchmarks
-pyright src
+python scripts/check_release.py
+ruff check src scripts tests benchmarks
+pyright src scripts
 python -m pytest tests
 cargo test --locked --workspace --exclude python
 cargo clippy --locked --workspace --all-targets -- -D warnings

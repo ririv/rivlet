@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "rivlet"
-version = "0.2.0"
+version = "0.2.0.post1"
 description = "Explicit, composable workflows with a Python API and a Rust execution core"
 readme = "README.md"
 license = "MIT"
@@ -41,7 +41,10 @@ dev = [
 manifest-path = "crates/python/Cargo.toml"
 module-name = "rivlet._native"
 python-source = "src"
-include = [{path = "tests/**/*", format = "sdist"}]
+include = [
+    {path = "tests/**/*", format = "sdist"},
+    {path = "scripts/**/*", format = "sdist"},
+]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

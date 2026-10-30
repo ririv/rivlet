@@ -21,6 +21,19 @@ The project is pre-1.0; a first public release does not guarantee API stability.
 During 0.x development, breaking public API changes increment the minor version;
 compatible fixes increment the patch version. Published files are never replaced.
 
+Documentation or distribution-metadata updates that do not change the library use
+a PEP 440 post-release, such as `0.2.0.post1`. The Python distribution and tag
+(`v0.2.0.post1`) include the suffix; Rust crates keep the base version (`0.2.0`).
+This is a new distribution, not an overwrite of 0.2.0. Actual software fixes must
+use a new patch or minor version instead of a post-release. Run
+`python scripts/check_release.py` to validate the current manifests, or pass
+`--tag v0.2.0.post1` to check a proposed tag. The script supports final releases
+and their canonical `.postN` forms; it rejects unsupported version forms.
+
+The 0.2.0.post1 release updates the user-facing README and moves contributor setup
+into the [development guide](./development.md). It changes no library source,
+Rust crate versions, or runtime behavior.
+
 Version 0.2.0 adds typed direct failure and blockage sources. Step event consumers
 must replace `event.phase` with `event.state` and `StepExecutionPhase` with
 `StepExecutionState`. Event construction uses `state_detail=`; its value also
@@ -34,8 +47,9 @@ This release adds no checkpoint restoration, automatic retry, or event numbering
 
 - Manual dispatch builds and tests candidate artifacts without publishing.
 - Pushing `v<version>` builds the same artifacts and publishes only after every
-  validation job succeeds. The tag, Python version, and Cargo workspace version
-  must agree. A failed job prevents the whole release from being uploaded.
+  validation job succeeds. The tag must match the Python version, and the Cargo
+  workspace must match its base version, excluding any `.postN` suffix.
+  A failed job prevents the whole release from being uploaded.
 
 Each platform installs its wheel before running the Python test suite in isolated
 mode. The source job checks Python and Rust, builds an sdist, builds a wheel from
