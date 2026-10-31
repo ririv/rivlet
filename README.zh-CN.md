@@ -15,6 +15,7 @@ Rivlet 是一个用于组合和执行任务图的 Python 库，执行核心由 R
   不必等提供方的整个工作流结束。
 - **显式表达数据流**：用结果边把步骤返回值绑定到 action 或条件函数的参数；
   只需执行顺序的依赖不用传递结果。
+- **在对应位置声明条件**：执行前裁剪可选任务，根据运行结果跳过步骤，或只对某条依赖设置条件。
 - **控制执行方式**：支持同步与异步 Python 任务，显式设置并发度；运行时创建的子图
   也共享同一份动作并发预算。
 - **查看执行过程**：渲染图、查询结果、订阅强类型执行事件。步骤失败只阻断相关下游，
@@ -143,6 +144,117 @@ wrapped = (setup >> producer_graph).graph(
 
 `capabilities=producer_graph` 显式把内部子图的出入口公开到外层；不写时，外层不公开
 任何端口。需要时也可以通过 `CapabilityInterface` 只转发一个方向，或声明新接口。
+
+## 按条件执行与等待
+
+| 想做什么 | API | 条件为假时 |
+| --- | --- | --- |
+| 执行前排除可选任务 | `StaticConditions.when(...)` | 编译时移除节点及关联边 |
+| 决定任务是否执行 | `Step(condition=runtime_condition(...))` | 跳过 action；对子图则不进入内部 |
+| 决定任务是否等待某个前置 | `ConditionalPrerequisite(...)` | 只取消这条等待关系，不取消任一任务 |
+
+### 静态条件：执行前选择任务
+
+```python
+from rivlet import (
+    GraphExecution,
+    StaticCondition,
+    StaticConditions,
+    Step,
+    ThreadGraphRunOptions,
+)
+
+extra_checks = StaticCondition(payload=False, description="extra checks enabled")
+static = StaticConditions(evaluator=lambda condition: condition.payload is True)
+
+prepare = Step(lambda: print("prepare static workflow"), label="prepare")
+verify = Step(lambda: print("verify"), label="verify")
+extra = Step(lambda: print("extra checks"), label="extra")
+finish = Step(lambda: print("finish static workflow"), label="finish")
+
+graph = (
+    prepare >> (verify | static.when(extra_checks, extra)) >> finish
+).graph(label="static conditions")
+GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
+```
+
+`payload=False` 时，编译会移除 `extra`；改为 `True`，它就会与 `verify` 一起参与执行。
+payload 及其求值方式由应用定义，Rivlet 不内置特定的 feature 或平台判断。
+
+静态裁剪不会自动连接被移除节点的前驱与后继。这里始终存在的
+`prepare → verify → finish` 路径保留了必要顺序。静态条件也不会延迟子图的 Python 构造。
+
+### 运行时条件：根据步骤结果决定是否执行
+
+```python
+from rivlet import Graph, GraphExecution, Option, Step, runtime_condition
+
+
+def should_process(result: Option[object]) -> bool:
+    return result.unwrap() is True
+
+
+probe = Step(lambda: False, label="has work")
+has_work = runtime_condition(when=should_process)
+process = Step(
+    lambda: print("process work"), label="process", condition=has_work
+)
+done = Step(lambda: print("workflow finished"), label="done")
+
+graph = Graph.from_wiring(
+    (
+        probe.wire(),
+        process.wire(inputs={has_work: (probe,)}),
+        done.wire(after=(process,)),
+    ),
+    label="runtime conditions",
+)
+GraphExecution(graph).run()
+```
+
+`inputs` 同时声明结果依赖，并把结果作为 `Option` 传给条件函数，无需再维护一条
+`after=(probe,)`。probe 返回 `False`，所以 `process` 被跳过，但 `done` 仍会执行；
+改为返回 `True` 就会执行 `process`。被跳过的 action 没有结果，正常返回 `None` 的
+action 则得到 `Some(None)`。来源可能被跳过时，先用 `is_some()` 或 `is_none()` 判断，
+再解包。条件函数抛错会阻断相关任务，不会被当成条件为假。
+
+对子图，在 `child_graph.step(condition=...)` 上传入同样的运行时条件即可。
+
+### 条件边：只决定是否等待
+
+```python
+from rivlet import (
+    ConditionalPrerequisite,
+    Graph,
+    GraphExecution,
+    Step,
+    ThreadGraphRunOptions,
+    runtime_condition,
+)
+
+decision = Step(lambda: False, label="wait for checks")
+checks = Step(lambda: print("run checks"), label="checks")
+publish = Step(lambda: print("publish"), label="publish")
+wait_for_checks = runtime_condition(when=lambda result: result.unwrap() is True)
+
+graph = Graph.from_wiring(
+    (
+        decision.wire(),
+        checks.wire(),
+        publish.wire(
+            after=(ConditionalPrerequisite(checks, condition=wait_for_checks),),
+            inputs={wait_for_checks: (decision,)},
+        ),
+    ),
+    label="conditional dependency",
+)
+GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
+```
+
+`publish` 会等待 `decision`。它返回 `True` 时，`publish` 还要等待 `checks`；
+返回 `False` 时，`checks` 仍会执行，但发布不用等它。整次运行仍包含这两个任务。
+如果想跳过发布本身，应使用 `Step(..., condition=...)` 声明，而不是使用条件边。
+静态条件边则通过 `static.edge(source, target, condition=...)` 声明。
 
 ## 更多用法
 

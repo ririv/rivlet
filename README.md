@@ -18,6 +18,8 @@ application; it is not a distributed workflow service.
   it actually needs a provider's output, not for the provider's entire workflow.
 - **Make data flow explicit:** bind step results to action and condition arguments
   through result edges; order-only dependencies need no result passing.
+- **Apply conditions where they belong:** prune optional work before execution,
+  skip a step based on runtime results, or condition only a dependency.
 - **Control execution:** run synchronous or asynchronous Python tasks with explicit
   concurrency limits. Runtime-created subgraphs share the same action budget.
 - **Inspect what happened:** render graphs, query results, and subscribe to typed
@@ -156,6 +158,121 @@ wrapped = (setup >> producer_graph).graph(
 `capabilities=producer_graph` explicitly exposes the child's input and output
 ports on the wrapper. Omit it and the wrapper exposes no ports. You can forward
 only one direction or declare a new interface with `CapabilityInterface`.
+
+## Use conditions
+
+| What you want | API | When the condition is false |
+| --- | --- | --- |
+| Exclude optional work before execution | `StaticConditions.when(...)` | Remove the node and its incident edges during compilation |
+| Decide whether a task runs | `Step(condition=runtime_condition(...))` | Skip its action; a subgraph is not entered |
+| Decide whether a task waits for another | `ConditionalPrerequisite(...)` | Remove only that waiting requirement, not either task |
+
+### Static conditions: choose work before execution
+
+```python
+from rivlet import (
+    GraphExecution,
+    StaticCondition,
+    StaticConditions,
+    Step,
+    ThreadGraphRunOptions,
+)
+
+extra_checks = StaticCondition(payload=False, description="extra checks enabled")
+static = StaticConditions(evaluator=lambda condition: condition.payload is True)
+
+prepare = Step(lambda: print("prepare static workflow"), label="prepare")
+verify = Step(lambda: print("verify"), label="verify")
+extra = Step(lambda: print("extra checks"), label="extra")
+finish = Step(lambda: print("finish static workflow"), label="finish")
+
+graph = (
+    prepare >> (verify | static.when(extra_checks, extra)) >> finish
+).graph(label="static conditions")
+GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
+```
+
+With `payload=False`, compilation removes `extra`; change it to `True` to include
+it alongside `verify`. The application defines the payload and its evaluator;
+Rivlet does not embed its own feature or platform rules.
+
+Static pruning does not reconnect a removed node's predecessors and successors.
+Here the always-present `prepare → verify → finish` path preserves the required
+ordering. Static conditions also do not defer Python construction of a child graph.
+
+### Runtime conditions: decide from a step result
+
+```python
+from rivlet import Graph, GraphExecution, Option, Step, runtime_condition
+
+
+def should_process(result: Option[object]) -> bool:
+    return result.unwrap() is True
+
+
+probe = Step(lambda: False, label="has work")
+has_work = runtime_condition(when=should_process)
+process = Step(
+    lambda: print("process work"), label="process", condition=has_work
+)
+done = Step(lambda: print("workflow finished"), label="done")
+
+graph = Graph.from_wiring(
+    (
+        probe.wire(),
+        process.wire(inputs={has_work: (probe,)}),
+        done.wire(after=(process,)),
+    ),
+    label="runtime conditions",
+)
+GraphExecution(graph).run()
+```
+
+`inputs` declares the result dependency and passes the result to the predicate as
+an `Option`; there is no second `after=(probe,)` to maintain. Because the probe
+returns `False`, `process` is skipped and `done` still runs. Return `True` to run
+`process`. A skipped action produces no result; an action returning `None` produces
+`Some(None)`. If a source may be skipped, inspect `is_some()` or `is_none()` before
+unwrapping. A predicate error blocks the affected task; it is not treated as false.
+
+For a subgraph, use the same runtime condition on `child_graph.step(condition=...)`.
+
+### Conditional edges: decide whether to wait
+
+```python
+from rivlet import (
+    ConditionalPrerequisite,
+    Graph,
+    GraphExecution,
+    Step,
+    ThreadGraphRunOptions,
+    runtime_condition,
+)
+
+decision = Step(lambda: False, label="wait for checks")
+checks = Step(lambda: print("run checks"), label="checks")
+publish = Step(lambda: print("publish"), label="publish")
+wait_for_checks = runtime_condition(when=lambda result: result.unwrap() is True)
+
+graph = Graph.from_wiring(
+    (
+        decision.wire(),
+        checks.wire(),
+        publish.wire(
+            after=(ConditionalPrerequisite(checks, condition=wait_for_checks),),
+            inputs={wait_for_checks: (decision,)},
+        ),
+    ),
+    label="conditional dependency",
+)
+GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
+```
+
+`publish` waits for `decision`. If it returns `True`, `publish` also waits for
+`checks`; if it returns `False`, `checks` still runs, but publishing need not wait
+for it. Both tasks remain part of the overall run. To skip publishing itself,
+declare it with `Step(..., condition=...)` instead. Static edge conditions are available
+through `static.edge(source, target, condition=...)`.
 
 ## Explore more
 
