@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use action::NativeActionHandle;
@@ -181,6 +181,17 @@ impl<'py> Collector<'py> {
 
         let steps = source_graph.getattr("steps")?;
         let static_bindings = source_graph.getattr("_static_bindings")?;
+        // 宿主按挂载一次性求出静态选择，Rust 只消费不透明节点身份；不在
+        // core 中解释宿主选择规则。C 个分支时间/空间 O(C)，普通节点查询 O(1)。
+        let mut inactive_selection_steps = HashSet::new();
+        if parent_active && source_graph.getattr("static_selections")?.len()? != 0 {
+            for step in source_graph
+                .call_method0("_resolve_static_selections")?
+                .try_iter()?
+            {
+                inactive_selection_steps.insert(object_key(&step?));
+            }
+        }
         // 无静态规则时不逐节点跨语言查询；有规则时按哈希索引 O(1) 查找。
         let has_static_bindings = static_bindings.len()? != 0;
         let mut step_values = Vec::new();
@@ -207,6 +218,7 @@ impl<'py> Collector<'py> {
                 label_object.extract::<String>()?
             };
             let active = parent_active
+                && !inactive_selection_steps.contains(&object_key(step))
                 && (!has_static_bindings || Self::static_node_active(&static_bindings, step)?);
             let action = step.getattr("action")?;
             self.nodes.push(NodeRecord {

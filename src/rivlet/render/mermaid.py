@@ -18,6 +18,7 @@ from .formatting import (
     mermaid_graph_node_id,
     mermaid_step_node_id,
     render_compiled_step_label,
+    render_selection_suffix,
     render_step_label,
     render_step_path,
     result_receiver_label,
@@ -115,11 +116,14 @@ def append_graph_mermaid(
     for index, step in enumerate(graph.steps):
         step_id = step_ids[step]
         step_label = resolve_step_label(step, step_id)
+        selection_suffix = render_selection_suffix(graph, step)
         node_id = mermaid_step_node_id(graph_path, step_label, index)
         node_ids[step] = node_id
         action = step.action
         if isinstance(action, Graph):
-            lines.append(f'{indent}    {node_id}["{escape_label(step_label)}"]')
+            lines.append(
+                f'{indent}    {node_id}["{escape_label(step_label + selection_suffix)}"]'
+            )
             append_graph_mermaid(
                 lines,
                 action,
@@ -130,7 +134,7 @@ def append_graph_mermaid(
             )
         else:
             lines.append(
-                f'{indent}    {node_id}["{escape_label(render_step_label(step, step_id=step_id))}"]'
+                f'{indent}    {node_id}["{escape_label(render_step_label(step, step_id=step_id) + selection_suffix)}"]'
             )
     for edge in graph.edges:
         if isinstance(edge, ResultEdge):

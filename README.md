@@ -200,6 +200,41 @@ Static pruning does not reconnect a removed node's predecessors and successors.
 Here the always-present `prepare → verify → finish` path preserves the required
 ordering. Static conditions also do not defer Python construction of a child graph.
 
+### Static selection: retain candidates, select exactly one
+
+```python
+from rivlet import Case, GraphExecution, Step, static
+
+platform = "android"
+version = 3
+prepare = Step(lambda: print("prepare"), label="prepare")
+modern = Step(lambda: print("modern Android"), label="modern")
+legacy = Step(lambda: print("legacy Android"), label="legacy")
+linux = Step(lambda: print("Linux"), label="linux")
+finish = Step(lambda: print("finish"), label="finish")
+
+graph = (
+    prepare
+    >> static.select(
+        cases=(
+            Case(platform == "android" and version >= 3, modern),
+            Case(platform == "android" and version < 3, legacy),
+            Case(platform == "linux", linux),
+        ),
+    )
+    >> finish
+).graph(label="static selection")
+GraphExecution(graph).run()
+```
+
+Each `Case(condition, component)` contains one complete boolean condition and a
+Step or Graph. Declaration rendering retains every case; compilation requires exactly
+one true condition and produces `prepare → modern → finish`. Zero or multiple active
+cases are errors, not first-match precedence. `static` is the module namespace and
+requires no evaluator. Python computes the booleans at construction; compilation
+checks the selection. See [static selection](https://github.com/ririv/rivlet/blob/main/docs/static_selection.md)
+for subgraphs, boundaries, and direct declarations.
+
 ### Runtime conditions: decide from a step result
 
 ```python

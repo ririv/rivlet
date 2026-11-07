@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Literal, TypeGuard
 from ._native import NativeGraph, dag_cycle
 from .capability import CapabilitiesInput, CapabilityBinding, CapabilityInterface
 from .errors import GraphError
+from .static import Case, StaticSelection, resolve_selection_bindings
 from .static_conditions import (
     BoundStaticCondition,
     StaticConditions,
@@ -413,6 +414,7 @@ class GraphWiring:
     steps: tuple[Step, ...]
     edges: tuple[GraphEdge, ...] = ()
     static: tuple[StaticConditions, ...] = ()
+    static_selections: tuple[StaticSelection, ...] = ()
 
     def _boundary_nodes(self) -> tuple[set[Step], set[Step]]:
         sources: set[Step] = set()
@@ -447,6 +449,7 @@ class GraphWiring:
         capabilities: CapabilitiesInput | None = None,
         observation: GraphObservationMessages | None = None,
         static: StaticConditionsInput = (),
+        static_selections: tuple[StaticSelection, ...] = (),
     ) -> Graph:
         """将当前接线显式物化为一张 Graph。"""
 
@@ -456,6 +459,7 @@ class GraphWiring:
             capabilities=capabilities,
             observation=observation,
             static=static,
+            static_selections=static_selections,
         )
 
 
@@ -468,7 +472,7 @@ class Graph:
     """DAG 图结构本体。
 
     `Graph` 表达的是一张有向无环图（DAG），描述图结构本体，
-    以及这张图绑定了求值器的静态选择。
+    以及这张图的静态条件与选择声明。
 
     它表达的是：
     - 可选的可读 label
@@ -477,6 +481,7 @@ class Graph:
     - 哪些 step 挂子图
     - 图级 observation
     - 这张图的节点和边在哪些静态条件下参与
+    - 哪些候选分支在编译时必须恰好一个条件成立
 
     它不表达的是：
     - 图挂载后的结构身份
@@ -492,6 +497,10 @@ class Graph:
         default_factory=GraphObservationMessages
     )
     static: tuple[StaticConditions, ...] = ()
+    static_selections: tuple[StaticSelection, ...] = ()
+    _selection_bindings: Mapping[Step, tuple[StaticSelection, Case]] = field(
+        init=False, repr=False, compare=False
+    )
     _static_bindings: Mapping[StaticTarget, BoundStaticCondition] = field(
         init=False, repr=False, compare=False
     )
@@ -504,6 +513,7 @@ class Graph:
         capabilities: CapabilitiesInput | None = None,
         observation: GraphObservationMessages | None = None,
         static: StaticConditionsInput = (),
+        static_selections: tuple[StaticSelection, ...] = (),
     ) -> None:
         object.__setattr__(self, "label", label)
         object.__setattr__(self, "steps", steps)
@@ -521,7 +531,13 @@ class Graph:
             GraphObservationMessages() if observation is None else observation,
         )
         object.__setattr__(self, "static", static_groups(static))
+        object.__setattr__(self, "static_selections", static_selections)
         self._validate()
+        object.__setattr__(
+            self,
+            "_selection_bindings",
+            resolve_selection_bindings(self.static_selections, steps=self.steps),
+        )
         object.__setattr__(
             self,
             "_static_bindings",
@@ -547,6 +563,7 @@ class Graph:
         capabilities: CapabilitiesInput | None = None,
         observation: GraphObservationMessages | None = None,
         static: StaticConditionsInput = (),
+        static_selections: tuple[StaticSelection, ...] = (),
     ) -> Graph:
         normalized = (
             wiring
@@ -562,7 +579,20 @@ class Graph:
                 GraphObservationMessages() if observation is None else observation
             ),
             static=(*normalized.static, *static_groups(static)),
+            static_selections=(*normalized.static_selections, *static_selections),
         )
+
+    def _resolve_static_selections(self) -> tuple[Step, ...]:
+        """Return inactive cases once per active graph mount during compilation."""
+
+        # 全部分支扫描两次：时间 O(C)，返回的未选节点占 O(C) 空间。
+        inactive: list[Step] = []
+        for declaration in self.static_selections:
+            selected = declaration.selected_step()
+            inactive.extend(
+                case.step for case in declaration.cases if case.step is not selected
+            )
+        return tuple(inactive)
 
     def __rshift__(self, other: GraphWiringOperand) -> GraphWiring:
         return _sequence_wiring(self, other)
@@ -640,6 +670,10 @@ def _sequence_wiring(
         steps=(*left_wiring.steps, *right_wiring.steps),
         edges=(*left_wiring.edges, *right_wiring.edges, *connecting_edges),
         static=(*left_wiring.static, *right_wiring.static),
+        static_selections=(
+            *left_wiring.static_selections,
+            *right_wiring.static_selections,
+        ),
     )
 
 
@@ -653,6 +687,10 @@ def _parallel_wiring(
         steps=(*left_wiring.steps, *right_wiring.steps),
         edges=(*left_wiring.edges, *right_wiring.edges),
         static=(*left_wiring.static, *right_wiring.static),
+        static_selections=(
+            *left_wiring.static_selections,
+            *right_wiring.static_selections,
+        ),
     )
 
 

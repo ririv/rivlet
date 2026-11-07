@@ -14,6 +14,7 @@ from rivlet import Graph, GraphExecution, Step
 - Step and Graph declarations with explicit wiring.
 - Sequential `>>` and independent `|` composition.
 - Exactly-one static selection before graph construction.
+- Graph-internal static selection with exactly one true condition.
 - Static conditions, runtime conditions, and conditional edges.
 - Subgraph boundaries and capability ports.
 - One Rust compilation/execution path with dynamic and compiled presentation modes.
@@ -34,6 +35,7 @@ domain workflows are connected explicitly, not read from implicit global facilit
 ## Documentation
 
 - [Core model](./core_model.md)
+- [Static selection during compilation](./static_selection.md)
 - [Topology complexity and implementation costs](./topology_complexity.md)
 - [Execution semantics](./execution.md)
 - [Python graphs and Rust-native graphs](./native-graphs.md)

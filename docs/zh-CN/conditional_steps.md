@@ -205,5 +205,6 @@ inputs 引用当前图中的 Step；同一子图挂载两次，各自读取自�
 ## 边界
 
 Step 条件和条件边共用条件类型，但语义不同。它们都不表达恰好选中一个分支；
+保留在声明中的选择见[static.select](./static_selection.md)，
 构图前选择见[select_one](./core_model.md#构图前静态选择)。
 失败、取消与结果记录遵循统一[执行语义](./execution.md)。

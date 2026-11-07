@@ -235,7 +235,8 @@ inputs. Producers are independent Steps and are not cancelled by that skip.
 ## Boundaries
 
 Step conditions and conditional edges share condition types but retain different
-semantics. Neither is an exactly-one branch selector; for selection before graph
+semantics. Neither is an exactly-one branch selector. For selection retained in the
+declaration, see [static.select](./static_selection.md); for selection before graph
 construction, see [select_one](./core_model.md#static-selection-before-construction).
 Failure, cancellation, and result recording follow the common
 [execution rules](./execution.md).

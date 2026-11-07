@@ -162,6 +162,14 @@ child_step = child_graph.step(label="build", condition=condition)
 
 Explicit `Graph.step()` and automatic DSL wrapping use the same semantics.
 
+## Static selection during compilation
+
+`static.select(cases=(Case(condition, component), ...))` retains all candidates in
+`Graph.static_selections` and returns `GraphWiring`. Each condition is a complete
+static bool. Compilation requires exactly one true condition, independent of case
+order; no evaluator is required. See [static selection](./static_selection.md) for
+DSL and direct Graph examples, capability boundaries, and captured boolean inputs.
+
 ## Static selection before construction
 
 `select_one()` requires exactly one active branch and returns its original value.

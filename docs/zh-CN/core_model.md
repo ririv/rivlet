@@ -216,6 +216,14 @@ child_step = child_graph.step(
 
 `Graph.step()` 与 DSL 的自动包装使用同一套 Graph→Step 语义。
 
+## 编译时静态选择
+
+`static.select(cases=(Case(condition, component), ...))` 把全部分支保留在
+`Graph.static_selections` 中，返回 `GraphWiring`。每个分支接收一个完整静态布尔条件，
+编译时要求恰好一个条件成立，不按声明顺序决定优先级。此入口不需要 evaluator；
+DSL、直接 Graph 声明和能力边界见[图内静态选择](./static_selection.md)。
+Python 构图时已计算布尔条件，延迟到编译阶段的是唯一选择检查，而不是表达式求值。
+
 ## 构图前静态选择
 
 `select_one()` 在 Graph 组装前从已求值的分支中要求恰好一个结果。它返回分支持有的

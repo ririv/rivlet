@@ -101,9 +101,20 @@ def render_graph_after_suffix(
 
 def render_static_suffix(graph: Graph, step: Step) -> str:
     binding = graph._static_bindings.get(step)
+    condition = (
+        ""
+        if binding is None
+        else f" [static: {format_static_condition(binding.condition)}]"
+    )
+    return condition + render_selection_suffix(graph, step)
+
+
+def render_selection_suffix(graph: Graph, step: Step) -> str:
+    binding = graph._selection_bindings.get(step)
     if binding is None:
         return ""
-    return f" [static: {format_static_condition(binding.condition)}]"
+    _, case = binding
+    return f" [select: {case.condition}]"
 
 
 def render_graph_capability_suffix(graph: Graph, step: Step) -> str:

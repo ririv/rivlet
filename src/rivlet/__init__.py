@@ -4,6 +4,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from . import static as static
     from ._native import NativeGraph
     from .capability import (
         AnyProviderRequirement,
@@ -115,6 +116,7 @@ if TYPE_CHECKING:
         StaticSelectionError,
         select_one,
     )
+    from .static import Case, StaticSelection
     from .static_condition import (
         StaticCondition,
         StaticConditionEval,
@@ -129,6 +131,7 @@ if TYPE_CHECKING:
     from .topology import Arc, DAGTopology, DirectedTopology, TopologyCycleError
 
 _EXPORT_GROUPS = (
+    (".static", ("Case", "StaticSelection")),
     (".static_conditions", ("StaticConditions",)),
     ("._native", ("NativeGraph",)),
     (
@@ -288,6 +291,9 @@ _EXPORT_GROUPS = (
 )
 
 __all__ = [
+    "static",
+    "Case",
+    "StaticSelection",
     "GraphEventDeliveryError",
     "StepEventSink",
     "ActionFailed",
@@ -406,6 +412,10 @@ _EXPORT_MODULES = {
 def __getattr__(name: str) -> object:
     """Load only the graph module that owns the requested public symbol."""
 
+    if name == "static":
+        module = import_module(".static", __name__)
+        globals()[name] = module
+        return module
     try:
         module_name = _EXPORT_MODULES[name]
     except KeyError:

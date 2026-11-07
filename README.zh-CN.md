@@ -184,6 +184,39 @@ payload 及其求值方式由应用定义，Rivlet 不内置特定的 feature �
 静态裁剪不会自动连接被移除节点的前驱与后继。这里始终存在的
 `prepare → verify → finish` 路径保留了必要顺序。静态条件也不会延迟子图的 Python 构造。
 
+### 静态选择：保留候选，编译时恰好选择一个
+
+```python
+from rivlet import Case, GraphExecution, Step, static
+
+platform = "android"
+version = 3
+prepare = Step(lambda: print("prepare"), label="prepare")
+modern = Step(lambda: print("modern Android"), label="modern")
+legacy = Step(lambda: print("legacy Android"), label="legacy")
+linux = Step(lambda: print("Linux"), label="linux")
+finish = Step(lambda: print("finish"), label="finish")
+
+graph = (
+    prepare
+    >> static.select(
+        cases=(
+            Case(platform == "android" and version >= 3, modern),
+            Case(platform == "android" and version < 3, legacy),
+            Case(platform == "linux", linux),
+        ),
+    )
+    >> finish
+).graph(label="static selection")
+GraphExecution(graph).run()
+```
+
+`Case(condition, component)` 包含完整布尔条件和一个 Step 或 Graph。声明展示保留
+全部候选，编译时要求恰好一个条件为真，这里得到 `prepare → modern → finish`。
+零个或多个成立都报错，不按顺序选第一个。此处 `static` 是模块命名空间，不需要
+evaluator。Python 构图时已计算布尔条件，编译时检查选择。子图、边界与直接声明见
+[图内静态选择](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/static_selection.md)。
+
 ### 运行时条件：根据步骤结果决定是否执行
 
 ```python
