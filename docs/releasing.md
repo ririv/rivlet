@@ -18,8 +18,9 @@ The project is pre-1.0; a first public release does not guarantee API stability.
 
 ## Versioning
 
-During 0.x development, breaking public API changes increment the minor version;
-compatible fixes increment the patch version. Published files are never replaced.
+During 0.x development, new public graph capabilities and breaking public API
+changes increment the minor version; compatible fixes increment the patch version.
+Published files are never replaced.
 
 Documentation or distribution-metadata updates that do not change the library use
 a PEP 440 post-release, such as `0.2.0.post1`. The Python distribution and tag
@@ -27,12 +28,19 @@ a PEP 440 post-release, such as `0.2.0.post1`. The Python distribution and tag
 This is a new distribution, not an overwrite of 0.2.0. Actual software fixes must
 use a new patch or minor version instead of a post-release. Run
 `python scripts/check_release.py` to validate the current manifests, or pass
-`--tag v0.2.0.post1` to check a proposed tag. The script supports final releases
+`--tag v0.3.0` to check the proposed current tag. The script supports final releases
 and their canonical `.postN` forms; it rejects unsupported version forms.
 
-The 0.2.0.post1 release updates the user-facing README and moves contributor setup
-into the [development guide](./development.md). It changes no library source,
-Rust crate versions, or runtime behavior.
+Version 0.3.0 adds graph-declared static selection with `static.select()` and
+`Case(condition, component)`. All candidates remain inspectable in the declaration;
+compilation requires exactly one true condition in each active selection. There
+is no branch-order precedence, implicit fallback, or selector action. See
+[static selection](./static_selection.md) for composition and capability boundaries.
+Existing evaluator-bound `StaticConditions` rules remain available.
+
+This version does not add JavaScript, Swift, or Java bindings, cross-language
+action orchestration, browser support, or validated Windows wheels. The supported
+distribution matrix above is unchanged.
 
 Version 0.2.0 adds typed direct failure and blockage sources. Step event consumers
 must replace `event.phase` with `event.state` and `StepExecutionPhase` with

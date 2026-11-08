@@ -16,18 +16,23 @@ macOS arm64（macOS 11 起）。同时提供源码包。其它平台需要兼容
 
 ## 版本规则
 
-在 0.x 阶段，破坏公开 API 的变更提升次版本；兼容修复提升修订版本。已经发布的
-产物不能覆盖。
+在 0.x 阶段，新增公开图能力或破坏公开 API 的变更提升次版本；兼容修复提升修订版本。
+已经发布的产物不能覆盖。
 
 不改变库本身的文档或发行元数据更新，使用 PEP 440 后发行版本，例如
 `0.2.0.post1`。Python 发行号与标签 `v0.2.0.post1` 带后缀，Rust crate 保持基础版本
 `0.2.0`。这是一次新发行，不覆盖已有的 0.2.0。真正的软件修复应提升修订版本或
 次版本，不使用后发行号。执行 `python scripts/check_release.py` 检查当前 manifest；
-加上 `--tag v0.2.0.post1` 可验证准备创建的标签。脚本支持正式版及其规范的 `.postN`
+加上 `--tag v0.3.0` 可验证当前准备创建的标签。脚本支持正式版及其规范的 `.postN`
 形式，不接受其它未支持的版本写法。
 
-0.2.0.post1 更新面向使用者的 README，并把开发环境说明移入
-[开发指南](./development.md)，不修改库源码、Rust crate 版本或运行行为。
+0.3.0 新增图声明内的静态选择：`static.select()` 与 `Case(condition, component)`。
+所有候选仍保留在声明中供检查；编译要求每个活跃选择恰好一个条件成立，不按分支顺序
+决定优先级，没有隐式兜底，也不增加选择步骤。组合与能力边界见
+[静态选择](./static_selection.md)。原有绑定 evaluator 的 `StaticConditions` 规则继续保留。
+
+本版不包含 JavaScript、Swift、Java 绑定、跨语言 Action 编排、浏览器支持或已验收的
+Windows wheel；上面的交付矩阵保持不变。
 
 0.2.0 新增强类型的直接失败与阻断来源。步骤事件消费方把 `event.phase` 改为
 `event.state`，`StepExecutionPhase` 改为 `StepExecutionState`。构造事件使用
