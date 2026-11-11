@@ -16,7 +16,7 @@ from .formatting import (
     render_compiled_step_label,
     render_condition_suffix,
     render_graph_after_suffix,
-    render_graph_capability_suffix,
+    render_graph_port_suffix,
     render_static_suffix,
     render_step_label,
     render_step_path,
@@ -117,7 +117,7 @@ def append_tree_step(
         lines.append(
             f"{prefix}{branch}{step_label} [graph]{render_static_suffix(graph, step)}{render_condition_suffix(step)}"
             f"{render_graph_after_suffix(graph, step, step_ids=step_ids)}"
-            f"{render_graph_capability_suffix(graph, step)}"
+            f"{render_graph_port_suffix(graph, step)}"
         )
         child_step_ids = step_ids_for_mount(action, parent_step_id=step_id)
         for index, child_step in enumerate(action.steps):

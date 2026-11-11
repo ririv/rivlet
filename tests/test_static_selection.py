@@ -6,17 +6,16 @@ import pytest
 
 from rivlet import (
     AsyncGraphRunOptions,
-    Capability,
-    CapabilityBinding,
-    CapabilityInterface,
     Case,
     CompiledStep,
     Graph,
     GraphError,
     GraphExecution,
+    GraphInterface,
     GraphMode,
     MultipleStaticBranchesSelectedError,
     NoStaticBranchSelectedError,
+    PortConnection,
     StaticCondition,
     StaticConditions,
     StaticSelection,
@@ -224,42 +223,42 @@ def test_result_input_from_unselected_case_is_rejected() -> None:
         compile_graph(graph, root_label="root")
 
 
-def test_selected_subgraph_retains_its_capability_ports() -> None:
-    ready = Capability("ready")
+def test_selected_subgraph_retains_its_interface_ports() -> None:
+    ready = "ready"
     calls: list[str] = []
     produce = Step(lambda: calls.append("produce"))
     consume = Step(lambda: calls.append("consume"))
     provider = Graph(
-        steps=(produce,), capabilities=CapabilityInterface(outputs={ready: produce})
+        steps=(produce,), interface=GraphInterface(outputs={ready: produce})
     )
     case = Case(True, provider)
     consumer = Graph(
-        steps=(consume,), capabilities=CapabilityInterface(inputs={ready: consume})
+        steps=(consume,), interface=GraphInterface(inputs={ready: consume})
     ).step()
     graph = Graph(
         steps=(case.step, consumer),
-        edges=(CapabilityBinding(case.step, consumer, ready),),
+        edges=(PortConnection(case.step, consumer, ready),),
         static_selections=(StaticSelection((case,)),),
     )
     GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
     assert calls == ["produce", "consume"]
 
 
-def test_required_capability_cannot_use_unselected_provider() -> None:
-    ready = Capability("ready")
+def test_required_port_cannot_use_unselected_provider() -> None:
+    ready = "ready"
     produce = Step(lambda: None)
     consume = Step(lambda: None)
     provider = Graph(
-        steps=(produce,), capabilities=CapabilityInterface(outputs={ready: produce})
+        steps=(produce,), interface=GraphInterface(outputs={ready: produce})
     )
     provider_case = Case(False, provider)
     selected = Step(lambda: None)
     consumer = Graph(
-        steps=(consume,), capabilities=CapabilityInterface(inputs={ready: consume})
+        steps=(consume,), interface=GraphInterface(inputs={ready: consume})
     ).step()
     graph = Graph(
         steps=(provider_case.step, selected, consumer),
-        edges=(CapabilityBinding(provider_case.step, consumer, ready),),
+        edges=(PortConnection(provider_case.step, consumer, ready),),
         static_selections=(StaticSelection((provider_case, Case(True, selected))),),
     )
     with pytest.raises(GraphError, match="inactive provider"):

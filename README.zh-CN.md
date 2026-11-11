@@ -68,30 +68,30 @@ GraphExecution(graph=graph).run(ThreadGraphRunOptions(workers=2))
 ## 用出入口连接子图
 
 有时下游只需要上游的某项中间产出，不需要等待整个上游子图结束。
-能力（`Capability`）为这项就绪契约命名：出口指向让它就绪的步骤，入口指向消费者
+端口（`str`）为这项就绪契约命名：出口指向让它就绪的步骤，入口指向消费者
 开始需要它的步骤。
 
 下面是连接两个原本独立子图的完整示例：
 
 ```python
 from rivlet import (
-    Capability,
-    CapabilityBinding,
-    CapabilityInterface,
+    str,
+    PortConnection,
+    GraphInterface,
     Graph,
     GraphExecution,
     Step,
     ThreadGraphRunOptions,
 )
 
-data_ready = Capability("validated-data")
+data_ready = "validated-data"
 
 fetch = Step(lambda: print("fetch data"), label="fetch")
 validate = Step(lambda: print("validate data"), label="validate")
 archive = Step(lambda: print("archive data"), label="archive")
 producer_graph = (fetch >> validate >> archive).graph(
     label="producer",
-    capabilities=CapabilityInterface(outputs={data_ready: validate}),
+    interface=GraphInterface(outputs={data_ready: validate}),
 )
 
 prepare = Step(lambda: print("prepare consumer"), label="prepare")
@@ -99,7 +99,7 @@ process = Step(lambda: print("process data"), label="process")
 report = Step(lambda: print("report results"), label="report")
 consumer_graph = (prepare >> process >> report).graph(
     label="consumer",
-    capabilities=CapabilityInterface(inputs={data_ready: process}),
+    interface=GraphInterface(inputs={data_ready: process}),
 )
 
 producer = producer_graph.step()
@@ -108,7 +108,7 @@ graph = Graph(
     label="pipeline",
     steps=(producer, consumer),
     edges=(
-        CapabilityBinding(source=producer, target=consumer, capability=data_ready),
+        PortConnection(source=producer, target=consumer, port=data_ready),
     ),
 )
 GraphExecution(graph).run(ThreadGraphRunOptions(workers=3))
@@ -124,13 +124,13 @@ consumer: prepare → process [input] → report
 消费者的 `prepare` 可以立即开始。`validate` 成功且消费者自己的准备也完成后，
 `process` 就可以运行，不需要等待 `archive`。整次执行仍会等待两个子图结束。
 
-端口名称相同**不会自动建立依赖**，示例用 `CapabilityBinding` 显式连接提供方与消费者。
+端口名称相同**不会自动建立依赖**，示例用 `PortConnection` 显式连接提供方与消费者。
 端口负责就绪同步，不会传递 Python 返回值，也不会检查外部数据；传参使用结果边。
 声明出口时，必须保证后续步骤不会再使消费者读取的内容失效。
 
 这与 `producer_graph >> consumer_graph` 不同：后者会等整个提供方完成后才开始
 消费者的任何步骤。多个提供方的选择、多个入口和失败行为见
-[能力依赖与子图端口](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/capabilities.md)。
+[端口依赖与子图端口](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/interfaces.md)。
 
 ### 包装子图时转发接口
 
@@ -140,12 +140,12 @@ consumer: prepare → process [input] → report
 setup = Step(lambda: print("set up producer"), label="setup")
 wrapped = (setup >> producer_graph).graph(
     label="wrapped producer",
-    capabilities=producer_graph,
+    interface=producer_graph,
 )
 ```
 
-`capabilities=producer_graph` 显式把内部子图的出入口公开到外层；不写时，外层不公开
-任何端口。需要时也可以通过 `CapabilityInterface` 只转发一个方向，或声明新接口。
+`interface=producer_graph` 显式把内部子图的出入口公开到外层；不写时，外层不公开
+任何端口。需要时也可以通过 `GraphInterface` 只转发一个方向，或声明新接口。
 
 ## 按条件执行与等待
 
@@ -306,7 +306,7 @@ json.dumps({"declaration": declaration, "compiled": compiled})
 execution.run()  # 复用同一份编译结果
 ```
 
-版本化 JSON 文档保留挂载 ID、子图边界、边类型、条件与能力端口。声明检查不执行宿主代码，
+版本化 JSON 文档保留挂载 ID、子图边界、边类型、条件与端口端口。声明检查不执行宿主代码，
 编译导出只读取已有决定、不重新编译；运行事件与返回值仍然独立。
 schema、历史冻结及静态／动态范围见[结构导出](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/graph_export.md)。
 

@@ -23,15 +23,15 @@ GraphExecutionState
 - `DirectedTopology[NodeT]`
   - 只保存节点与有向边
   - 允许存在环
-  - 提供前驱、后继和从根节点计算可达集合的能力
+  - 提供前驱、后继和从根节点计算可达集合的端口
 - `DAGTopology[NodeT]`
   - 组合一份 `DirectedTopology`
   - 构造时完成无环校验
   - 只有无环拓扑才能产生该类型
 
-这层不认识 `Step`、action、条件、capability 或运行状态，是独立的 Python 通用拓扑 API。
+这层不认识 `Step`、action、条件、port 或运行状态，是独立的 Python 通用拓扑 API。
 执行 `Graph` 的校验不经过它，而是将阻塞关系批量交给 Rust `dag_cycle`；Rust 编译器
-还会校验包含跨子图能力绑定的最终 DAG。两条路径的实现与复杂度见
+还会校验包含跨子图端口绑定的最终 DAG。两条路径的实现与复杂度见
 [拓扑复杂度](./topology_complexity.md)。
 
 ## `Graph`
@@ -45,7 +45,7 @@ GraphExecutionState
 - `label: str | None`
 - `steps: tuple[Step, ...]`
 - `edges: tuple[GraphEdge, ...]`
-- `capabilities: CapabilityInterface`：统一持有输入和输出的只读映射；声明时也可传入
+- `interface: GraphInterface`：统一持有输入和输出的只读映射；声明时也可传入
   内部 Graph，显式转发它的完整接口。
 - `observation: GraphObservationMessages`
 - `static: tuple[StaticConditions, ...]`
@@ -88,7 +88,7 @@ runtime 消费三种 action：
 
 - 同一个 Step 不能在同一张 Graph 中挂载两次
 - 同一个 Step 可以在不同 Graph 中使用不同接线
-- 普通边与结果输入的跨图引用会在 Graph 构造时失败；跨子图同步使用能力端口
+- 普通边与结果输入的跨图引用会在 Graph 构造时失败；跨子图同步使用端口端口
 
 ## 身份与展示
 
@@ -119,7 +119,7 @@ runtime 消费三种 action：
 type GraphEdge = (
     UnconditionalEdge
     | ConditionalEdge
-    | CapabilityBinding
+    | PortConnection
     | ResultEdge
 )
 ```
@@ -164,8 +164,8 @@ archive.wire(
 字符串不能引用 Step。声明图必须直接引用对象，避免 label 同名、重命名或子图作用域
 导致引用歧义。
 
-`CapabilityBinding` 是解析完成后的跨子图能力边。能力接口、任意提供者需求、精确
-提供者需求和 compiled lowering 见 [capabilities.md](./capabilities.md)。
+`PortConnection` 是解析完成后的跨子图端口边。端口接口、任意提供者需求、精确
+提供者需求和 compiled lowering 见 [interfaces.md](./interfaces.md)。
 
 ## 组合 DSL
 
@@ -196,8 +196,8 @@ graph = (
 - `A >> (B | C)`：fan-out
 - `(A | B) >> C`：fan-in
 
-这里的入口、出口是 wiring 的结构边界，不是 `CapabilityInterface` 的具名端口；
-`>>` 不会自动公开或绑定子图的能力接口。
+这里的入口、出口是 wiring 的结构边界，不是 `GraphInterface` 的具名端口；
+`>>` 不会自动公开或绑定子图的端口接口。
 
 已有 Graph 作为 operand 时会被包装成一个 Step，不会自动展开：
 
@@ -221,7 +221,7 @@ child_step = child_graph.step(
 `static.select(cases=(Case(condition, component), ...))` 把全部分支保留在
 `Graph.static_selections` 中，返回 `GraphWiring`。每个分支接收一个完整静态布尔条件，
 编译时要求恰好一个条件成立，不按声明顺序决定优先级。此入口不需要 evaluator；
-DSL、直接 Graph 声明和能力边界见[图内静态选择](./static_selection.md)。
+DSL、直接 Graph 声明和端口边界见[图内静态选择](./static_selection.md)。
 Python 构图时已计算布尔条件，延迟到编译阶段的是唯一选择检查，而不是表达式求值。
 
 ## 构图前静态选择
@@ -291,13 +291,13 @@ selection = Step(select_graph)
 graph = Graph.from_wiring((select_strategy.wire(), selection.wire(inputs={selection.action: (select_strategy,)})))
 ```
 
-这个能力用于先读取运行时结果，再选择下一层结构。父 Step 等待子图整体完成后才完成；
+这个端口用于先读取运行时结果，再选择下一层结构。父 Step 等待子图整体完成后才完成；
 等待期间不占动作名额。线程执行的所有 Python 子图共用一个线程池，异步执行的所有
 子图共用调用方的事件循环。根图、动态子图和 Rust 原生 action 合计受同一
 `workers` / `concurrency` 上限约束；串行执行使用显式栈，不递归调用执行器。
 
 此上限计算正在执行的 Graph 叶子动作，不限制 action 自己启动的线程、子进程或模型
-请求数量。它保持已有的子图边界、结果引用、能力端口和失败传播规则，不会修改已经
+请求数量。它保持已有的子图边界、结果引用、端口端口和失败传播规则，不会修改已经
 声明的图或允许任意向运行中的图插入节点。纯 Python session 不创建空的 Rust 线程池。
 
 ## 条件
@@ -390,7 +390,7 @@ Rust 编译路径会把声明期已知子图转换为统一执行结构：
 
 - 求值静态条件并裁剪未启用节点与边
 - 为挂载节点分配 `StepId` 并解析展示 label
-- 把运行期条件和 capability binding 降级为执行依赖
+- 把运行期条件和 端口连接 降级为执行依赖
 
 - `CompiledStep`
   - 由 Python driver 执行的 Python 叶子
@@ -514,7 +514,7 @@ assert progress.completed == 2
 执行快照。静态子图和 action 动态返回的子图沿用同一引用；每个 action 只增加 O(1)
 引用传递，不复制对象。直接使用串行、线程或异步执行器时，同样可以传 `shared=`。
 
-对象的锁、资源释放和使用寿命由调用方负责；多种共享能力可以组合进一个有类型的
+对象的锁、资源释放和使用寿命由调用方负责；多种共享端口可以组合进一个有类型的
 对象。多次执行若需要隔离，应分别构造共享对象；显式复用同一实例就表示共享。
 共享状态不产生调度依赖，读取若必须等待写入完成，仍须声明边。动态条件只接收只读
 Option 参数，不会因此获得共享状态。此接口不把 Python 对象投影给 Rust 原生 action。
@@ -551,7 +551,7 @@ execution.run()
 
 `event.state_detail` 保存生命周期状态或和类型表达的直接失败／阻断原因，`.state`
 从这一份事实派生，表示这次事件的状态，不是实时状态快照。
-子图、条件、能力边、身份及构造规则见[失败事件](./failure_events.md)。
+子图、条件、端口边、身份及构造规则见[失败事件](./failure_events.md)。
 
 事件回调同步、串行执行，但线程不固定，不保证在协调线程，应保持短小，耗时会计入
 执行时间。回调报错抛出

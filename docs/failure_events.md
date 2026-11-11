@@ -4,7 +4,7 @@ English | [简体中文](./zh-CN/failure_events.md)
 
 Rivlet reports a direct reason that actually made a node fail or become blocked.
 It does not traverse the declaration after execution to guess causes. Python and
-native actions, capability edges, static subgraphs, and returned graphs share
+native actions, port edges, static subgraphs, and returned graphs share
 this model.
 
 ## Event model
@@ -78,7 +78,7 @@ child back to its parent session's step.
 
 When multiple causes suffice, the runtime records one witness observed at the
 transition. This is neither every root cause nor the earliest wall-clock failure.
-A false conditional edge does not propagate its source's failure. A capability
+A false conditional edge does not propagate its source's failure. A port
 provider failing after its ready output cannot retroactively block an already
 released consumer.
 

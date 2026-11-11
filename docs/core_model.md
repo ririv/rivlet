@@ -24,10 +24,10 @@ are assigned when nodes are mounted.
   reachability queries. Cycles are allowed.
 - `DAGTopology[NodeT]`: a directed topology validated as acyclic at construction.
 
-These types do not know about actions, conditions, capabilities, or execution state.
+These types do not know about actions, conditions, ports, or execution state.
 Execution Graph validation uses a separate path: it sends blocking relations to
 Rust `dag_cycle` in a batch. The Rust compiler also validates the final DAG,
-including cross-subgraph capability bindings. See [topology complexity](./topology_complexity.md).
+including cross-subgraph port connections. See [topology complexity](./topology_complexity.md).
 
 ## Graph
 
@@ -36,13 +36,13 @@ Defined in [model.py](../src/rivlet/model.py), `Graph` contains:
 - `label: str | None`
 - `steps: tuple[Step, ...]`
 - `edges: tuple[GraphEdge, ...]`
-- `capabilities: CapabilityInterface`
+- `interface: GraphInterface`
 - `observation: GraphObservationMessages`
 - `static: tuple[StaticConditions, ...]`
 
 It describes an execution DAG and has no `run()` method. Capabilities hold
 read-only input/output mappings. At construction, passing an inner Graph as
-`capabilities` explicitly forwards its entire interface.
+`interface` explicitly forwards its entire interface.
 
 Labels are optional display names, not scheduling identities. An unlabeled root
 is displayed as `<unlabeled>`; an unlabeled nested graph uses its mounting Step's resolved
@@ -78,7 +78,7 @@ Callables are normalized to `LeafAction`. The three action forms are:
 Duplicate labels are legal. Declaration identity is the Step object itself.
 The same Step cannot be mounted twice in one Graph, but can be reused in separate
 Graphs with different wiring. Ordinary edges and result inputs cannot reference
-steps outside their graph; cross-subgraph synchronization uses capability ports.
+steps outside their graph; cross-subgraph synchronization uses interface ports.
 
 ## Identity and presentation
 
@@ -93,7 +93,7 @@ therefore need no fabricated stable label.
 ## Edges and wiring
 
 ```python
-type GraphEdge = UnconditionalEdge | ConditionalEdge | CapabilityBinding | ResultEdge
+type GraphEdge = UnconditionalEdge | ConditionalEdge | PortConnection | ResultEdge
 ```
 
 Ordinary and conditional edges reference actual Step objects:
@@ -130,8 +130,8 @@ archive.wire(
 ```
 
 Strings cannot reference Steps. Object references avoid ambiguity from duplicate
-labels, renaming, and nested scopes. CapabilityBinding represents resolved
-cross-subgraph wiring; see [capabilities](./capabilities.md).
+labels, renaming, and nested scopes. PortConnection represents resolved
+cross-subgraph wiring; see [interfaces](./interfaces.md).
 
 ## Composition DSL
 
@@ -150,8 +150,8 @@ graph = (prepare >> (compile_a | compile_b) >> install).graph()
 - `A | B` combines nodes and edges without adding dependencies.
 - `A >> (B | C)` is fan-out; `(A | B) >> C` is fan-in.
 
-These are wiring boundaries, not named CapabilityInterface ports. The DSL does
-not automatically expose or bind capabilities.
+These are wiring boundaries, not named GraphInterface ports. The DSL does
+not automatically expose or bind ports.
 
 Using an existing Graph as an operand wraps it in a Step and preserves its boundary:
 
@@ -168,7 +168,7 @@ Explicit `Graph.step()` and automatic DSL wrapping use the same semantics.
 `Graph.static_selections` and returns `GraphWiring`. Each condition is a complete
 static bool. Compilation requires exactly one true condition, independent of case
 order; no evaluator is required. See [static selection](./static_selection.md) for
-DSL and direct Graph examples, capability boundaries, and captured boolean inputs.
+DSL and direct Graph examples, port boundaries, and captured boolean inputs.
 
 ## Static selection before construction
 
@@ -244,7 +244,7 @@ loop. Root, runtime-created, and Rust-native actions share the same `workers` or
 executor calls. Python-only sessions create no empty Rust worker pool.
 
 The limit counts active Graph leaf actions, not threads, subprocesses, or requests
-created inside an action. Child boundaries, result scopes, capability ports, and
+created inside an action. Child boundaries, result scopes, interface ports, and
 failure propagation are preserved. This does not permit arbitrary edits to an
 already running graph.
 
@@ -310,7 +310,7 @@ its own event loop.
 
 The compiler in [compile.py](../src/rivlet/compile.py) evaluates static
 conditions, assigns mounted identities and labels, and lowers runtime conditions
-and capability bindings.
+and port connections.
 
 - `CompiledStep`: Python leaf executed by the Python driver.
 - `CompiledNativeStep`: native leaf executed by Rust workers.
@@ -477,7 +477,7 @@ dynamic/compiled presentation mode. Blocked and skipped nodes need no start even
 `event.state_detail` carries lifecycle states or typed direct failure/blockage
 causes; `.state` is derived from that single fact and describes this event, not a
 live snapshot. See [failure events](./failure_events.md) for subgraph,
-condition, capability, identity, and construction rules.
+condition, port, identity, and construction rules.
 
 Callbacks execute synchronously and serially, but are not bound to the coordinator
 thread; keep them short, as their cost is

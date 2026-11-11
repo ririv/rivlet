@@ -16,7 +16,7 @@ from rivlet import Graph, GraphExecution, Step
 - 构图前要求恰好一个结果的静态选择
 - 保留在图声明中、编译时要求唯一成立的静态选择
 - 静态条件、运行时条件和条件边
-- 子图边界与能力端口
+- 子图边界与端口端口
 - 统一 Rust 编译执行路径，以及 dynamic / compiled 两种展示模式
 - 线程与异步调度后端
 - 执行控制、结果读取、观察事件和渲染
@@ -25,7 +25,7 @@ from rivlet import Graph, GraphExecution, Step
 
 - `Graph` 只表达声明结构，单次执行状态由 `GraphExecution` 持有
 - 声明期直接引用 Step 对象，挂载后才分配内部 `StepId`
-- 依赖、条件读取和能力绑定全部显式参与拓扑校验
+- 依赖、条件读取和端口绑定全部显式参与拓扑校验
 - 子图可以组合，但不会被声明 DSL 隐式展开
 - 宿主日志、终端、请求状态和领域流程通过公开端口接入
 - 不读取宿主进程中的隐式全局设施
@@ -41,7 +41,7 @@ from rivlet import Graph, GraphExecution, Step
 - [Python 图与 Rust 原生图](./native-graphs.md)
 - [条件边](./conditional_edges.md)
 - [条件 Step](./conditional_steps.md)
-- [能力依赖与子图端口](./capabilities.md)
+- [端口依赖与子图端口](./interfaces.md)
 - [Rust 架构与语言边界](./rust-architecture.md)
 - [本地开发与检查](./development.md)
 

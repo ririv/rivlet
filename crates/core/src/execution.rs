@@ -74,14 +74,14 @@ pub enum ExecutionNodeKind {
     Composite,
 }
 
-/// A resolved capability connection between two declaration nodes.
+/// A resolved port connection between two declaration nodes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct CapabilityBinding {
+pub struct PortConnection {
     source: NodeId,
     target: NodeId,
 }
 
-impl CapabilityBinding {
+impl PortConnection {
     #[must_use]
     pub const fn new(source: NodeId, target: NodeId) -> Self {
         Self { source, target }
@@ -180,8 +180,8 @@ pub enum ExecutionGraphError {
         condition: ConditionId,
         read: NodeId,
     },
-    UnknownCapabilitySource(NodeId),
-    UnknownCapabilityTarget(NodeId),
+    UnknownPortSource(NodeId),
+    UnknownPortTarget(NodeId),
     OwnershipCycle(Vec<NodeId>),
     DependencyCycle(Vec<NodeId>),
 }
@@ -219,14 +219,14 @@ impl Display for ExecutionGraphError {
                 condition.index(),
                 read.index()
             ),
-            Self::UnknownCapabilitySource(node) => write!(
+            Self::UnknownPortSource(node) => write!(
                 formatter,
-                "execution graph capability has unknown source {}",
+                "execution graph port has unknown source {}",
                 node.index()
             ),
-            Self::UnknownCapabilityTarget(node) => write!(
+            Self::UnknownPortTarget(node) => write!(
                 formatter,
-                "execution graph capability has unknown target {}",
+                "execution graph port has unknown target {}",
                 node.index()
             ),
             Self::OwnershipCycle(cycle) => {
@@ -280,21 +280,21 @@ impl CompiledExecutionGraph {
         Self::lower(nodes, conditions, [])
     }
 
-    /// Lowers resolved capability bindings into ordinary prerequisites, then
+    /// Lowers resolved port connections into ordinary prerequisites, then
     /// validates and indexes the resulting execution graph.
     ///
     /// # Errors
     ///
-    /// Returns [`ExecutionGraphError`] when a capability endpoint or another
+    /// Returns [`ExecutionGraphError`] when a port endpoint or another
     /// structural reference is invalid, or when lowering introduces a cycle.
     pub fn lower(
         nodes: impl IntoIterator<Item = ExecutionNode>,
         conditions: impl IntoIterator<Item = RuntimeCondition>,
-        capability_bindings: impl IntoIterator<Item = CapabilityBinding>,
+        port_connections: impl IntoIterator<Item = PortConnection>,
     ) -> Result<Self, ExecutionGraphError> {
         let mut nodes = nodes.into_iter().collect::<Vec<_>>();
         let conditions = conditions.into_iter().collect::<Vec<_>>();
-        lower_capability_bindings(&mut nodes, capability_bindings)?;
+        lower_port_connections(&mut nodes, port_connections)?;
         validate_condition_reads(nodes.len(), &conditions)?;
 
         let mut roots = Vec::new();
@@ -417,20 +417,20 @@ impl CompiledExecutionGraph {
     }
 }
 
-fn lower_capability_bindings(
+fn lower_port_connections(
     nodes: &mut [ExecutionNode],
-    capability_bindings: impl IntoIterator<Item = CapabilityBinding>,
+    port_connections: impl IntoIterator<Item = PortConnection>,
 ) -> Result<(), ExecutionGraphError> {
     // 仅为能力边实际涉及的目标建立索引，每个目标的原前置只扫描一次。
     // B 条能力边、这些目标原有 P 条前置：平均时间 O(B + P)，空间 O(B + P)。
     // 集合只负责判重；向原 Vec 追加，因此原前置和新增能力边的顺序保持不变。
     let mut required_sources: HashMap<NodeId, HashSet<NodeId>> = HashMap::new();
-    for binding in capability_bindings {
+    for binding in port_connections {
         if binding.source.index() >= nodes.len() {
-            return Err(ExecutionGraphError::UnknownCapabilitySource(binding.source));
+            return Err(ExecutionGraphError::UnknownPortSource(binding.source));
         }
         let Some(target) = nodes.get_mut(binding.target.index()) else {
-            return Err(ExecutionGraphError::UnknownCapabilityTarget(binding.target));
+            return Err(ExecutionGraphError::UnknownPortTarget(binding.target));
         };
         // 零个或一个前置的判重本来就是 O(1)，无需为稀疏目标分配集合。
         // 前置只追加；一旦进入索引路径，后续不会退回此分支。
@@ -523,8 +523,8 @@ fn validated_topology(node_count: usize, arcs: Vec<Arc>) -> DirectedTopology {
 #[cfg(test)]
 mod tests {
     use super::{
-        CapabilityBinding, CompiledExecutionGraph, ConditionId, ExecutionGraphError, ExecutionNode,
-        ExecutionNodeKind, Prerequisite, RuntimeCondition,
+        CompiledExecutionGraph, ConditionId, ExecutionGraphError, ExecutionNode, ExecutionNodeKind,
+        PortConnection, Prerequisite, RuntimeCondition,
     };
     use topology::NodeId;
 
@@ -617,14 +617,14 @@ mod tests {
     }
 
     #[test]
-    fn graph_lowers_capability_binding_to_required_dependency() {
+    fn graph_lowers_port_connection_to_required_dependency() {
         let graph = CompiledExecutionGraph::lower(
             [
                 ExecutionNode::leaf(None, [], None),
                 ExecutionNode::leaf(None, [], None),
             ],
             [],
-            [CapabilityBinding::new(node(0), node(1))],
+            [PortConnection::new(node(0), node(1))],
         )
         .unwrap();
 
@@ -636,7 +636,7 @@ mod tests {
     }
 
     #[test]
-    fn capability_deduplication_preserves_order_and_conditional_dependencies() {
+    fn port_deduplication_preserves_order_and_conditional_dependencies() {
         let conditional = Prerequisite::Conditional {
             node: node(0),
             condition: condition(0),
@@ -651,12 +651,12 @@ mod tests {
             ],
             [RuntimeCondition::new([])],
             [
-                CapabilityBinding::new(node(2), node(3)),
-                CapabilityBinding::new(node(1), node(3)),
-                CapabilityBinding::new(node(0), node(4)),
-                CapabilityBinding::new(node(0), node(3)),
-                CapabilityBinding::new(node(2), node(3)),
-                CapabilityBinding::new(node(0), node(4)),
+                PortConnection::new(node(2), node(3)),
+                PortConnection::new(node(1), node(3)),
+                PortConnection::new(node(0), node(4)),
+                PortConnection::new(node(0), node(3)),
+                PortConnection::new(node(2), node(3)),
+                PortConnection::new(node(0), node(4)),
             ],
         )
         .unwrap();

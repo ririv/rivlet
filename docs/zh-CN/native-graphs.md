@@ -48,7 +48,7 @@ compile = Step(ninja_graph, label="compile")
 graph = (prepare >> compile >> install).graph()
 ```
 
-上例需要单独的实验性 `rivetoo-ninja` 包，不是 Graph 安装自带的能力。
+上例需要单独的实验性 `rivetoo-ninja` 包，不是 Graph 安装自带的端口。
 `import_clean_build_graph` 仅支持选定输出尚不存在的 clean build，不能替代 Ninja 的
 增量构建判定；是否使用该 adapter 由宿主显式选择。
 
@@ -75,7 +75,7 @@ graph = (prepare >> compile >> install).graph()
 
 ## Rust crate 边界
 
-原生能力按职责拆分：
+原生端口按职责拆分：
 
 - `crates/action`：Rust action trait、执行上下文、错误和 worker。
 - `crates/native-graph`：`NativeStep`、graph-owned arcs 与完整 `NativeGraph`。

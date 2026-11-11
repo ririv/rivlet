@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 use crate::execution::{
-    CapabilityBinding, CompiledExecutionGraph, ConditionId, ExecutionGraphError, ExecutionNode,
+    CompiledExecutionGraph, ConditionId, ExecutionGraphError, ExecutionNode, PortConnection,
     Prerequisite, RuntimeCondition,
 };
 use topology::NodeId;
@@ -153,7 +153,7 @@ pub struct ExecutionGraphDeclaration {
     graphs: Vec<DeclaredGraph>,
     nodes: Vec<DeclaredNode>,
     conditions: Vec<RuntimeCondition>,
-    capability_bindings: Vec<CapabilityBinding>,
+    port_connections: Vec<PortConnection>,
 }
 
 impl ExecutionGraphDeclaration {
@@ -162,13 +162,13 @@ impl ExecutionGraphDeclaration {
         graphs: impl IntoIterator<Item = DeclaredGraph>,
         nodes: impl IntoIterator<Item = DeclaredNode>,
         conditions: impl IntoIterator<Item = RuntimeCondition>,
-        capability_bindings: impl IntoIterator<Item = CapabilityBinding>,
+        port_connections: impl IntoIterator<Item = PortConnection>,
     ) -> Self {
         Self {
             graphs: graphs.into_iter().collect(),
             nodes: nodes.into_iter().collect(),
             conditions: conditions.into_iter().collect(),
-            capability_bindings: capability_bindings.into_iter().collect(),
+            port_connections: port_connections.into_iter().collect(),
         }
     }
 
@@ -197,7 +197,7 @@ impl ExecutionGraphDeclaration {
                 }
             }
         });
-        CompiledExecutionGraph::lower(execution_nodes, self.conditions, self.capability_bindings)
+        CompiledExecutionGraph::lower(execution_nodes, self.conditions, self.port_connections)
             .map_err(LoweringError::from)
     }
 }

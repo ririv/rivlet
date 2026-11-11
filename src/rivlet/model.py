@@ -7,8 +7,8 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, TypeGuard
 
 from ._native import NativeGraph, dag_cycle
-from .capability import CapabilitiesInput, CapabilityBinding, CapabilityInterface
 from .errors import GraphError
+from .interface import GraphInterface, GraphInterfaceInput, PortConnection
 from .static import Case, StaticSelection, resolve_selection_bindings
 from .static_conditions import (
     BoundStaticCondition,
@@ -241,7 +241,7 @@ def _validated_blocking_arcs(
         return arc
 
     for edge in edges:
-        if isinstance(edge, CapabilityBinding):
+        if isinstance(edge, PortConnection):
             if edge.source not in known_steps:
                 raise GraphError(
                     f"graph '{graph_label}' has edge from unknown step: {edge.source.label}"
@@ -250,34 +250,32 @@ def _validated_blocking_arcs(
                 raise GraphError(
                     f"graph '{graph_label}' has edge to unknown step: {edge.target.label}"
                 )
-            from .capability import (
-                _require_capability_output,
+            from .interface import (
+                _require_port_output,
             )
 
-            _require_capability_output(edge.source, edge.capability)
+            _require_port_output(edge.source, edge.port)
             consumer_graph = edge.target.action
             if not isinstance(consumer_graph, Graph):
                 raise GraphError(
-                    "capability consumer must be a graph-valued step: "
-                    f"{edge.target.label}"
+                    f"port consumer must be a graph-valued step: {edge.target.label}"
                 )
-            if edge.capability not in consumer_graph.capabilities.inputs:
+            if edge.port not in consumer_graph.interface.inputs:
                 raise GraphError(
-                    f"component {edge.target.label} does not require capability "
-                    f"{edge.capability.name}"
+                    f"component {edge.target.label} does not require port {edge.port}"
                 )
             if isinstance(edge.source.condition, RuntimeCondition):
                 raise GraphError(
-                    f"graph '{graph_label}' capability provider component must not "
+                    f"graph '{graph_label}' port provider component must not "
                     f"have a runtime condition: {edge.source.label}"
                 )
             provider_graph = edge.source.action
             if isinstance(provider_graph, Graph):
-                output = provider_graph.capabilities.outputs[edge.capability]
+                output = provider_graph.interface.outputs[edge.port]
                 if isinstance(output.condition, RuntimeCondition):
                     raise GraphError(
-                        f"graph '{graph_label}' capability output step must not have "
-                        f"a runtime condition: {edge.capability.name}"
+                        f"graph '{graph_label}' port output step must not have "
+                        f"a runtime condition: {edge.port}"
                     )
             continue
 
@@ -404,7 +402,7 @@ class ResultEdge:
     receiver: ResultReceiver
 
 
-type GraphEdge = UnconditionalEdge | ConditionalEdge | CapabilityBinding | ResultEdge
+type GraphEdge = UnconditionalEdge | ConditionalEdge | PortConnection | ResultEdge
 
 
 @dataclass(frozen=True, slots=True)
@@ -446,7 +444,7 @@ class GraphWiring:
         self,
         *,
         label: str | None = None,
-        capabilities: CapabilitiesInput | None = None,
+        interface: GraphInterfaceInput | None = None,
         observation: GraphObservationMessages | None = None,
         static: StaticConditionsInput = (),
         static_selections: tuple[StaticSelection, ...] = (),
@@ -456,7 +454,7 @@ class GraphWiring:
         return Graph.from_wiring(
             self,
             label=label,
-            capabilities=capabilities,
+            interface=interface,
             observation=observation,
             static=static,
             static_selections=static_selections,
@@ -492,7 +490,7 @@ class Graph:
     label: str | None = None
     steps: tuple[Step, ...] = field(default_factory=tuple)
     edges: tuple[GraphEdge, ...] = field(default_factory=tuple)
-    capabilities: CapabilityInterface = field(default_factory=CapabilityInterface)
+    interface: GraphInterface = field(default_factory=GraphInterface)
     observation: GraphObservationMessages = field(
         default_factory=GraphObservationMessages
     )
@@ -510,7 +508,7 @@ class Graph:
         label: str | None = None,
         steps: tuple[Step, ...] = (),
         edges: tuple[GraphEdge, ...] = (),
-        capabilities: CapabilitiesInput | None = None,
+        interface: GraphInterfaceInput | None = None,
         observation: GraphObservationMessages | None = None,
         static: StaticConditionsInput = (),
         static_selections: tuple[StaticSelection, ...] = (),
@@ -520,10 +518,10 @@ class Graph:
         object.__setattr__(self, "edges", edges)
         object.__setattr__(
             self,
-            "capabilities",
-            CapabilityInterface()
-            if capabilities is None
-            else CapabilityInterface.resolve(capabilities),
+            "interface",
+            GraphInterface()
+            if interface is None
+            else GraphInterface.resolve(interface),
         )
         object.__setattr__(
             self,
@@ -547,7 +545,7 @@ class Graph:
                 edge_pairs={
                     (edge.source, edge.target)
                     for edge in self.edges
-                    if not isinstance(edge, CapabilityBinding)
+                    if not isinstance(edge, PortConnection)
                 }
                 if self.static
                 else set(),
@@ -560,7 +558,7 @@ class Graph:
         wiring: GraphWiringInput,
         *,
         label: str | None = None,
-        capabilities: CapabilitiesInput | None = None,
+        interface: GraphInterfaceInput | None = None,
         observation: GraphObservationMessages | None = None,
         static: StaticConditionsInput = (),
         static_selections: tuple[StaticSelection, ...] = (),
@@ -574,7 +572,7 @@ class Graph:
             label=label,
             steps=normalized.steps,
             edges=normalized.edges,
-            capabilities=capabilities,
+            interface=interface,
             observation=(
                 GraphObservationMessages() if observation is None else observation
             ),
@@ -618,7 +616,7 @@ class Graph:
         return tuple(
             edge
             for edge in self.edges
-            if edge.target is step and not isinstance(edge, CapabilityBinding)
+            if edge.target is step and not isinstance(edge, PortConnection)
         )
 
     @property
@@ -638,9 +636,9 @@ class Graph:
             graph_label=graph_label,
         )
         _validate_result_bindings(self.steps, self.edges)
-        _validate_capability_interface(
+        _validate_port_interface(
             steps=self.steps,
-            capabilities=self.capabilities,
+            interface=self.interface,
             graph_label=graph_label,
         )
 
@@ -829,15 +827,15 @@ def _validate_graph_topology(
         raise GraphError(f"graph '{graph_label}' has dependency cycle: {cycle}")
 
 
-def _validate_capability_interface(
+def _validate_port_interface(
     *,
     steps: tuple[Step, ...],
-    capabilities: CapabilityInterface,
+    interface: GraphInterface,
     graph_label: str,
 ) -> None:
     # 一次遍历挂载结构建立计数，避免为每个端口重新扫描全部子图。
     # V 为所有挂载的步骤数，R 为端口引用数：时间 O(V + R)，空间 O(V)。
-    if not capabilities.inputs and not capabilities.outputs:
+    if not interface.inputs and not interface.outputs:
         return
     mount_counts: dict[Step, int] = {}
     pending = list(steps)
@@ -847,30 +845,30 @@ def _validate_capability_interface(
         if isinstance(step.action, Graph):
             pending.extend(step.action.steps)
 
-    for capability, input_steps in capabilities.inputs.items():
+    for port, input_steps in interface.inputs.items():
         for step in input_steps:
             mount_count = mount_counts.get(step, 0)
             if mount_count == 0:
                 raise GraphError(
-                    f"graph '{graph_label}' capability input "
-                    f"'{capability.name}' references a step outside this graph"
+                    f"graph '{graph_label}' port input "
+                    f"'{port}' references a step outside this graph"
                 )
             if mount_count > 1:
                 raise GraphError(
-                    f"graph '{graph_label}' capability input "
-                    f"'{capability.name}' references a step mounted more than once"
+                    f"graph '{graph_label}' port input "
+                    f"'{port}' references a step mounted more than once"
                 )
-    for capability, step in capabilities.outputs.items():
+    for port, step in interface.outputs.items():
         mount_count = mount_counts.get(step, 0)
         if mount_count == 0:
             raise GraphError(
-                f"graph '{graph_label}' capability output "
-                f"'{capability.name}' references a step outside this graph"
+                f"graph '{graph_label}' port output "
+                f"'{port}' references a step outside this graph"
             )
         if mount_count > 1:
             raise GraphError(
-                f"graph '{graph_label}' capability output "
-                f"'{capability.name}' references a step mounted more than once"
+                f"graph '{graph_label}' port output "
+                f"'{port}' references a step mounted more than once"
             )
 
 

@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 
 from rivlet import (
-    Capability,
-    CapabilityBinding,
-    CapabilityInterface,
     Case,
     ConditionalEdge,
     Graph,
+    GraphInterface,
     LeafAction,
+    PortConnection,
     ResultEdge,
     RuntimeCondition,
     StaticCondition,
@@ -106,32 +105,32 @@ def test_same_subgraph_mounts_have_distinct_ids_and_label_paths() -> None:
 
 
 def test_ports_and_binding_refer_to_exact_descendants() -> None:
-    ready = Capability("ready")
+    ready = "ready"
     build = Step(lambda: None, label="build")
     archive = Step(lambda: None, label="archive")
     provider = (
         (build >> archive)
-        .graph(capabilities=CapabilityInterface(outputs={ready: build}))
+        .graph(interface=GraphInterface(outputs={ready: build}))
         .step()
     )
     configure = Step(lambda: None, label="configure")
     consume = Step(lambda: None, label="consume")
     consumer = (
         (configure >> consume)
-        .graph(capabilities=CapabilityInterface(inputs={ready: (configure, consume)}))
+        .graph(interface=GraphInterface(inputs={ready: (configure, consume)}))
         .step()
     )
     graph = Graph(
         steps=(provider, consumer),
-        edges=(CapabilityBinding(provider, consumer, ready),),
+        edges=(PortConnection(provider, consumer, ready),),
     )
     document = export_graph(graph)
-    edge = next(edge for edge in document["edges"] if edge["kind"] == "capability")
+    edge = next(edge for edge in document["edges"] if edge["kind"] == "port")
     assert edge["provider_node"] == "0.0"
     assert edge["consumer_nodes"] == ["1.0", "1.1"]
     assert edge["source"] == "0" and edge["target"] == "1"
     assert document["graphs"][1]["ports"] == [
-        {"kind": "output", "capability": "ready", "node": "0.0"}
+        {"kind": "output", "port": "ready", "node": "0.0"}
     ]
 
 

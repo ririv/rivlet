@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from ..capability import CapabilityBinding
 from ..compile import GraphCompilation, compiled_prerequisite_node
 from ..errors import GraphError
+from ..interface import PortConnection
 from ..model import (
     Graph,
     GraphMode,
@@ -141,9 +141,9 @@ def append_graph_mermaid(
             lines.append(
                 f'{indent}    {node_ids[edge.source]} -->|"{escape_label(result_receiver_label(edge))} input {edge.argument_index}"| {node_ids[edge.target]}'
             )
-        elif isinstance(edge, CapabilityBinding):
+        elif isinstance(edge, PortConnection):
             lines.append(
-                f'{indent}    {node_ids[edge.source]} -->|"{escape_label(edge.capability.name)}"| {node_ids[edge.target]}'
+                f'{indent}    {node_ids[edge.source]} -->|"{escape_label(edge.port)}"| {node_ids[edge.target]}'
             )
         else:
             lines.append(

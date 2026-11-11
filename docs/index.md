@@ -16,7 +16,7 @@ from rivlet import Graph, GraphExecution, Step
 - Exactly-one static selection before graph construction.
 - Graph-internal static selection with exactly one true condition.
 - Static conditions, runtime conditions, and conditional edges.
-- Subgraph boundaries and capability ports.
+- Subgraph boundaries and interface ports.
 - One Rust compilation/execution path with dynamic and compiled presentation modes.
 - Thread-based and async execution drivers.
 - Execution control, results, observation events, and rendering.
@@ -27,7 +27,7 @@ from rivlet import Graph, GraphExecution, Step
 refer directly to Step objects. Internal `StepId` values are assigned to mounted
 nodes, while labels serve presentation only.
 
-Dependencies, result edges, and capability bindings participate explicitly in
+Dependencies, result edges, and port connections participate explicitly in
 topology validation. Composition preserves subgraph boundaries rather than
 silently flattening declarations. Host logging, terminals, request state, and
 domain workflows are connected explicitly, not read from implicit global facilities.
@@ -42,7 +42,7 @@ domain workflows are connected explicitly, not read from implicit global facilit
 - [Python graphs and Rust-native graphs](./native-graphs.md)
 - [Conditional edges](./conditional_edges.md)
 - [Conditional steps](./conditional_steps.md)
-- [Capability dependencies and subgraph ports](./capabilities.md)
+- [port dependencies and subgraph ports](./interfaces.md)
 - [Rust architecture and language boundaries](./rust-architecture.md)
 - [Local development and checks](./development.md)
 

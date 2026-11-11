@@ -76,7 +76,7 @@ again. You can also declare the same wiring without the DSL; see the
 ## Connect subgraphs through input and output ports
 
 Sometimes a downstream workflow needs only one intermediate result, not the
-completion of an entire upstream subgraph. A capability names that readiness
+completion of an entire upstream subgraph. A port names that readiness
 contract. Its output identifies the step that makes it ready; its input identifies
 where the consumer starts needing it.
 
@@ -84,23 +84,23 @@ This complete example connects two otherwise independent subgraphs:
 
 ```python
 from rivlet import (
-    Capability,
-    CapabilityBinding,
-    CapabilityInterface,
+    str,
+    PortConnection,
+    GraphInterface,
     Graph,
     GraphExecution,
     Step,
     ThreadGraphRunOptions,
 )
 
-data_ready = Capability("validated-data")
+data_ready = "validated-data"
 
 fetch = Step(lambda: print("fetch data"), label="fetch")
 validate = Step(lambda: print("validate data"), label="validate")
 archive = Step(lambda: print("archive data"), label="archive")
 producer_graph = (fetch >> validate >> archive).graph(
     label="producer",
-    capabilities=CapabilityInterface(outputs={data_ready: validate}),
+    interface=GraphInterface(outputs={data_ready: validate}),
 )
 
 prepare = Step(lambda: print("prepare consumer"), label="prepare")
@@ -108,7 +108,7 @@ process = Step(lambda: print("process data"), label="process")
 report = Step(lambda: print("report results"), label="report")
 consumer_graph = (prepare >> process >> report).graph(
     label="consumer",
-    capabilities=CapabilityInterface(inputs={data_ready: process}),
+    interface=GraphInterface(inputs={data_ready: process}),
 )
 
 producer = producer_graph.step()
@@ -117,7 +117,7 @@ graph = Graph(
     label="pipeline",
     steps=(producer, consumer),
     edges=(
-        CapabilityBinding(source=producer, target=consumer, capability=data_ready),
+        PortConnection(source=producer, target=consumer, port=data_ready),
     ),
 )
 GraphExecution(graph).run(ThreadGraphRunOptions(workers=3))
@@ -134,7 +134,7 @@ The consumer can prepare immediately. Once validation succeeds, `process` can ru
 without waiting for `archive`, provided its own preparation has also completed.
 The overall execution still waits for both subgraphs to finish.
 
-Matching port names do **not** create dependencies: `CapabilityBinding` explicitly
+Matching port names do **not** create dependencies: `PortConnection` explicitly
 connects this producer and consumer. Ports synchronize readiness; they do not
 transfer Python return values or inspect external data. Use result edges for
 argument passing, and publish an output only when later steps will no longer
@@ -143,7 +143,7 @@ invalidate what the consumer reads.
 This is different from `producer_graph >> consumer_graph`, which waits for the
 entire producer before starting any consumer step. For selecting among providers,
 multiple inputs, and failure behavior, see
-[capability ports](https://github.com/ririv/rivlet/blob/main/docs/capabilities.md).
+[interface ports](https://github.com/ririv/rivlet/blob/main/docs/interfaces.md).
 
 ### Forward an interface when wrapping a subgraph
 
@@ -153,13 +153,13 @@ Using `producer_graph` from the previous example:
 setup = Step(lambda: print("set up producer"), label="setup")
 wrapped = (setup >> producer_graph).graph(
     label="wrapped producer",
-    capabilities=producer_graph,
+    interface=producer_graph,
 )
 ```
 
-`capabilities=producer_graph` explicitly exposes the child's input and output
+`interface=producer_graph` explicitly exposes the child's input and output
 ports on the wrapper. Omit it and the wrapper exposes no ports. You can forward
-only one direction or declare a new interface with `CapabilityInterface`.
+only one direction or declare a new interface with `GraphInterface`.
 
 ## Use conditions
 
@@ -327,7 +327,7 @@ execution.run()  # reuses the same compilation
 ```
 
 The versioned JSON document preserves mounted IDs, subgraph boundaries, typed edges,
-conditions, and capability ports. Declaration inspection evaluates no host code;
+conditions, and interface ports. Declaration inspection evaluates no host code;
 compiled export reads existing decisions without recompiling. Runtime events and
 results stay separate. See [structural export](https://github.com/ririv/rivlet/blob/main/docs/graph_export.md)
 for the schema, historical snapshots, and static/dynamic scope limits.

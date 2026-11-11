@@ -5,8 +5,8 @@ use action::NativeActionHandle;
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::{
-    CapabilityBinding, ConditionId, DeclarationNode, DeclarationPrerequisite, DeclaredGraph,
-    DeclaredNodeKind, GraphDeclaration, GraphId, NodeActivation, NodeId, RuntimeCondition,
+    ConditionId, DeclarationNode, DeclarationPrerequisite, DeclaredGraph, DeclaredNodeKind,
+    GraphDeclaration, GraphId, NodeActivation, NodeId, PortConnection, RuntimeCondition,
 };
 
 use crate::NativeCompiledExecutionGraph;
@@ -22,7 +22,7 @@ type ExportOrigins = (
 struct PythonTypes<'py> {
     graph: Bound<'py, PyAny>,
     conditional_edge: Bound<'py, PyAny>,
-    capability_binding: Bound<'py, PyAny>,
+    port_connection: Bound<'py, PyAny>,
     runtime_condition: Bound<'py, PyAny>,
     result_edge: Bound<'py, PyAny>,
 }
@@ -30,11 +30,11 @@ struct PythonTypes<'py> {
 impl<'py> PythonTypes<'py> {
     fn import(py: Python<'py>) -> PyResult<Self> {
         let model = py.import("rivlet.model")?;
-        let capability = py.import("rivlet.capability")?;
+        let port = py.import("rivlet.interface")?;
         Ok(Self {
             graph: model.getattr("Graph")?,
             conditional_edge: model.getattr("ConditionalEdge")?,
-            capability_binding: capability.getattr("CapabilityBinding")?,
+            port_connection: port.getattr("PortConnection")?,
             runtime_condition: model.getattr("RuntimeCondition")?,
             result_edge: model.getattr("ResultEdge")?,
         })
@@ -82,7 +82,7 @@ struct Collector<'py> {
     activations: Vec<NodeActivation>,
     conditions: Vec<ConditionRecord>,
     runtime_conditions: Vec<RuntimeCondition>,
-    capability_bindings: Vec<CapabilityBinding>,
+    port_connections: Vec<PortConnection>,
     disabled_edges: Vec<(usize, usize)>,
 }
 
@@ -97,7 +97,7 @@ impl<'py> Collector<'py> {
             activations: Vec::new(),
             conditions: Vec::new(),
             runtime_conditions: Vec::new(),
-            capability_bindings: Vec::new(),
+            port_connections: Vec::new(),
             disabled_edges: Vec::new(),
         })
     }
@@ -126,7 +126,7 @@ impl<'py> Collector<'py> {
             graph_owners,
             self.declaration_nodes,
             self.runtime_conditions,
-            self.capability_bindings,
+            self.port_connections,
         )
         .compile()
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
@@ -424,8 +424,8 @@ impl<'py> Collector<'py> {
         let has_static_bindings = static_bindings.len()? != 0;
         for (edge_index, edge) in edges.try_iter()?.enumerate() {
             let edge = edge?;
-            if edge.is_instance(&self.types.capability_binding)? {
-                self.collect_capability_binding(&edge, graph_index)?;
+            if edge.is_instance(&self.types.port_connection)? {
+                self.collect_port_connection(&edge, graph_index)?;
                 continue;
             }
             let source_step = edge.getattr("source")?;
@@ -473,31 +473,31 @@ impl<'py> Collector<'py> {
         Ok(())
     }
 
-    fn collect_capability_binding(
+    fn collect_port_connection(
         &mut self,
         edge: &Bound<'py, PyAny>,
         graph_index: usize,
     ) -> PyResult<()> {
         let provider_component = self.require_local_node(graph_index, &edge.getattr("source")?)?;
         let consumer_component = self.require_local_node(graph_index, &edge.getattr("target")?)?;
-        let capability = edge.getattr("capability")?;
+        let port = edge.getattr("port")?;
         let provider_graph = self.require_child_graph(provider_component)?;
         let consumer_graph = self.require_child_graph(consumer_component)?;
-        let provider_port = require_capability_port(
+        let provider_port = require_interface_port(
             self.graphs[provider_graph].source_graph.bind(self.py),
             "outputs",
-            &capability,
+            &port,
         )?;
-        let consumer_port = require_capability_port(
+        let consumer_port = require_interface_port(
             self.graphs[consumer_graph].source_graph.bind(self.py),
             "inputs",
-            &capability,
+            &port,
         )?;
         let provider = self.require_descendant_node(provider_component, &provider_port)?;
         // 一个公开输入可以约束多个内部步骤；不插入额外的运行时等待节点。
         for step in consumer_port.try_iter()? {
             let consumer = self.require_descendant_node(consumer_component, &step?)?;
-            self.capability_bindings.push(CapabilityBinding::new(
+            self.port_connections.push(PortConnection::new(
                 NodeId::new(provider),
                 NodeId::new(consumer),
             ));
@@ -587,7 +587,7 @@ impl<'py> Collector<'py> {
     fn require_child_graph(&self, node: usize) -> PyResult<usize> {
         self.nodes[node]
             .child_graph
-            .ok_or_else(|| PyValueError::new_err("capability component must contain a graph"))
+            .ok_or_else(|| PyValueError::new_err("port component must contain a graph"))
     }
 
     fn require_descendant_node(
@@ -611,10 +611,10 @@ impl<'py> Collector<'py> {
         match matches.as_slice() {
             [node] => Ok(*node),
             [] => Err(PyValueError::new_err(
-                "capability port references a step outside its component",
+                "port port references a step outside its component",
             )),
             _ => Err(PyValueError::new_err(
-                "capability port references a step mounted more than once",
+                "port port references a step mounted more than once",
             )),
         }
     }
@@ -686,16 +686,16 @@ fn object_key(value: &Bound<'_, PyAny>) -> usize {
     value.as_ptr() as usize
 }
 
-fn require_capability_port<'py>(
+fn require_interface_port<'py>(
     graph: &Bound<'py, PyAny>,
     attribute: &str,
-    capability: &Bound<'py, PyAny>,
+    port: &Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
     // 映射按能力直接查找，平均 O(1)，不再逐端口跨语言扫描。
     graph
-        .getattr("capabilities")?
+        .getattr("interface")?
         .getattr(attribute)?
-        .get_item(capability)
+        .get_item(port)
 }
 
 /// Native compilation plus opaque Python declaration metadata.

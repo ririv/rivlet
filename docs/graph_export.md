@@ -34,7 +34,7 @@ For this example, selected fields are:
 ```json
 {
   "declaration": {
-    "schema_version": 1,
+    "schema_version": 2,
     "view": "declaration",
     "nodes": [{"id": "0", "label": "keep"}, {"id": "1", "label": "drop"}],
     "selections": [{"id": "graph:root/selection:0", "cases": [
@@ -42,7 +42,7 @@ For this example, selected fields are:
     ]}]
   },
   "compiled": {
-    "schema_version": 1,
+    "schema_version": 2,
     "view": "compiled",
     "nodes": [{"id": "0", "label": "keep"}],
     "edges": [],
@@ -83,7 +83,7 @@ One condition object reused at several sites can produce multiple compiled insta
 - Capabilities retain their names and exact input/output node references in `ports`.
   Port forwarding appears on the scope that explicitly exposes it.
 
-Graph labels, node labels, and capability names are deliberately visible. Hosts must
+Graph labels, node labels, and port names are deliberately visible. Hosts must
 not put secrets in these display/contract names. Unnamed nodes use their positional
 IDs; the exporter never obtains a label from callable `repr()`.
 
@@ -96,12 +96,12 @@ Both views retain declaration edge IDs and distinguish:
 | `order` | An explicit completion dependency, without result transfer |
 | `result` | A result argument at `argument_index`, addressed to the action or specific condition instances |
 | `conditional` | A dependency guarded by the referenced runtime condition |
-| `capability` | A binding between mounted components, with `provider_node` and `consumer_nodes` showing exact readiness endpoints |
+| `port` | A binding between mounted components, with `provider_node` and `consumer_nodes` showing exact readiness endpoints |
 
 Compiled `dependencies` is a separate view of the Rust compiler's actual prerequisite
-relationships: `required` or `conditional`. A capability binding can therefore show
+relationships: `required` or `conditional`. A port connection can therefore show
 component `0 → 1` in `edges`, but endpoint `0.0 → 1.1` in `dependencies`; it does not
-make the entire consumer wait for the entire provider. Result and capability provenance
+make the entire consumer wait for the entire provider. Result and port provenance
 is not guessed from `after` or reclassified as order-only edges.
 
 To interpret scheduling, also retain condition `inputs` and scope ownership; the
@@ -115,10 +115,14 @@ example, serialize `export_graph(execution.compile())` before calling `run()`.
 The returned lists/dicts are fresh copies; changing them does not change the graph
 or later exports. JSON serialization freezes their values for that historical record.
 
-`schema_version=1` identifies the document format, not a package version, workflow
+`schema_version=2` identifies the document format, not a package version, workflow
 revision, run ID, or fingerprint. Hosts should store their own run/revision identity
 alongside it. Do not regenerate an old history's topology from today's source graph,
 add nodes that never existed, or relabel unknown historical work as executed.
+
+Version 2 names interface bindings with edge kind `port` and a `port` string
+field. Version 1 used `capability` for both. Consumers must check the schema
+version rather than interpreting the old document as the new format.
 
 Events and execution snapshots remain separate. Join them with the exact frozen
 node ID; do not import arbitrary return values, shared objects, exception messages,

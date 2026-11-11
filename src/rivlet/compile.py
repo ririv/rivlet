@@ -393,7 +393,7 @@ class GraphCompilation:
     ) -> None:
         """Bind opaque Python side tables to a Rust-validated execution graph."""
 
-        # Rust 已经完成声明结构、拓扑、owner、children 与 capability 校验。
+        # Rust 已经完成声明结构、拓扑、owner、children 与 port 校验。
         # Python 这里只验证跨语言侧表仍引用同一批对象，时间与空间均为 O(V)；
         # 不能再把整个编译图重复验证一遍。
         declared_nodes = (*self.steps, *self.composites)

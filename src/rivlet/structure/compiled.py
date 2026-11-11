@@ -99,14 +99,14 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
             if not targets:
                 continue
             edge["receiver"] = {"kind": "condition", "conditions": targets}
-        elif edge["kind"] == "capability":
+        elif edge["kind"] == "port":
             edge["consumer_nodes"] = [
                 consumer for consumer in edge["consumer_nodes"] if consumer in active
             ]
             if not edge["consumer_nodes"]:
                 continue
             if edge["provider_node"] not in active:
-                raise GraphError("compiled capability has no active provider")
+                raise GraphError("compiled port has no active provider")
         exported_edges.append(edge)
     exported_nodes = []
     for node in declaration["nodes"]:
@@ -160,7 +160,7 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
     # V/E/I/P/L 为节点、边、条件实例及其输入引用总数、端口及路径总长度，
     # 时间/空间 O(V + E + I + P + L)，包含同一 predicate 多位置实例化的实际输出量。
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "view": "compiled",
         "root": declaration["root"],
         "parent": declaration["parent"],

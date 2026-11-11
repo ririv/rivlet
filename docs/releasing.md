@@ -37,12 +37,12 @@ Version 0.3.0 adds graph-declared static selection with `static.select()` and
 `Case(condition, component)`. All candidates remain inspectable in the declaration;
 compilation requires exactly one true condition in each active selection. There
 is no branch-order precedence, implicit fallback, or selector action. See
-[static selection](./static_selection.md) for composition and capability boundaries.
+[static selection](./static_selection.md) for composition and port boundaries.
 Existing evaluator-bound `StaticConditions` rules remain available.
 
 The same release adds versioned JSON structural export through `export_graph()`,
 with declaration and compiled views, typed edge provenance, mounted identities,
-capability ports, and explicit static exclusions. GraphExecution prepares one
+interface ports, and explicit static exclusions. GraphExecution prepares one
 successful compilation and reuses it for compile/run/arun; its bindings are frozen.
 Use a new execution for fresh static decisions. See [structural export](./graph_export.md).
 

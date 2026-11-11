@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from ..capability import CapabilityBinding
 from ..compile import (
     CompiledComposite,
     CompiledCompositeRef,
@@ -15,6 +14,7 @@ from ..compile import (
     GraphCompilation,
     compile_graph,
 )
+from ..interface import PortConnection
 from ..model import (
     ConditionalEdge,
     ConditionalPrerequisite,
@@ -117,16 +117,16 @@ def render_selection_suffix(graph: Graph, step: Step) -> str:
     return f" [select: {case.condition}]"
 
 
-def render_graph_capability_suffix(graph: Graph, step: Step) -> str:
+def render_graph_port_suffix(graph: Graph, step: Step) -> str:
     bindings = tuple(
         edge
         for edge in graph.edges
-        if isinstance(edge, CapabilityBinding) and edge.target is step
+        if isinstance(edge, PortConnection) and edge.target is step
     )
     if not bindings:
         return ""
     requirements = ", ".join(
-        f"{edge.capability.name} <- "
+        f"{edge.port} <- "
         f"{'<unlabeled>' if edge.source.label is None else edge.source.label}"
         for edge in bindings
     )

@@ -103,8 +103,8 @@ reuse a child Graph across cases to obtain independent mounts, not implicit node
 merging. Each compilation and mount selects independently, without caching a
 chosen branch in the declaration.
 
-Selection does not automatically expose or forward capability ports.
-Use `case.step` to bind ports explicitly. An active consumer requiring a capability
+Selection does not automatically expose or forward interface ports.
+Use `case.step` to bind ports explicitly. An active consumer requiring a port
 or result from an unselected case causes a compilation error, not silent removal
 of the requirement. Runtime conditions never trigger reselection. Result bindings
 and thread/async execution retain their existing rules.

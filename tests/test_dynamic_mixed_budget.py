@@ -10,12 +10,11 @@ import pytest
 
 from rivlet import (
     AsyncGraphRunOptions,
-    Capability,
-    CapabilityInterface,
     ExactProviderRequirement,
     Graph,
     GraphExecution,
     GraphExecutionState,
+    GraphInterface,
     GraphResultStore,
     Option,
     Step,
@@ -23,7 +22,7 @@ from rivlet import (
     StepExecutionState,
     StepRunContext,
     ThreadGraphRunOptions,
-    resolve_capability_requirements,
+    resolve_port_requirements,
 )
 from rivlet._native import _native_process_graph
 
@@ -101,19 +100,19 @@ change(-1)
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
-def test_runtime_child_preserves_capability_ports_and_ancestor_results(
+def test_runtime_child_preserves_interface_ports_and_ancestor_results(
     asynchronous,
 ) -> None:
     calls = []
     prepared = Step(lambda: "prepared", label="prepared")
-    capability = Capability("ready")
+    port = "ready"
 
     def expand(_ctx: StepRunContext, result: Option[object]) -> Graph:
         source = result.unwrap()
         ready = Step(lambda: calls.append(source), label="ready")
         provider = Graph(
             steps=(ready,),
-            capabilities=CapabilityInterface(outputs={capability: ready}),
+            interface=GraphInterface(outputs={port: ready}),
         ).step()
 
         def consume() -> None:
@@ -123,13 +122,13 @@ def test_runtime_child_preserves_capability_ports_and_ancestor_results(
         use = Step(consume, label="consume")
         consumer = Graph(
             steps=(use,),
-            capabilities=CapabilityInterface(inputs={capability: use}),
+            interface=GraphInterface(inputs={port: use}),
         ).step()
         return Graph(
             steps=(consumer, provider),
-            edges=resolve_capability_requirements(
+            edges=resolve_port_requirements(
                 (provider, consumer),
-                (ExactProviderRequirement(consumer, provider, capability),),
+                (ExactProviderRequirement(consumer, provider, port),),
             ),
         )
 

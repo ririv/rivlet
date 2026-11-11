@@ -6,17 +6,6 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from . import static as static
     from ._native import NativeGraph
-    from .capability import (
-        AnyProviderRequirement,
-        CapabilitiesInput,
-        Capability,
-        CapabilityBinding,
-        CapabilityInterface,
-        CapabilityRequirement,
-        CapabilitySelection,
-        ExactProviderRequirement,
-        resolve_capability_requirements,
-    )
     from .compile import (
         CompiledComposite,
         CompiledCompositeRef,
@@ -53,6 +42,16 @@ if TYPE_CHECKING:
         GraphExecutionOutput,
         NoGraphExecutionOutput,
         TreeFileExecutionOutput,
+    )
+    from .interface import (
+        AnyProviderRequirement,
+        ExactProviderRequirement,
+        GraphInterface,
+        GraphInterfaceInput,
+        PortConnection,
+        PortRequirement,
+        ProviderSelection,
+        resolve_port_requirements,
     )
     from .model import (
         ConditionalEdge,
@@ -166,17 +165,16 @@ _EXPORT_GROUPS = (
         ),
     ),
     (
-        ".capability",
+        ".interface",
         (
-            "CapabilitiesInput",
-            "CapabilityInterface",
-            "Capability",
-            "CapabilityRequirement",
+            "GraphInterfaceInput",
+            "GraphInterface",
+            "PortRequirement",
             "AnyProviderRequirement",
             "ExactProviderRequirement",
-            "CapabilitySelection",
-            "CapabilityBinding",
-            "resolve_capability_requirements",
+            "ProviderSelection",
+            "PortConnection",
+            "resolve_port_requirements",
         ),
     ),
     (
@@ -324,15 +322,14 @@ __all__ = [
     "StepExecutionStateDetail",
     "StepExecutionEvent",
     "StepExecutionState",
-    "CapabilitiesInput",
-    "CapabilityInterface",
-    "Capability",
-    "CapabilityRequirement",
+    "GraphInterfaceInput",
+    "GraphInterface",
+    "PortRequirement",
     "AnyProviderRequirement",
     "ExactProviderRequirement",
-    "CapabilitySelection",
-    "CapabilityBinding",
-    "resolve_capability_requirements",
+    "ProviderSelection",
+    "PortConnection",
+    "resolve_port_requirements",
     "Graph",
     "GraphError",
     "GraphMode",

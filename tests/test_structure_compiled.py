@@ -5,14 +5,13 @@ import json
 import pytest
 
 from rivlet import (
-    Capability,
-    CapabilityBinding,
-    CapabilityInterface,
     Case,
     ConditionalEdge,
     Graph,
     GraphExecution,
+    GraphInterface,
     LeafAction,
+    PortConnection,
     ResultEdge,
     RuntimeCondition,
     StaticCondition,
@@ -119,23 +118,23 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
     ]
 
 
-def test_lowered_capability_dependencies_do_not_wait_for_entire_provider() -> None:
-    ready = Capability("ready")
+def test_lowered_port_dependencies_do_not_wait_for_entire_provider() -> None:
+    ready = "ready"
     build, archive = Step(lambda: None), Step(lambda: None)
     provider = (
         (build >> archive)
-        .graph(capabilities=CapabilityInterface(outputs={ready: build}))
+        .graph(interface=GraphInterface(outputs={ready: build}))
         .step()
     )
     prepare, consume = Step(lambda: None), Step(lambda: None)
     consumer = (
         (prepare >> consume)
-        .graph(capabilities=CapabilityInterface(inputs={ready: consume}))
+        .graph(interface=GraphInterface(inputs={ready: consume}))
         .step()
     )
     graph = Graph(
         steps=(provider, consumer),
-        edges=(CapabilityBinding(provider, consumer, ready),),
+        edges=(PortConnection(provider, consumer, ready),),
     )
     document = export_graph(GraphExecution(graph).compile())
     assert {"kind": "required", "source": "0.0", "target": "1.1"} in document[
@@ -144,7 +143,7 @@ def test_lowered_capability_dependencies_do_not_wait_for_entire_provider() -> No
     assert {"kind": "required", "source": "0", "target": "1"} not in document[
         "dependencies"
     ]
-    edge = next(edge for edge in document["edges"] if edge["kind"] == "capability")
+    edge = next(edge for edge in document["edges"] if edge["kind"] == "port")
     assert edge["provider_node"] == "0.0"
     assert edge["consumer_nodes"] == ["1.1"]
 

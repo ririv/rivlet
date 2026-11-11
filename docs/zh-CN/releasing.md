@@ -17,7 +17,7 @@ macOS arm64（macOS 11 起）与 Windows x86_64（`win_amd64`，MSVC）。同时
 
 ## 版本规则
 
-在 0.x 阶段，新增公开图能力或破坏公开 API 的变更提升次版本；兼容修复提升修订版本。
+在 0.x 阶段，新增公开图端口或破坏公开 API 的变更提升次版本；兼容修复提升修订版本。
 已经发布的产物不能覆盖。
 
 不改变库本身的文档或发行元数据更新，使用 PEP 440 后发行版本，例如
@@ -29,11 +29,11 @@ macOS arm64（macOS 11 起）与 Windows x86_64（`win_amd64`，MSVC）。同时
 
 0.3.0 新增图声明内的静态选择：`static.select()` 与 `Case(condition, component)`。
 所有候选仍保留在声明中供检查；编译要求每个活跃选择恰好一个条件成立，不按分支顺序
-决定优先级，没有隐式兜底，也不增加选择步骤。组合与能力边界见
+决定优先级，没有隐式兜底，也不增加选择步骤。组合与端口边界见
 [静态选择](./static_selection.md)。原有绑定 evaluator 的 `StaticConditions` 规则继续保留。
 
 本版同时增加 `export_graph()` 版本化 JSON 结构导出，区分声明和编译视图，保留边类型来源、
-挂载身份、能力端口及静态排除项。GraphExecution 首次成功编译后由 compile/run/arun
+挂载身份、端口端口及静态排除项。GraphExecution 首次成功编译后由 compile/run/arun
 复用，声明与宿主绑定不可替换；需要重新求静态条件时创建新实例。见[结构导出](./graph_export.md)。
 
 本版不包含 JavaScript、Swift、Java 绑定、跨语言 Action 编排或浏览器支持。

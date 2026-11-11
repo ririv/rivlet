@@ -83,7 +83,7 @@ validated before pruning, so a false static rule cannot legalize a structural cy
 
 ## Capabilities and global compilation
 
-CapabilityBinding validates components and ports at declaration time, but does not
+PortConnection validates components and ports at declaration time, but does not
 become a local blocking arc between composites. The real dependency is from an
 internal provider output to an internal consumer input, located and lowered during
 compilation.
@@ -94,9 +94,9 @@ this costs O(M + R) time and O(M) space. M is not merely the local V above.
 Ambiguous multiply mounted references are errors.
 
 The Rust compiler validates the complete DAG, including known subgraphs,
-composite dependencies, inputs, and lowered capability bindings. For N final nodes
+composite dependencies, inputs, and lowered port connections. For N final nodes
 and L expanded blocking relations, pure DAG validation is O(N + L) in time and
-space. A capability binding can expand to several inputs; count expanded relations,
+space. A port connection can expand to several inputs; count expanded relations,
 not just binding objects.
 
 This is not a blanket O(N + L) promise for the entire compiler. Declaration
@@ -115,12 +115,12 @@ After validation and reachability, compilation chooses its path from the complet
 declaration, not from the root Python Graph.static field:
 
 - If all scopes are reachable, all nodes are active, and all runtime conditions are
-  used, IDs stay unchanged. Conditions and capability bindings move directly into
+  used, IDs stay unchanged. Conditions and port connections move directly into
   hierarchy lowering without compact mappings or copies of condition inputs.
 - Otherwise, projection removes inactive nodes/scopes and unused conditions and
   remaps their references. Inactive ancestors still remove their descendants.
 
-Both paths use the same hierarchy lowering, capability lowering, DAG validation and
+Both paths use the same hierarchy lowering, port lowering, DAG validation and
 execution indexes. False static edges may be filtered without changing node IDs.
 Runtime predicates still run only during execution. The identity test costs
 O(V + E + K), with K runtime conditions, or O(V) when K = 0.
@@ -155,7 +155,7 @@ graph: every timed invocation recompiles it.
 
 ## GraphWiring boundaries
 
-GraphWiring.entries and exits are structural DSL boundaries, not named capability
+GraphWiring.entries and exits are structural DSL boundaries, not named port
 ports or a separately stored topology.
 
 Each calculation reads explicit ordinary, conditional and result edges, and the

@@ -3,7 +3,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 use crate::execution::{
-    CapabilityBinding, CompiledExecutionGraph, ConditionId, Prerequisite, RuntimeCondition,
+    CompiledExecutionGraph, ConditionId, PortConnection, Prerequisite, RuntimeCondition,
 };
 use crate::lowering::{
     DeclaredGraph, DeclaredNode, DeclaredNodeKind, ExecutionGraphDeclaration, GraphId,
@@ -70,7 +70,7 @@ pub struct GraphDeclaration {
     graphs: Vec<DeclaredGraph>,
     nodes: Vec<DeclarationNode>,
     conditions: Vec<RuntimeCondition>,
-    capability_bindings: Vec<CapabilityBinding>,
+    port_connections: Vec<PortConnection>,
 }
 
 impl GraphDeclaration {
@@ -79,13 +79,13 @@ impl GraphDeclaration {
         graphs: impl IntoIterator<Item = DeclaredGraph>,
         nodes: impl IntoIterator<Item = DeclarationNode>,
         conditions: impl IntoIterator<Item = RuntimeCondition>,
-        capability_bindings: impl IntoIterator<Item = CapabilityBinding>,
+        port_connections: impl IntoIterator<Item = PortConnection>,
     ) -> Self {
         Self {
             graphs: graphs.into_iter().collect(),
             nodes: nodes.into_iter().collect(),
             conditions: conditions.into_iter().collect(),
-            capability_bindings: capability_bindings.into_iter().collect(),
+            port_connections: port_connections.into_iter().collect(),
         }
     }
 
@@ -132,7 +132,7 @@ impl GraphDeclaration {
             &condition_mapping,
         )?;
         let projected_bindings =
-            project_capability_bindings(&self.capability_bindings, &active_nodes, &node_mapping)?;
+            project_port_connections(&self.port_connections, &active_nodes, &node_mapping)?;
         let declaration_nodes = active_nodes
             .iter()
             .enumerate()
@@ -194,7 +194,7 @@ impl GraphDeclaration {
                 self.graphs,
                 nodes,
                 self.conditions,
-                self.capability_bindings,
+                self.port_connections,
             ),
             declaration_nodes,
             declaration_conditions,
@@ -278,12 +278,12 @@ pub enum DeclarationError {
         condition: ConditionId,
         read: NodeId,
     },
-    ActiveCapabilityUsesInactiveProvider {
+    ActivePortUsesInactiveProvider {
         source: NodeId,
         target: NodeId,
     },
-    UnknownCapabilitySource(NodeId),
-    UnknownCapabilityTarget(NodeId),
+    UnknownPortSource(NodeId),
+    UnknownPortTarget(NodeId),
     Lowering(LoweringError),
 }
 
@@ -336,20 +336,20 @@ impl Display for DeclarationError {
                 condition.index(),
                 read.index()
             ),
-            Self::ActiveCapabilityUsesInactiveProvider { source, target } => write!(
+            Self::ActivePortUsesInactiveProvider { source, target } => write!(
                 formatter,
-                "active capability consumer {} uses inactive provider {}",
+                "active port consumer {} uses inactive provider {}",
                 target.index(),
                 source.index()
             ),
-            Self::UnknownCapabilitySource(node) => write!(
+            Self::UnknownPortSource(node) => write!(
                 formatter,
-                "graph declaration capability has unknown source {}",
+                "graph declaration port has unknown source {}",
                 node.index()
             ),
-            Self::UnknownCapabilityTarget(node) => write!(
+            Self::UnknownPortTarget(node) => write!(
                 formatter,
-                "graph declaration capability has unknown target {}",
+                "graph declaration port has unknown target {}",
                 node.index()
             ),
             Self::Lowering(error) => Display::fmt(error, formatter),
@@ -444,12 +444,12 @@ fn validate_declaration(declaration: &GraphDeclaration) -> Result<(), Declaratio
             }
         }
     }
-    for binding in &declaration.capability_bindings {
+    for binding in &declaration.port_connections {
         if binding.source().index() >= declaration.nodes.len() {
-            return Err(DeclarationError::UnknownCapabilitySource(binding.source()));
+            return Err(DeclarationError::UnknownPortSource(binding.source()));
         }
         if binding.target().index() >= declaration.nodes.len() {
-            return Err(DeclarationError::UnknownCapabilityTarget(binding.target()));
+            return Err(DeclarationError::UnknownPortTarget(binding.target()));
         }
     }
     Ok(())
@@ -715,23 +715,23 @@ fn project_nodes(
         .collect()
 }
 
-fn project_capability_bindings(
-    bindings: &[CapabilityBinding],
+fn project_port_connections(
+    bindings: &[PortConnection],
     active: &[bool],
     node_mapping: &[Option<usize>],
-) -> Result<Vec<CapabilityBinding>, DeclarationError> {
+) -> Result<Vec<PortConnection>, DeclarationError> {
     let mut projected = Vec::new();
     for binding in bindings {
         if !active[binding.target().index()] {
             continue;
         }
         if !active[binding.source().index()] {
-            return Err(DeclarationError::ActiveCapabilityUsesInactiveProvider {
+            return Err(DeclarationError::ActivePortUsesInactiveProvider {
                 source: binding.source(),
                 target: binding.target(),
             });
         }
-        projected.push(CapabilityBinding::new(
+        projected.push(PortConnection::new(
             NodeId::new(node_mapping[binding.source().index()].expect("active source mapping")),
             NodeId::new(node_mapping[binding.target().index()].expect("active target mapping")),
         ));
@@ -742,7 +742,7 @@ fn project_capability_bindings(
 #[cfg(test)]
 mod tests {
     use super::{DeclarationNode, DeclarationPrerequisite, GraphDeclaration, NodeActivation};
-    use crate::execution::{CapabilityBinding, ConditionId, RuntimeCondition};
+    use crate::execution::{ConditionId, PortConnection, RuntimeCondition};
     use crate::lowering::{DeclaredGraph, DeclaredNodeKind, GraphId};
     use topology::NodeId;
 
@@ -793,12 +793,12 @@ mod tests {
                 ),
             ],
             [RuntimeCondition::new([NodeId::new(1)])],
-            [CapabilityBinding::new(NodeId::new(1), NodeId::new(3))],
+            [PortConnection::new(NodeId::new(1), NodeId::new(3))],
         )
     }
 
     #[test]
-    fn identity_path_matches_projection_with_hierarchy_conditions_and_capabilities() {
+    fn identity_path_matches_projection_with_hierarchy_conditions_and_ports() {
         let declaration = active_hierarchy();
         assert!(super::keeps_all_identities(&declaration));
         let active = super::active_graphs(&declaration).unwrap();
@@ -835,7 +835,7 @@ mod tests {
     fn inactive_parent_removes_active_children() {
         let mut declaration = active_hierarchy();
         declaration.nodes[0].activation = NodeActivation::Inactive;
-        declaration.capability_bindings.clear();
+        declaration.port_connections.clear();
         let active = super::active_graphs(&declaration).unwrap();
         assert_eq!(active.len(), 1);
         assert_eq!(
@@ -930,7 +930,7 @@ mod tests {
                 ),
             ],
             [],
-            [CapabilityBinding::new(NodeId::new(0), NodeId::new(1))],
+            [PortConnection::new(NodeId::new(0), NodeId::new(1))],
         )
         .compile();
 

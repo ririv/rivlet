@@ -11,7 +11,7 @@ Both public modes use the same Rust declaration compiler and execution session:
 - `GraphExecution.run(mode="compiled")` records composites through their dedicated
   entry/completion state. `GraphExecution.compile()` exposes the compiled structure.
 
-Capability bindings use the same lowering in both modes. The runtime consumes
+str bindings use the same lowering in both modes. The runtime consumes
 GraphCompilation, not a second Python scheduling model. Runtime-returned graphs
 enter the same compilation pipeline with their parent StepId, label path, and
 ancestor result scopes.
@@ -159,14 +159,14 @@ The overall run still reports failure.
 - An entered subgraph lets unrelated internal branches finish, then reports
   failure without AFTER_SUCCESS. Work depending on the whole subgraph is blocked.
   If a subgraph is blocked before entry, all descendants are marked blocked.
-- A successful capability output remains ready even if another part of its
+- A successful port output remains ready even if another part of its
   provider subgraph later fails. A failed output blocks its bound inputs, not
   unrelated preparation inside the consumer.
 - Failure in a dynamically returned graph fails its outer action.
 - Python and Rust actions follow the same rules. Native errors and failure states
   cross the boundary in batches, not per-node exception queries.
 
-See [port failure examples](./capabilities.md#failures-at-capability-ports).
+See [port failure examples](./interfaces.md#failures-at-port-ports).
 
 After scheduling finishes, one error is raised through the exception chain with
 its node path; multiple errors are reported together in a Python ExceptionGroup.
@@ -226,7 +226,7 @@ Omitting a label is valid.
 
 Local explicit edges and runtime inputs are projected to integer nodes and blocking
 arcs, then checked by Rust `dag_cycle`, not Python DirectedTopology/DAGTopology.
-Cross-subgraph capability bindings are checked in the final lowered DAG.
+Cross-subgraph port connections are checked in the final lowered DAG.
 See [topology complexity](./topology_complexity.md).
 
 ## Subgraphs and result scopes

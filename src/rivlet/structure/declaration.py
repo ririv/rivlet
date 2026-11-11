@@ -6,8 +6,8 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, assert_never
 
 from .._native import NativeGraph
-from ..capability import CapabilityBinding
 from ..errors import GraphError
+from ..interface import PortConnection
 from ..model import (
     ConditionalEdge,
     Graph,
@@ -55,7 +55,7 @@ class Scope:
     def require_descendant(self, step: Step) -> str:
         matches = self.descendants[step]
         if len(matches) != 1:
-            raise GraphError("exported capability must identify one mounted node")
+            raise GraphError("exported port must identify one mounted node")
         return str(matches[0])
 
 
@@ -87,7 +87,7 @@ def index_declaration(
 ) -> DeclarationIndex:
     root = scope_id(parent)
     document: DeclarationDocument = {
-        "schema_version": 1,
+        "schema_version": 2,
         "view": "declaration",
         "root": root,
         "parent": None if parent is None else str(parent),
@@ -164,17 +164,17 @@ def index_declaration(
                     document["nodes"].append(node)
                 else:
                     assert_never(action)
-            for capability, steps in current.capabilities.inputs.items():
+            for port_name, steps in current.interface.inputs.items():
                 port: InputPortDocument = {
                     "kind": "input",
-                    "capability": capability.name,
+                    "port": port_name,
                     "nodes": [scope.require_descendant(step) for step in steps],
                 }
                 scope_document["ports"].append(port)
-            for capability, step in current.capabilities.outputs.items():
+            for port_name, step in current.interface.outputs.items():
                 output: OutputPortDocument = {
                     "kind": "output",
-                    "capability": capability.name,
+                    "port": port_name,
                     "node": scope.require_descendant(step),
                 }
                 scope_document["ports"].append(output)
@@ -275,7 +275,7 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
                     "conditions": [index.condition_id(target, edge.receiver)],
                 },
             }
-        elif isinstance(edge, CapabilityBinding):
+        elif isinstance(edge, PortConnection):
             provider = index.scopes[scope_id(scope.ids[edge.source])]
             consumer = index.scopes[scope_id(scope.ids[edge.target])]
             provider_graph, consumer_graph = provider.graph, consumer.graph
@@ -283,18 +283,18 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
                 consumer_graph, Graph
             )
             item = {
-                "kind": "capability",
+                "kind": "port",
                 "id": identifier,
                 "graph": scope.id,
                 "source": source,
                 "target": target,
-                "capability": edge.capability.name,
+                "port": edge.port,
                 "provider_node": provider.require_descendant(
-                    provider_graph.capabilities.outputs[edge.capability]
+                    provider_graph.interface.outputs[edge.port]
                 ),
                 "consumer_nodes": [
                     consumer.require_descendant(step)
-                    for step in consumer_graph.capabilities.inputs[edge.capability]
+                    for step in consumer_graph.interface.inputs[edge.port]
                 ],
             }
         else:

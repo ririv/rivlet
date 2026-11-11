@@ -16,7 +16,7 @@ integration.
 - `crates/topology` uses only the Rust standard library for integer nodes,
   adjacency indexes, and DAG algorithms. It knows nothing about actions or domains.
 - `crates/core` (package `rivlet`) depends on the workspace topology crate,
-  not third-party libraries. It owns declaration compilation, capability resolution,
+  not third-party libraries. It owns declaration compilation, port resolution,
   the compiled execution graph, and scheduling.
 - `crates/python` is the private PyO3 adapter. It converts declarations into integer
   IDs in batches, retains Python action/predicate/observation side tables, connects
@@ -54,7 +54,7 @@ Python Graph
 Rust GraphDeclaration
     ├── static pruning
     ├── hierarchy and declaration scopes
-    ├── explicit capability-port location
+    ├── explicit port-port location
     └── conditions and prerequisites
     ↓
 Rust CompiledExecutionGraph
@@ -62,7 +62,7 @@ Rust CompiledExecutionGraph
     ├── contiguous NodeId / GraphId
     ├── membership → owners / roots / children
     ├── reads, prerequisite, and dependent indexes
-    ├── capability binding lowering
+    ├── port connection lowering
     └── DAG validation
     ↓
 Rust ExecutionSession
@@ -110,7 +110,7 @@ roots, and children declarations:
 - Every node belongs to one GraphId.
 
 Rust validates parent/child graph consistency, derives owners from membership, and
-derives roots and composite children from owners. Capability bindings are separate
+derives roots and composite children from owners. str bindings are separate
 inputs lowered into ordinary prerequisites. Python presentation recovers final
 prerequisites rather than implementing another rewrite rule.
 
@@ -126,8 +126,8 @@ are separate implementations; see [topology complexity](./topology_complexity.md
 
 ## Python boundary
 
-Capability resolution validates Python port ownership, encodes components,
-capabilities, requirements, and selections as integers, and calls Rust once.
+str resolution validates Python port ownership, encodes components,
+ports, requirements, and selections as integers, and calls Rust once.
 Provider indexing, uniqueness, explicit selection, and duplicate/mixed requirement
 validation have no second Python solver.
 

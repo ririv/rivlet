@@ -23,7 +23,7 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
 - `crates/core`
   - package 名为 `rivlet`
   - 依赖 workspace 内的 topology，不依赖第三方库
-  - 持有声明编译、编译执行图、能力解析和调度状态机
+  - 持有声明编译、编译执行图、端口解析和调度状态机
 - `crates/python`
   - 私有 Python adapter
   - 独占 PyO3 依赖
@@ -68,7 +68,7 @@ Python Graph 声明
 Rust GraphDeclaration
     ├── 静态节点裁剪
     ├── 层级与声明作用域收集
-    ├── 显式 capability binding 的端口定位
+    ├── 显式 端口连接 的端口定位
     └── 条件与 prerequisite 投影
     │
     ▼
@@ -78,7 +78,7 @@ Rust CompiledExecutionGraph
     ├── graph membership → owner / roots / children
     ├── 条件 reads 与 prerequisite 索引
     ├── dependents 索引
-    ├── capability binding lowering
+    ├── 端口连接 lowering
     └── DAG 校验
     │
     ▼
@@ -109,7 +109,7 @@ Rust 负责。父 action 等待子图期间不占动作名额；Python session �
 事件循环，纯 Python session 不创建空的 Rust worker 池。
 
 `mode="dynamic"` 与 `mode="compiled"` 目前保留的是兼容的展示和 composite 记录语义，
-不再代表两套执行引擎。capability binding 在两种模式下进入同一 lowering。
+不再代表两套执行引擎。端口连接 在两种模式下进入同一 lowering。
 
 ## 运行时实验
 
@@ -127,7 +127,7 @@ Rust lowering 接受图作用域和节点成员关系，而不是同时接受 `o
 
 Rust 会校验 composite 与 child graph 的双向关系，再从 graph membership 派生 node
 owner；roots 和 composite children 最终只从 owner 建立。这样层级关系不会出现三套可
-互相矛盾的声明。定位后的 capability binding 也作为独立结构输入交给 Rust，再由 Rust
+互相矛盾的声明。定位后的 端口连接 也作为独立结构输入交给 Rust，再由 Rust
 lower 为普通 prerequisite；Python 展示模型从 Rust 的最终 prerequisite 恢复，不保留
 另一套改写规则。
 
@@ -152,7 +152,7 @@ Python 通用拓扑 API 与 Rust topology crate 是两套独立实现，详见
 
 ## Python 边界
 
-能力声明先由 Python adapter 验证端口对象确实属于对应子图，再把 component、capability、
+端口声明先由 Python adapter 验证端口对象确实属于对应子图，再把 component、port、
 requirement 与 selection 映射成连续整数 ID。provider 索引、任意 provider 的唯一性、
 显式 provider 选择、重复与混合 requirement 校验均在 Rust 中一次完成；Python 不保留
 第二套 provider 求解规则。
@@ -167,6 +167,6 @@ requirement 与 selection 映射成连续整数 ID。provider 索引、任意 pr
 - Python `GraphCompilation` 只恢复 action、predicate、observe、label path 与结果作用域侧表
 - `GraphExecutionState` 保存可供 Python action 动态写入的 skip、结果与渲染快照
 
-ready 队列、节点状态机、条件阻塞、层级生命周期、执行 DAG 校验、capability provider
+ready 队列、节点状态机、条件阻塞、层级生命周期、执行 DAG 校验、port provider
 求解与 binding lowering 均只有 Rust 一份实现。继续把上述宿主对象包装成原生对象只会
 增加逐对象 FFI，不属于执行图核心迁移。

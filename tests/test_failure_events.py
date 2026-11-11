@@ -15,13 +15,12 @@ from rivlet import (
     BlockedByConditionInput,
     BlockedByDependency,
     BlockedByParent,
-    Capability,
-    CapabilityInterface,
     ConditionalPrerequisite,
     EdgeConditionSite,
     ExactProviderRequirement,
     Graph,
     GraphExecution,
+    GraphInterface,
     GraphMode,
     NodeConditionSite,
     Option,
@@ -33,7 +32,7 @@ from rivlet import (
     StepId,
     SubgraphFailed,
     ThreadGraphRunOptions,
-    resolve_capability_requirements,
+    resolve_port_requirements,
     runtime_condition,
 )
 from rivlet._native import _native_process_graph
@@ -231,25 +230,21 @@ def test_dynamic_failure_chain_preserves_each_session_boundary(
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
-def test_capability_failure_points_to_the_actual_provider_step(
+def test_port_failure_points_to_the_actual_provider_step(
     execute: Execute, mode: GraphMode
 ) -> None:
-    capability = Capability("ready")
+    port = "ready"
     provide, consume = Step(fail), Step(lambda: None)
     provider = Graph(
         steps=(provide,),
-        capabilities=CapabilityInterface(outputs={capability: provide}),
+        interface=GraphInterface(outputs={port: provide}),
     ).step()
     consumer = Graph(
-        steps=(consume,), capabilities=CapabilityInterface(inputs={capability: consume})
+        steps=(consume,), interface=GraphInterface(inputs={port: consume})
     ).step()
-    bindings = resolve_capability_requirements(
+    bindings = resolve_port_requirements(
         (provider, consumer),
-        (
-            ExactProviderRequirement(
-                consumer=consumer, provider=provider, capability=capability
-            ),
-        ),
+        (ExactProviderRequirement(consumer=consumer, provider=provider, port=port),),
     )
     events = Events()
     execute(Graph(steps=(provider, consumer), edges=bindings), events, mode)
@@ -260,23 +255,19 @@ def test_capability_failure_points_to_the_actual_provider_step(
 def test_provider_failure_after_ready_does_not_retroactively_block_consumer(
     execute: Execute, mode: GraphMode
 ) -> None:
-    capability = Capability("ready")
+    port = "ready"
     ready, late_failure, consume = Step(lambda: None), Step(fail), Step(lambda: None)
     provider = (
         (ready >> late_failure)
-        .graph(capabilities=CapabilityInterface(outputs={capability: ready}))
+        .graph(interface=GraphInterface(outputs={port: ready}))
         .step()
     )
     consumer = Graph(
-        steps=(consume,), capabilities=CapabilityInterface(inputs={capability: consume})
+        steps=(consume,), interface=GraphInterface(inputs={port: consume})
     ).step()
-    bindings = resolve_capability_requirements(
+    bindings = resolve_port_requirements(
         (provider, consumer),
-        (
-            ExactProviderRequirement(
-                consumer=consumer, provider=provider, capability=capability
-            ),
-        ),
+        (ExactProviderRequirement(consumer=consumer, provider=provider, port=port),),
     )
     events = Events()
     execution = execute(Graph(steps=(provider, consumer), edges=bindings), events, mode)

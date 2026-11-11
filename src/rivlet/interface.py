@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from ._native import resolve_capability_bindings
+from ._native import resolve_port_connections
 from .errors import GraphError
 
 if TYPE_CHECKING:
@@ -14,64 +14,55 @@ if TYPE_CHECKING:
     from .model import Graph, Step
 
 
-@dataclass(frozen=True, slots=True)
-class Capability:
-    """A named contract that can be required and provided by graph components."""
-
-    name: str
-
-    def __post_init__(self) -> None:
-        if not self.name or self.name != self.name.strip():
-            raise GraphError("capability name must be non-empty and stripped")
+type InterfaceInputs = Mapping[str, Step | tuple[Step, ...]] | Graph
+type InterfaceOutputs = Mapping[str, Step] | Graph
+type GraphInterfaceInput = GraphInterface | Graph
 
 
-type CapabilityInputs = Mapping[Capability, Step | tuple[Step, ...]] | Graph
-type CapabilityOutputs = Mapping[Capability, Step] | Graph
-type CapabilitiesInput = CapabilityInterface | Graph
+def _validate_port_name(name: str) -> None:
+    if not name or name != name.strip():
+        raise GraphError("port name must be non-empty and stripped")
 
 
 @dataclass(frozen=True, slots=True, init=False)
-class CapabilityInterface:
+class GraphInterface:
     """An immutable public interface with explicit input and output forwarding."""
 
-    inputs: Mapping[Capability, tuple[Step, ...]]
-    outputs: Mapping[Capability, Step]
+    inputs: Mapping[str, tuple[Step, ...]]
+    outputs: Mapping[str, Step]
 
     def __init__(
         self,
         *,
-        inputs: CapabilityInputs = MappingProxyType({}),
-        outputs: CapabilityOutputs = MappingProxyType({}),
+        inputs: InterfaceInputs = MappingProxyType({}),
+        outputs: InterfaceOutputs = MappingProxyType({}),
     ) -> None:
         from .model import Graph, Step
 
-        input_mapping = (
-            inputs.capabilities.inputs if isinstance(inputs, Graph) else inputs
-        )
+        input_mapping = inputs.interface.inputs if isinstance(inputs, Graph) else inputs
         output_mapping = (
-            outputs.capabilities.outputs if isinstance(outputs, Graph) else outputs
+            outputs.interface.outputs if isinstance(outputs, Graph) else outputs
         )
         normalized_inputs = {}
         # O(P + R)：P 为端口数，R 为全部输入步骤引用数；复制映射隔离调用方修改。
-        for capability, value in input_mapping.items():
+        for port, value in input_mapping.items():
+            _validate_port_name(port)
             steps = (value,) if isinstance(value, Step) else value
             if not steps:
-                raise GraphError(
-                    f"capability input must reference at least one step: {capability.name}"
-                )
+                raise GraphError(f"port input must reference at least one step: {port}")
             if len(set(steps)) != len(steps):
-                raise GraphError(
-                    f"capability input contains duplicate steps: {capability.name}"
-                )
-            normalized_inputs[capability] = steps
+                raise GraphError(f"port input contains duplicate steps: {port}")
+            normalized_inputs[port] = steps
+        for port in output_mapping:
+            _validate_port_name(port)
         object.__setattr__(self, "inputs", MappingProxyType(normalized_inputs))
         object.__setattr__(self, "outputs", MappingProxyType(dict(output_mapping)))
 
     @classmethod
-    def resolve(cls, value: CapabilitiesInput) -> CapabilityInterface:
+    def resolve(cls, value: GraphInterfaceInput) -> GraphInterface:
         from .model import Graph
 
-        return value.capabilities if isinstance(value, Graph) else value
+        return value.interface if isinstance(value, Graph) else value
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +70,10 @@ class AnyProviderRequirement:
     """A consumer requirement that does not name its concrete provider."""
 
     consumer: Step
-    capability: Capability
+    port: str
+
+    def __post_init__(self) -> None:
+        _validate_port_name(self.port)
 
 
 @dataclass(frozen=True, slots=True)
@@ -88,14 +82,17 @@ class ExactProviderRequirement:
 
     consumer: Step
     provider: Step
-    capability: Capability
+    port: str
+
+    def __post_init__(self) -> None:
+        _validate_port_name(self.port)
 
 
-type CapabilityRequirement = AnyProviderRequirement | ExactProviderRequirement
+type PortRequirement = AnyProviderRequirement | ExactProviderRequirement
 
 
 @dataclass(frozen=True, slots=True)
-class CapabilitySelection:
+class ProviderSelection:
     """A deterministic provider selection for an any-provider requirement."""
 
     requirement: AnyProviderRequirement
@@ -103,21 +100,24 @@ class CapabilitySelection:
 
 
 @dataclass(frozen=True, slots=True)
-class CapabilityBinding:
-    """A resolved capability edge between two mounted graph components."""
+class PortConnection:
+    """A resolved port connection between two mounted graph components."""
 
     source: Step
     target: Step
-    capability: Capability
+    port: str
+
+    def __post_init__(self) -> None:
+        _validate_port_name(self.port)
 
 
-def resolve_capability_requirements(
+def resolve_port_requirements(
     components: Iterable[Step],
-    requirements: Iterable[CapabilityRequirement],
+    requirements: Iterable[PortRequirement],
     *,
-    selections: Iterable[CapabilitySelection] = (),
-) -> tuple[CapabilityBinding, ...]:
-    """Resolve symbolic requirements into deterministic provider bindings."""
+    selections: Iterable[ProviderSelection] = (),
+) -> tuple[PortConnection, ...]:
+    """Resolve symbolic requirements into deterministic port connections."""
 
     mounted_components = tuple(components)
     mounted_set = set(mounted_components)
@@ -130,12 +130,12 @@ def resolve_capability_requirements(
     declared_requirements = tuple(requirements)
     declared_selections = tuple(selections)
 
-    capabilities: dict[Capability, int] = {}
+    ports: dict[str, int] = {}
     for graph in component_graphs:
-        for capability in graph.capabilities.outputs:
-            capabilities.setdefault(capability, len(capabilities))
+        for port in graph.interface.outputs:
+            ports.setdefault(port, len(ports))
     for requirement in declared_requirements:
-        capabilities.setdefault(requirement.capability, len(capabilities))
+        ports.setdefault(requirement.port, len(ports))
 
     any_requirements: list[tuple[int, int, int]] = []
     exact_requirements: list[tuple[int, int, int, int]] = []
@@ -145,19 +145,19 @@ def resolve_capability_requirements(
             mounted_set,
             role="consumer",
         )
-        _require_declared_capability_input(
+        _require_declared_port_input(
             requirement.consumer,
-            requirement.capability,
+            requirement.port,
         )
         match requirement:
             case ExactProviderRequirement(provider=provider):
                 _require_mounted_component(provider, mounted_set, role="provider")
-                _require_capability_output(provider, requirement.capability)
+                _require_port_output(provider, requirement.port)
                 exact_requirements.append(
                     (
                         index,
                         component_indexes[requirement.consumer],
-                        capabilities[requirement.capability],
+                        ports[requirement.port],
                         component_indexes[provider],
                     )
                 )
@@ -166,7 +166,7 @@ def resolve_capability_requirements(
                     (
                         index,
                         component_indexes[requirement.consumer],
-                        capabilities[requirement.capability],
+                        ports[requirement.port],
                     )
                 )
 
@@ -178,11 +178,10 @@ def resolve_capability_requirements(
         for selection in declared_selections
     ]
     component_outputs = [
-        [capabilities[capability] for capability in graph.capabilities.outputs]
-        for graph in component_graphs
+        [ports[port] for port in graph.interface.outputs] for graph in component_graphs
     ]
     try:
-        resolved = resolve_capability_bindings(
+        resolved = resolve_port_connections(
             component_outputs,
             len(declared_requirements),
             any_requirements,
@@ -192,19 +191,19 @@ def resolve_capability_requirements(
     except ValueError as error:
         raise GraphError(str(error)) from error
 
-    capabilities_by_index = tuple(capabilities)
+    ports_by_index = tuple(ports)
     return tuple(
-        CapabilityBinding(
+        PortConnection(
             source=mounted_components[provider],
             target=mounted_components[consumer],
-            capability=capabilities_by_index[capability],
+            port=ports_by_index[port],
         )
-        for provider, consumer, capability in resolved
+        for provider, consumer, port in resolved
     )
 
 
 def _requirement_index(
-    requirements: tuple[CapabilityRequirement, ...],
+    requirements: tuple[PortRequirement, ...],
     selected: AnyProviderRequirement,
 ) -> int:
     for index, requirement in enumerate(requirements):
@@ -222,8 +221,7 @@ def _require_mounted_component(
 ) -> None:
     if component not in mounted_components:
         raise GraphError(
-            f"capability {role} is not mounted in this composition: "
-            f"{_step_label(component)}"
+            f"port {role} is not mounted in this composition: {_step_label(component)}"
         )
 
 
@@ -232,36 +230,29 @@ def _require_component_graph(component: Step) -> Graph:
 
     if not isinstance(component.action, Graph):
         raise GraphError(
-            "capability component must be a graph-valued step: "
-            f"{_step_label(component)}"
+            f"port component must be a graph-valued step: {_step_label(component)}"
         )
     return component.action
 
 
-def _require_declared_capability_input(
+def _require_declared_port_input(
     component: Step,
-    capability: Capability,
+    port: str,
 ) -> None:
     graph = _require_component_graph(component)
-    if capability in graph.capabilities.inputs:
+    if port in graph.interface.inputs:
         return
-    raise GraphError(
-        f"component {_step_label(component)} does not require capability "
-        f"{capability.name}"
-    )
+    raise GraphError(f"component {_step_label(component)} does not require port {port}")
 
 
-def _require_capability_output(
+def _require_port_output(
     component: Step,
-    capability: Capability,
+    port: str,
 ) -> Step:
     graph = _require_component_graph(component)
-    if capability in graph.capabilities.outputs:
-        return graph.capabilities.outputs[capability]
-    raise GraphError(
-        f"component {_step_label(component)} does not provide capability "
-        f"{capability.name}"
-    )
+    if port in graph.interface.outputs:
+        return graph.interface.outputs[port]
+    raise GraphError(f"component {_step_label(component)} does not provide port {port}")
 
 
 def _step_label(step: Step) -> str:

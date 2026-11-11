@@ -10,13 +10,13 @@
   - `GraphExecution.run(mode="dynamic")`
   - 使用 Rust 声明编译器和 Rust execution session
   - 为兼容结构视图，composite 同时记录到 `executed_steps/completed_steps`
-  - capability binding 与 compiled 模式使用同一 lowering
+  - 端口连接 与 compiled 模式使用同一 lowering
 - compiled
   - `GraphExecution.compile()`
   - `GraphExecution.run(mode="compiled")`
   - 使用同一个 Rust 声明编译器和 Rust execution session
   - composite 只记录专门的进入与完成状态
-  - 支持 capability binding lowering
+  - 支持 端口连接 lowering
 
 正式 runtime 只接收 `GraphCompilation`。action 在运行期返回的 `Graph` 会携带父
 step id、label path 与父结果作用域，再进入同一个编译执行流程。
@@ -183,13 +183,13 @@ C（成功）→ D（继续执行）
   条件函数自身抛错时，相关节点被阻断，不会读取缺失的 action 结果。
 - 已进入的子图让内部无关分支执行完，再汇总为失败；不会触发 `AFTER_SUCCESS`。
   依赖整个子图的节点被阻断。尚未进入就被阻断的子图，其全部后代也标记为 `blocked`。
-- 能力端口遵循实际接线：出口步骤已成功，则该能力仍就绪，不因其子图内其他步骤失败而撤销。
+- 端口端口遵循实际接线：出口步骤已成功，则该端口仍就绪，不因其子图内其他步骤失败而撤销。
   如果出口失败，消费它的入口被阻断；消费者子图内不依赖该入口的准备工作仍可执行。
 - 动态 action 返回的子图使用相同规则；其失败最终使外层 action 失败。
 - Python action 与 Rust action 共享以上语义。Rust 批量回传失败状态和错误，不增加逐节点异常查询。
 
 包含多个出入口、出口提前就绪和整个子图依赖的对比，见
-[能力依赖：出入口遇到失败时](./capabilities.md#出入口遇到失败时)。
+[端口依赖：出入口遇到失败时](./interfaces.md#出入口遇到失败时)。
 
 调度结束后，单个错误沿现有异常链抛出并保留节点路径，多个错误用 Python `ExceptionGroup`
 一起报告；被阻断的节点不制造重复异常。执行快照的 `node_failures` 保存
@@ -263,7 +263,7 @@ action 日志端口。需要日志或执行视图时，宿主必须显式传入�
 
 Graph 将本层显式边和运行时条件读取投影为整数节点与阻塞边，批量交给 Rust
 `dag_cycle` 检查；不是调用 Python 的 `DirectedTopology` / `DAGTopology`。
-跨子图能力绑定在编译时 lower 后再做全局 DAG 校验，详见
+跨子图端口绑定在编译时 lower 后再做全局 DAG 校验，详见
 [拓扑复杂度](./topology_complexity.md)。
 
 ## 子图语义

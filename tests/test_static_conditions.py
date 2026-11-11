@@ -3,13 +3,12 @@ from __future__ import annotations
 import pytest
 
 from rivlet import (
-    Capability,
-    CapabilityInterface,
     ConditionalEdge,
     ExactProviderRequirement,
     Graph,
     GraphError,
     GraphExecution,
+    GraphInterface,
     GraphMode,
     ResultEdge,
     StaticCondition,
@@ -19,7 +18,7 @@ from rivlet import (
     UnconditionalEdge,
     compile_graph,
     render_graph,
-    resolve_capability_requirements,
+    resolve_port_requirements,
     runtime_condition,
 )
 
@@ -178,23 +177,19 @@ def test_static_rules_validate_graph_membership_and_reject_overrides() -> None:
         Graph(steps=(first,), static=(static, static))
 
 
-def test_static_pruning_does_not_silently_drop_required_capability() -> None:
-    ready = Capability("ready")
+def test_static_pruning_does_not_silently_drop_required_port() -> None:
+    ready = "ready"
     produce = Step(lambda: None)
     consume = Step(lambda: None)
     provider = Graph(
-        steps=(produce,), capabilities=CapabilityInterface(outputs={ready: produce})
+        steps=(produce,), interface=GraphInterface(outputs={ready: produce})
     ).step()
     consumer = Graph(
-        steps=(consume,), capabilities=CapabilityInterface(inputs={ready: consume})
+        steps=(consume,), interface=GraphInterface(inputs={ready: consume})
     ).step()
-    bindings = resolve_capability_requirements(
+    bindings = resolve_port_requirements(
         (provider, consumer),
-        (
-            ExactProviderRequirement(
-                consumer=consumer, provider=provider, capability=ready
-            ),
-        ),
+        (ExactProviderRequirement(consumer=consumer, provider=provider, port=ready),),
     )
     graph = Graph(
         steps=(provider, consumer),

@@ -10,12 +10,11 @@ use events::{EncodedEvent, encode_event};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::{
-    Arc as TopologyArc, CapabilityBinding, CapabilityId, CapabilityRequirement,
-    CompiledExecutionGraph as CoreCompiledExecutionGraph, ComponentId, ConditionId,
-    ConditionResolution, DagTopology, DeclaredGraph, DeclaredNode, DirectedTopology,
+    Arc as TopologyArc, CompiledExecutionGraph as CoreCompiledExecutionGraph, ComponentId,
+    ConditionId, ConditionResolution, DagTopology, DeclaredGraph, DeclaredNode, DirectedTopology,
     ExecutionBatch, ExecutionGraphDeclaration, ExecutionSession, ExecutionUpdate, GraphId, NodeId,
-    Prerequisite, ProviderSelection, RequirementId, RuntimeCondition, SessionStatus, TopologyError,
-    resolve_capabilities,
+    PortConnection, PortId, PortRequirement, Prerequisite, ProviderSelection, RequirementId,
+    RuntimeCondition, SessionStatus, TopologyError, resolve_ports,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -123,9 +122,9 @@ fn dag_cycle(node_count: usize, arcs: Vec<(usize, usize)>) -> PyResult<Option<Ve
     }
 }
 
-/// Resolves one complete execution-graph capability declaration in Rust.
+/// Resolves one complete execution-graph port declaration in Rust.
 #[pyfunction]
-fn resolve_capability_bindings(
+fn resolve_port_connections(
     component_outputs: Vec<Vec<usize>>,
     requirement_count: usize,
     any_requirements: Vec<(usize, usize, usize)>,
@@ -133,23 +132,23 @@ fn resolve_capability_bindings(
     selections: Vec<(usize, usize)>,
 ) -> PyResult<Vec<(usize, usize, usize)>> {
     let mut requirements = vec![None; requirement_count];
-    for (requirement, consumer, capability) in any_requirements {
+    for (requirement, consumer, port) in any_requirements {
         set_requirement(
             &mut requirements,
             requirement,
-            CapabilityRequirement::Any {
+            PortRequirement::Any {
                 consumer: ComponentId::new(consumer),
-                capability: CapabilityId::new(capability),
+                port: PortId::new(port),
             },
         )?;
     }
-    for (requirement, consumer, capability, provider) in exact_requirements {
+    for (requirement, consumer, port, provider) in exact_requirements {
         set_requirement(
             &mut requirements,
             requirement,
-            CapabilityRequirement::Exact {
+            PortRequirement::Exact {
                 consumer: ComponentId::new(consumer),
-                capability: CapabilityId::new(capability),
+                port: PortId::new(port),
                 provider: ComponentId::new(provider),
             },
         )?;
@@ -160,14 +159,14 @@ fn resolve_capability_bindings(
         .map(|(index, requirement)| {
             requirement.ok_or_else(|| {
                 PyValueError::new_err(format!(
-                    "capability requirement declaration is missing index {index}"
+                    "port requirement declaration is missing index {index}"
                 ))
             })
         })
         .collect::<PyResult<Vec<_>>>()?;
     let component_outputs = component_outputs
         .into_iter()
-        .map(|outputs| outputs.into_iter().map(CapabilityId::new).collect())
+        .map(|outputs| outputs.into_iter().map(PortId::new).collect())
         .collect::<Vec<_>>();
     let selections = selections
         .into_iter()
@@ -176,7 +175,7 @@ fn resolve_capability_bindings(
         })
         .collect::<Vec<_>>();
 
-    resolve_capabilities(&component_outputs, &requirements, &selections)
+    resolve_ports(&component_outputs, &requirements, &selections)
         .map_err(|error| PyValueError::new_err(error.to_string()))
         .map(|bindings| {
             bindings
@@ -185,7 +184,7 @@ fn resolve_capability_bindings(
                     (
                         binding.provider.index(),
                         binding.consumer.index(),
-                        binding.capability.index(),
+                        binding.port.index(),
                     )
                 })
                 .collect()
@@ -193,18 +192,18 @@ fn resolve_capability_bindings(
 }
 
 fn set_requirement(
-    requirements: &mut [Option<CapabilityRequirement>],
+    requirements: &mut [Option<PortRequirement>],
     index: usize,
-    requirement: CapabilityRequirement,
+    requirement: PortRequirement,
 ) -> PyResult<()> {
     let Some(slot) = requirements.get_mut(index) else {
         return Err(PyValueError::new_err(format!(
-            "capability requirement has unknown index {index}"
+            "port requirement has unknown index {index}"
         )));
     };
     if slot.replace(requirement).is_some() {
         return Err(PyValueError::new_err(format!(
-            "capability requirement index is declared more than once: {index}"
+            "port requirement index is declared more than once: {index}"
         )));
     }
     Ok(())
@@ -220,7 +219,7 @@ impl NativeCompiledExecutionGraph {
         prerequisites: Vec<Vec<(usize, Option<usize>)>>,
         node_conditions: Vec<Option<usize>>,
         condition_reads: Vec<Vec<usize>>,
-        capability_bindings: Vec<(usize, usize)>,
+        port_connections: Vec<(usize, usize)>,
     ) -> PyResult<Self> {
         let node_count = node_graphs.len();
         if prerequisites.len() != node_count || node_conditions.len() != node_count {
@@ -277,10 +276,10 @@ impl NativeCompiledExecutionGraph {
         let conditions = condition_reads
             .into_iter()
             .map(|reads| RuntimeCondition::new(reads.into_iter().map(NodeId::new)));
-        let capability_bindings = capability_bindings.into_iter().map(|(source, target)| {
-            CapabilityBinding::new(NodeId::new(source), NodeId::new(target))
-        });
-        let graph = ExecutionGraphDeclaration::new(graphs, nodes, conditions, capability_bindings)
+        let port_connections = port_connections
+            .into_iter()
+            .map(|(source, target)| PortConnection::new(NodeId::new(source), NodeId::new(target)));
+        let graph = ExecutionGraphDeclaration::new(graphs, nodes, conditions, port_connections)
             .lower()
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         Ok(Self {
@@ -376,7 +375,7 @@ fn node_indexes(nodes: &[NodeId]) -> Vec<usize> {
 #[allow(clippy::unnecessary_wraps)]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(dag_cycle, module)?)?;
-    module.add_function(wrap_pyfunction!(resolve_capability_bindings, module)?)?;
+    module.add_function(wrap_pyfunction!(resolve_port_connections, module)?)?;
     module.add_function(wrap_pyfunction!(declaration::compile_declaration, module)?)?;
     module.add_function(wrap_pyfunction!(experiment::run_tokio_callbacks, module)?)?;
     module.add_function(wrap_pyfunction!(

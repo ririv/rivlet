@@ -8,8 +8,6 @@ import pytest
 
 from rivlet import (
     AsyncGraphRunOptions,
-    Capability,
-    CapabilityInterface,
     ConditionalPrerequisite,
     ExactProviderRequirement,
     Graph,
@@ -17,6 +15,7 @@ from rivlet import (
     GraphExecutionControl,
     GraphExecutionState,
     GraphExecutionStopped,
+    GraphInterface,
     GraphNodeFailure,
     ResultEdge,
     SerialGraphExecutor,
@@ -27,7 +26,7 @@ from rivlet import (
     compile_graph,
     render_graph_execution,
     render_live_graph_execution,
-    resolve_capability_requirements,
+    resolve_port_requirements,
     runtime_condition,
 )
 from rivlet._native import _native_process_graph
@@ -181,27 +180,23 @@ def test_inactive_conditional_edge_does_not_propagate_failure(execute):
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
-def test_capability_success_survives_failure_in_another_subgraph_branch(mode):
+def test_port_success_survives_failure_in_another_subgraph_branch(mode):
     calls = []
     ready = Step(lambda: calls.append("ready"))
-    capability = Capability("ready")
+    port = "ready"
     provider = Graph(
         steps=(Step(fail), ready),
-        capabilities=CapabilityInterface(outputs={capability: ready}),
+        interface=GraphInterface(outputs={port: ready}),
     ).step(label="provider")
     consume = Step(lambda: calls.append("consume"))
     consumer = Graph(
         steps=(consume,),
-        capabilities=CapabilityInterface(inputs={capability: consume}),
+        interface=GraphInterface(inputs={port: consume}),
     ).step(label="consumer")
     whole = Step(lambda: calls.append("wrong-whole"))
-    bindings = resolve_capability_requirements(
+    bindings = resolve_port_requirements(
         (provider, consumer),
-        (
-            ExactProviderRequirement(
-                consumer=consumer, provider=provider, capability=capability
-            ),
-        ),
+        (ExactProviderRequirement(consumer=consumer, provider=provider, port=port),),
     )
     graph = Graph(
         steps=(provider, consumer, whole),
@@ -233,27 +228,27 @@ def test_blocked_composite_marks_descendants_without_entering_them(execute):
     )
 
 
-def test_failed_capability_blocks_input_but_not_consumer_preparation(execute):
+def test_failed_port_blocks_input_but_not_consumer_preparation(execute):
     calls = []
-    capability = Capability("ready")
+    port = "ready"
     ready = Step(fail)
     provider = Graph(
-        steps=(ready,), capabilities=CapabilityInterface(outputs={capability: ready})
+        steps=(ready,), interface=GraphInterface(outputs={port: ready})
     ).step()
     prepare = Step(lambda: calls.append("prepare"))
     consume = Step(lambda: calls.append("wrong"))
     consumer = (
         (prepare >> consume)
-        .graph(capabilities=CapabilityInterface(inputs={capability: consume}))
+        .graph(interface=GraphInterface(inputs={port: consume}))
         .step()
     )
     graph = Graph(
         steps=(provider, consumer),
-        edges=resolve_capability_requirements(
+        edges=resolve_port_requirements(
             (provider, consumer),
             (
                 ExactProviderRequirement(
-                    consumer=consumer, provider=provider, capability=capability
+                    consumer=consumer, provider=provider, port=port
                 ),
             ),
         ),

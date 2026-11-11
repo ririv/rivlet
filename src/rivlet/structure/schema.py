@@ -41,22 +41,19 @@ class ResultEdgeDocument(TypedDict):
     argument_index: int
 
 
-class CapabilityEdgeDocument(TypedDict):
-    kind: Literal["capability"]
+class PortEdgeDocument(TypedDict):
+    kind: Literal["port"]
     id: str
     graph: str
     source: str
     target: str
-    capability: str
+    port: str
     provider_node: str
     consumer_nodes: list[str]
 
 
 type EdgeDocument = (
-    OrderEdgeDocument
-    | ConditionalEdgeDocument
-    | ResultEdgeDocument
-    | CapabilityEdgeDocument
+    OrderEdgeDocument | ConditionalEdgeDocument | ResultEdgeDocument | PortEdgeDocument
 )
 
 
@@ -85,13 +82,13 @@ type NodeDocument = StepDocument | SubgraphDocument
 
 class InputPortDocument(TypedDict):
     kind: Literal["input"]
-    capability: str
+    port: str
     nodes: list[str]
 
 
 class OutputPortDocument(TypedDict):
     kind: Literal["output"]
-    capability: str
+    port: str
     node: str
 
 
@@ -152,7 +149,7 @@ class ConditionalDependencyDocument(TypedDict):
 
 
 class DeclarationDocument(TypedDict):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     view: Literal["declaration"]
     root: str
     parent: str | None
@@ -165,7 +162,7 @@ class DeclarationDocument(TypedDict):
 
 
 class CompilationDocument(TypedDict):
-    schema_version: Literal[1]
+    schema_version: Literal[2]
     view: Literal["compiled"]
     root: str
     parent: str | None

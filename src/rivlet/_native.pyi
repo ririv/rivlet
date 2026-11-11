@@ -33,7 +33,7 @@ def dag_cycle(
     node_count: int,
     arcs: list[tuple[int, int]],
 ) -> list[int] | None: ...
-def resolve_capability_bindings(
+def resolve_port_connections(
     component_outputs: list[list[int]],
     requirement_count: int,
     any_requirements: list[tuple[int, int, int]],
@@ -97,7 +97,7 @@ class NativeCompiledExecutionGraph:
         prerequisites: list[list[tuple[int, int | None]]],
         node_conditions: list[int | None],
         condition_reads: list[list[int]],
-        capability_bindings: list[tuple[int, int]],
+        port_connections: list[tuple[int, int]],
     ) -> None: ...
     def roots(self) -> list[int]: ...
     def children(self, node: int) -> list[int]: ...

@@ -34,7 +34,7 @@ assert execution.compilation is prepared
 ```json
 {
   "declaration": {
-    "schema_version": 1,
+    "schema_version": 2,
     "view": "declaration",
     "nodes": [{"id": "0", "label": "keep"}, {"id": "1", "label": "drop"}],
     "selections": [{"id": "graph:root/selection:0", "cases": [
@@ -42,7 +42,7 @@ assert execution.compilation is prepared
     ]}]
   },
   "compiled": {
-    "schema_version": 1,
+    "schema_version": 2,
     "view": "compiled",
     "nodes": [{"id": "0", "label": "keep"}],
     "edges": [],
@@ -73,10 +73,10 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 - `label_path` 表示挂载标签路径。根作用域 ID 为 `graph:root`，子作用域为
   `graph:<owner StepId>`。作用域的 `owner`、本地 `nodes` 和组合节点的 `child_graph`
   共同保留子图边界，不伪造 no-op Action。
-- `ports` 明确记录能力名称及 input/output 对应的内部节点；显式转发的端口记录在公开它的
+- `ports` 明确记录端口名称及 input/output 对应的内部节点；显式转发的端口记录在公开它的
   那个作用域，不自动展开或转发。
 
-图名、节点标签和能力名称本来就是公开展示／契约数据，会正常导出。宿主不要把秘密放进这些
+图名、节点标签和端口名称本来就是公开展示／契约数据，会正常导出。宿主不要把秘密放进这些
 名称。未命名节点使用位置 ID；导出不会调用 callable 的 `repr()` 猜名字。
 
 ## 边的语义
@@ -88,12 +88,12 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 | `order` | 只等待完成、不传返回值的顺序依赖 |
 | `result` | 按 `argument_index` 绑定给 action 或指定条件实例的结果参数 |
 | `conditional` | 由对应运行期条件决定是否生效的依赖 |
-| `capability` | 两个挂载组件的能力接线，`provider_node`、`consumer_nodes` 标明实际就绪端点 |
+| `port` | 两个挂载组件的端口接线，`provider_node`、`consumer_nodes` 标明实际就绪端点 |
 
 编译文档中的 `dependencies` 单独描述 Rust 编译器实际采用的前置关系，分为 `required`
-与 `conditional`。能力边在 `edges` 中可以是组件 `0 → 1`，在 `dependencies` 中则是
+与 `conditional`。端口边在 `edges` 中可以是组件 `0 → 1`，在 `dependencies` 中则是
 端点 `0.0 → 1.1`，不会变成“整个消费者等待整个提供者”。不会从 `after` 反猜来源，
-也不会把结果、条件、能力边全部冒充顺序边。
+也不会把结果、条件、端口边全部冒充顺序边。
 
 解释调度时还需要保留条件的 `inputs` 和作用域所有权，不能仅用前置列表取代这些契约。
 静态边的裁剪决定由编译器在首次求值时记录，导出直接读取，不再求一遍。
@@ -104,7 +104,9 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 `export_graph(execution.compile())`，再调用 `run()`。返回的字典和列表是独立副本，修改它们
 不会影响 Graph 或下次导出；保存 JSON 才是冻结该次历史的具体值。
 
-`schema_version=1` 只表示文档格式，不是 Rivlet 版本、工作流修订、run ID 或 fingerprint。
+`schema_version=2` 只表示文档格式，不是 Rivlet 版本、工作流修订、run ID 或 fingerprint。
+第 2 版把接口接线的边类型及名称字段统一为 `port`；第 1 版二者均为 `capability`。
+消费者必须按 schema 版本识别格式，不能把旧记录当成新格式读取。
 宿主在外层单独记录自己的运行／修订身份。不要用今天的 Graph 重画旧历史，不给旧历史补上
 当时不存在的节点，更不能把无法证明执行过的工作标成已执行。
 
