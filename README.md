@@ -34,8 +34,8 @@ Requires Python 3.13 or later:
 pip install rivlet
 ```
 
-Prebuilt wheels are available for CPython 3.13–3.15 on Linux x86_64 (glibc 2.28+)
-and macOS arm64 (macOS 11+). These installations need no Rust toolchain.
+Prebuilt wheels are available for CPython 3.13–3.15 on Linux x86_64 (glibc 2.28+),
+macOS arm64 (macOS 11+), and Windows x64. These installations need no Rust toolchain.
 Other platforms require a source build; see
 [distribution support](https://github.com/ririv/rivlet/blob/main/docs/releasing.md).
 For Windows x64 source builds and installed-wheel validation, see
