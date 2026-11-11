@@ -8,7 +8,7 @@ A conditional edge describes an optional prerequisite: “B depends on A, but on
 if this condition holds.” It does not decide whether A or B executes.
 For node participation, use [conditional steps](./conditional_steps.md).
 
-The runtime form is `ConditionalEdge(source, target, condition)`. The wiring
+The runtime form is `Edge(source, target, condition=condition)`. The wiring
 API provides:
 
 ```python
@@ -17,15 +17,15 @@ target.wire(
 )
 ```
 
-Graph.from_wiring normalizes this into a ConditionalEdge. No hidden hook or runtime
+Graph.from_wiring normalizes this into an Edge. No hidden hook or runtime
 topology mutation is involved. Explicit skip operations remain available, but
 structural optional dependencies should be visible in the graph rather than hidden
 inside action side effects.
 
 ## Two kinds of conditions
 
-StaticConditions binds static rules to their evaluator. ConditionalEdge and
-ConditionalPrerequisite accept only RuntimeCondition. Evaluation differs:
+StaticConditions binds static rules to their evaluator. The `condition` argument
+of Edge and ConditionalPrerequisite accepts only RuntimeCondition. Evaluation differs:
 
 - During declaration compilation, an explicit evaluator resolves static conditions.
 - Runtime conditions lower to prerequisites identified by ConditionId.
@@ -88,8 +88,8 @@ condition = StaticCondition(
 graph = Graph(
     steps=(build, write_android_env_shim, archive),
     edges=(
-        UnconditionalEdge(source=build, target=archive),
-        UnconditionalEdge(source=write_android_env_shim, target=archive),
+        Edge(source=build, target=archive),
+        Edge(source=write_android_env_shim, target=archive),
     ),
     static=StaticConditions(
         evaluator=evaluate_target_condition,

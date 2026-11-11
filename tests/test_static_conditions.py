@@ -3,7 +3,7 @@ from __future__ import annotations
 import pytest
 
 from rivlet import (
-    ConditionalEdge,
+    Edge,
     ExactProviderRequirement,
     Graph,
     GraphError,
@@ -15,7 +15,6 @@ from rivlet import (
     StaticConditions,
     Step,
     ThreadGraphRunOptions,
-    UnconditionalEdge,
     compile_graph,
     render_graph,
     resolve_port_requirements,
@@ -37,7 +36,7 @@ def test_static_dsl_and_direct_declaration_compile_identically() -> None:
     dsl = (static.when(ENABLED, first) >> last).graph()
     direct = Graph(
         steps=(first, last),
-        edges=(UnconditionalEdge(first, last),),
+        edges=(Edge(first, last),),
         static=StaticConditions(evaluator=evaluate, conditions={first: ENABLED}),
     )
 
@@ -121,7 +120,7 @@ def test_static_and_runtime_rules_coexist_on_nodes_and_edges(mode: GraphMode) ->
     )
     graph = Graph(
         steps=(first, last),
-        edges=(ConditionalEdge(first, last, runtime_condition(when=lambda: True)),),
+        edges=(Edge(first, last, condition=runtime_condition(when=lambda: True)),),
         static=StaticConditions(
             evaluator=evaluate,
             conditions={last: ENABLED, (first, last): ENABLED},
@@ -146,7 +145,7 @@ def test_declaration_render_keeps_conditions_without_evaluation() -> None:
     conditions.clear()
     graph = Graph(
         steps=(first, last),
-        edges=(UnconditionalEdge(first, last),),
+        edges=(Edge(first, last),),
         static=(
             static,
             StaticConditions(

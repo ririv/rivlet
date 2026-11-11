@@ -6,19 +6,17 @@ import pytest
 
 from rivlet import (
     Case,
-    ConditionalEdge,
+    Edge,
     Graph,
     GraphExecution,
     GraphInterface,
     LeafAction,
-    PortConnection,
     ResultEdge,
     RuntimeCondition,
     StaticCondition,
     StaticConditions,
     Step,
     StepId,
-    UnconditionalEdge,
     compile_graph,
     export_graph,
     static,
@@ -35,7 +33,7 @@ def test_compiled_export_never_repeats_static_evaluation() -> None:
     first, second = Step(lambda: None), Step(lambda: None)
     graph = Graph(
         steps=(first, second),
-        edges=(UnconditionalEdge(first, second),),
+        edges=(Edge(first, second),),
         static=StaticConditions(
             evaluator=evaluate,
             conditions={(first, second): StaticCondition(object(), "private")},
@@ -79,8 +77,8 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
     graph = Graph(
         steps=(first, second, target),
         edges=(
-            ConditionalEdge(first, target, shared),
-            ConditionalEdge(second, target, other),
+            Edge(first, target, condition=shared),
+            Edge(second, target, condition=other),
             ResultEdge(first, target, 0, shared),
             ResultEdge(second, target, 0, other),
             ResultEdge(second, target, 0, action),
@@ -134,7 +132,7 @@ def test_lowered_port_dependencies_do_not_wait_for_entire_provider() -> None:
     )
     graph = Graph(
         steps=(provider, consumer),
-        edges=(PortConnection(provider, consumer, ready),),
+        edges=(Edge(provider, consumer, ports=ready),),
     )
     document = export_graph(GraphExecution(graph).compile())
     assert {"kind": "required", "source": "0.0", "target": "1.1"} in document[
@@ -177,7 +175,7 @@ def test_mounted_export_keeps_static_edge_provenance_in_parent_namespace() -> No
     first, second = Step(lambda: None), Step(lambda: None)
     graph = Graph(
         steps=(first, second),
-        edges=(UnconditionalEdge(first, second),),
+        edges=(Edge(first, second),),
         static=StaticConditions(
             evaluator=lambda _: False,
             conditions={(first, second): StaticCondition(object(), "condition")},

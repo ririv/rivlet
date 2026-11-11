@@ -62,11 +62,11 @@ class StaticConditions:
     def edge(
         self, source: Step, target: Step, *, condition: StaticCondition
     ) -> GraphWiring:
-        from .model import GraphWiring, UnconditionalEdge
+        from .model import Edge, GraphWiring
 
         return GraphWiring(
             steps=(source, target),
-            edges=(UnconditionalEdge(source=source, target=target),),
+            edges=(Edge(source=source, target=target),),
             static=(self._append((source, target), condition),),
         )
 

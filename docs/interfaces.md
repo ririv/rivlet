@@ -125,6 +125,36 @@ expands to both inputs, without an empty action or shared waiting node.
 Outputs do not accept several Steps: that would require an explicit all/any
 readiness model.
 
+## Direct connections
+
+`Edge` combines ordinary completion dependencies, port routing, and optional
+runtime conditions. Port names are local to each graph:
+
+```python
+from rivlet import Edge
+
+Edge(source=a, target=b)  # wait for all of A before starting B
+Edge(source=a, target=b, ports="ready")  # A.ready -> B.ready
+Edge(source=a, target=b, ports=("sdk-ready", "toolchain-ready"))
+Edge(source=a, target=b, ports=("sdk-ready", "toolchain-ready"), condition=needed)
+```
+
+The fixed pair is `(source output, target input)`; a string normalizes to
+`(name, name)`. These references do not declare ports. Both names must already
+exist in the corresponding `GraphInterface`; source inputs and target outputs
+are never searched. Different names require no renaming wrapper graph.
+
+The condition controls only whether the internal input Steps wait for the output
+Step. It does not gate the whole consumer graph or skip either component. One
+condition instance is shared by all Steps in that input mapping, and its result
+inputs are still declared through `ResultEdge` targeting the consumer component
+and that condition object. Unrelated consumer preparation can run early.
+Static edge rules can also remove the connection during compilation.
+
+Ports still express readiness, not result transport. `ResultEdge`, `inputs`, and
+their `Option` arguments are unchanged; there are no `.input()`/`.output()` or
+`.argument()` endpoint helpers in this API.
+
 ## Two requirement forms
 
 ```python
@@ -150,16 +180,18 @@ explicit; `provider=None` is not a substitute for the sum type.
 ## Provider resolution
 
 `resolve_port_requirements()` turns symbolic requirements into definite
-PortConnection values before graph execution:
+`Edge(..., ports=name)` values before graph execution. Requirement resolution
+continues to match the common name on both sides; use a direct `Edge` for
+different local names:
 
 ```text
 AnyProviderRequirement(123)
     → select a provider
-    → PortConnection(A.123 → B.123)
+    → Edge(A.123 → B.123)
 
 ExactProviderRequirement(A.123)
     → verify that A provides 123
-    → PortConnection(A.123 → B.123)
+    → Edge(A.123 → B.123)
 ```
 
 An any-provider requirement resolves directly when only one provider exists.

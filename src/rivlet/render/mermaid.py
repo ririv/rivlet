@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from ..compile import GraphCompilation, compiled_prerequisite_node
 from ..errors import GraphError
-from ..interface import PortConnection
 from ..model import (
+    Edge,
     Graph,
     GraphMode,
     ResultEdge,
@@ -141,9 +141,16 @@ def append_graph_mermaid(
             lines.append(
                 f'{indent}    {node_ids[edge.source]} -->|"{escape_label(result_receiver_label(edge))} input {edge.argument_index}"| {node_ids[edge.target]}'
             )
-        elif isinstance(edge, PortConnection):
+        elif isinstance(edge, Edge) and edge.ports is not None:
+            label = (
+                edge.ports[0]
+                if edge.ports[0] == edge.ports[1]
+                else f"{edge.ports[0]} -> {edge.ports[1]}"
+            )
+            if edge.condition is not None:
+                label += " (conditional)"
             lines.append(
-                f'{indent}    {node_ids[edge.source]} -->|"{escape_label(edge.port)}"| {node_ids[edge.target]}'
+                f'{indent}    {node_ids[edge.source]} -->|"{escape_label(label)}"| {node_ids[edge.target]}'
             )
         else:
             lines.append(

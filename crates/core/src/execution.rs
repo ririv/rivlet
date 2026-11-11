@@ -41,7 +41,7 @@ impl RuntimeCondition {
 }
 
 /// A prerequisite whose conditional branch is represented without boolean flags.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub enum Prerequisite {
     Required(NodeId),
     Conditional {
@@ -77,19 +77,38 @@ pub enum ExecutionNodeKind {
 /// A resolved port connection between two declaration nodes.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct PortConnection {
-    source: NodeId,
+    prerequisite: Prerequisite,
     target: NodeId,
 }
 
 impl PortConnection {
     #[must_use]
     pub const fn new(source: NodeId, target: NodeId) -> Self {
-        Self { source, target }
+        Self {
+            prerequisite: Prerequisite::Required(source),
+            target,
+        }
+    }
+
+    #[must_use]
+    pub const fn conditional(source: NodeId, target: NodeId, condition: ConditionId) -> Self {
+        Self {
+            prerequisite: Prerequisite::Conditional {
+                node: source,
+                condition,
+            },
+            target,
+        }
     }
 
     #[must_use]
     pub const fn source(self) -> NodeId {
-        self.source
+        self.prerequisite.node()
+    }
+
+    #[must_use]
+    pub const fn prerequisite(self) -> Prerequisite {
+        self.prerequisite
     }
 
     #[must_use]
@@ -421,13 +440,12 @@ fn lower_port_connections(
     nodes: &mut [ExecutionNode],
     port_connections: impl IntoIterator<Item = PortConnection>,
 ) -> Result<(), ExecutionGraphError> {
-    // 仅为能力边实际涉及的目标建立索引，每个目标的原前置只扫描一次。
-    // B 条能力边、这些目标原有 P 条前置：平均时间 O(B + P)，空间 O(B + P)。
-    // 集合只负责判重；向原 Vec 追加，因此原前置和新增能力边的顺序保持不变。
-    let mut required_sources: HashMap<NodeId, HashSet<NodeId>> = HashMap::new();
+    // B 条端口连接、相关目标原有 P 条前置：平均 O(B + P) 时间和空间。
+    // 条件属于每条依赖；只去重完全相同的前置，不用无条件依赖覆盖条件声明。
+    let mut indexed: HashMap<NodeId, HashSet<Prerequisite>> = HashMap::new();
     for binding in port_connections {
-        if binding.source.index() >= nodes.len() {
-            return Err(ExecutionGraphError::UnknownPortSource(binding.source));
+        if binding.source().index() >= nodes.len() {
+            return Err(ExecutionGraphError::UnknownPortSource(binding.source()));
         }
         let Some(target) = nodes.get_mut(binding.target.index()) else {
             return Err(ExecutionGraphError::UnknownPortTarget(binding.target));
@@ -435,27 +453,17 @@ fn lower_port_connections(
         // 零个或一个前置的判重本来就是 O(1)，无需为稀疏目标分配集合。
         // 前置只追加；一旦进入索引路径，后续不会退回此分支。
         if target.prerequisites.len() <= 1 {
-            let prerequisite = Prerequisite::Required(binding.source);
+            let prerequisite = binding.prerequisite;
             if target.prerequisites.first() != Some(&prerequisite) {
                 target.prerequisites.push(prerequisite);
             }
             continue;
         }
-        let sources = required_sources.entry(binding.target).or_insert_with(|| {
-            target
-                .prerequisites
-                .iter()
-                .filter_map(|prerequisite| match prerequisite {
-                    Prerequisite::Required(source) => Some(*source),
-                    // 条件边不能替代能力绑定要求的无条件依赖。
-                    Prerequisite::Conditional { .. } => None,
-                })
-                .collect()
-        });
-        if sources.insert(binding.source) {
-            target
-                .prerequisites
-                .push(Prerequisite::Required(binding.source));
+        let prerequisites = indexed
+            .entry(binding.target)
+            .or_insert_with(|| target.prerequisites.iter().copied().collect());
+        if prerequisites.insert(binding.prerequisite) {
+            target.prerequisites.push(binding.prerequisite);
         }
     }
     Ok(())

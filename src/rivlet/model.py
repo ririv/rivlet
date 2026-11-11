@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Literal, TypeGuard
 
 from ._native import NativeGraph, dag_cycle
 from .errors import GraphError
-from .interface import GraphInterface, GraphInterfaceInput, PortConnection
+from .interface import GraphInterface, GraphInterfaceInput, _validate_port_name
 from .static import Case, StaticSelection, resolve_selection_bindings
 from .static_conditions import (
     BoundStaticCondition,
@@ -241,7 +241,7 @@ def _validated_blocking_arcs(
         return arc
 
     for edge in edges:
-        if isinstance(edge, PortConnection):
+        if isinstance(edge, Edge) and edge.ports is not None:
             if edge.source not in known_steps:
                 raise GraphError(
                     f"graph '{graph_label}' has edge from unknown step: {edge.source.label}"
@@ -254,15 +254,16 @@ def _validated_blocking_arcs(
                 _require_port_output,
             )
 
-            _require_port_output(edge.source, edge.port)
+            output_name, input_name = edge.ports
+            _require_port_output(edge.source, output_name)
             consumer_graph = edge.target.action
             if not isinstance(consumer_graph, Graph):
                 raise GraphError(
                     f"port consumer must be a graph-valued step: {edge.target.label}"
                 )
-            if edge.port not in consumer_graph.interface.inputs:
+            if input_name not in consumer_graph.interface.inputs:
                 raise GraphError(
-                    f"component {edge.target.label} does not require port {edge.port}"
+                    f"component {edge.target.label} does not require port {input_name}"
                 )
             if isinstance(edge.source.condition, RuntimeCondition):
                 raise GraphError(
@@ -271,11 +272,11 @@ def _validated_blocking_arcs(
                 )
             provider_graph = edge.source.action
             if isinstance(provider_graph, Graph):
-                output = provider_graph.interface.outputs[edge.port]
+                output = provider_graph.interface.outputs[output_name]
                 if isinstance(output.condition, RuntimeCondition):
                     raise GraphError(
                         f"graph '{graph_label}' port output step must not have "
-                        f"a runtime condition: {edge.port}"
+                        f"a runtime condition: {output_name}"
                     )
             continue
 
@@ -379,17 +380,32 @@ class StepWiring:
         object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
 
 
-@dataclass(frozen=True, slots=True)
-class UnconditionalEdge:
+@dataclass(frozen=True, slots=True, init=False)
+class Edge:
+    """An execution dependency with independent port routing and condition."""
+
     source: Step
     target: Step
+    ports: tuple[str, str] | None
+    condition: RuntimeCondition | None
 
-
-@dataclass(frozen=True, slots=True)
-class ConditionalEdge:
-    source: Step
-    target: Step
-    condition: RuntimeCondition
+    def __init__(
+        self,
+        source: Step,
+        target: Step,
+        *,
+        ports: str | tuple[str, str] | None = None,
+        condition: RuntimeCondition | None = None,
+    ) -> None:
+        names = (ports, ports) if isinstance(ports, str) else ports
+        if names is not None:
+            output_name, input_name = names
+            _validate_port_name(output_name)
+            _validate_port_name(input_name)
+        object.__setattr__(self, "source", source)
+        object.__setattr__(self, "target", target)
+        object.__setattr__(self, "ports", names)
+        object.__setattr__(self, "condition", condition)
 
 
 @dataclass(frozen=True, slots=True)
@@ -402,7 +418,7 @@ class ResultEdge:
     receiver: ResultReceiver
 
 
-type GraphEdge = UnconditionalEdge | ConditionalEdge | PortConnection | ResultEdge
+type GraphEdge = Edge | ResultEdge
 
 
 @dataclass(frozen=True, slots=True)
@@ -542,11 +558,7 @@ class Graph:
             resolve_static_bindings(
                 self.static,
                 steps=self.steps,
-                edge_pairs={
-                    (edge.source, edge.target)
-                    for edge in self.edges
-                    if not isinstance(edge, PortConnection)
-                }
+                edge_pairs={(edge.source, edge.target) for edge in self.edges}
                 if self.static
                 else set(),
             ),
@@ -616,7 +628,8 @@ class Graph:
         return tuple(
             edge
             for edge in self.edges
-            if edge.target is step and not isinstance(edge, PortConnection)
+            if edge.target is step
+            and not (isinstance(edge, Edge) and edge.ports is not None)
         )
 
     @property
@@ -660,7 +673,7 @@ def _sequence_wiring(
     left_wiring = _as_graph_wiring(left)
     right_wiring = _as_graph_wiring(right)
     connecting_edges = tuple(
-        UnconditionalEdge(source=source, target=target)
+        Edge(source=source, target=target)
         for source in left_wiring.exits
         for target in right_wiring.entries
     )
@@ -735,13 +748,13 @@ def _graph_wiring_from_step_wirings(
                     f"graph '{graph_label}' step '{target.label}' has prerequisite outside this graph: {source.label}"
                 )
             declared_edges.append(
-                ConditionalEdge(
+                Edge(
                     source=source,
                     target=target,
-                    condition=prerequisite.condition,
+                    condition=prerequisite.condition
+                    if isinstance(prerequisite, ConditionalPrerequisite)
+                    else None,
                 )
-                if isinstance(prerequisite, ConditionalPrerequisite)
-                else UnconditionalEdge(source=source, target=target)
             )
     return GraphWiring(steps=steps, edges=tuple(declared_edges))
 
@@ -756,7 +769,7 @@ def _validate_result_bindings(
         for step in steps
     }
     for edge in edges:
-        if isinstance(edge, ConditionalEdge):
+        if isinstance(edge, Edge) and edge.condition is not None:
             conditions[edge.target].add(edge.condition)
     for edge in edges:
         if isinstance(edge, ResultEdge):

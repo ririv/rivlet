@@ -10,12 +10,12 @@ from time import perf_counter
 from typing import Literal
 
 from rivlet import (
+    Edge,
     Graph,
     ResultEdge,
     StaticCondition,
     StaticConditions,
     Step,
-    UnconditionalEdge,
     compile_graph,
     runtime_condition,
 )
@@ -57,7 +57,7 @@ def declaration(case: Case, recipes: int, steps: int) -> Graph:
                         ResultEdge(left, right, 0, receiver=condition),
                     )
                     if case == "runtime" and index == 0
-                    else (UnconditionalEdge(left, right),)
+                    else (Edge(left, right),)
                 )
             ),
         )

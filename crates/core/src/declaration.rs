@@ -131,8 +131,12 @@ impl GraphDeclaration {
             &graph_mapping,
             &condition_mapping,
         )?;
-        let projected_bindings =
-            project_port_connections(&self.port_connections, &active_nodes, &node_mapping)?;
+        let projected_bindings = project_port_connections(
+            &self.port_connections,
+            &active_nodes,
+            &node_mapping,
+            &condition_mapping,
+        )?;
         let declaration_nodes = active_nodes
             .iter()
             .enumerate()
@@ -451,6 +455,14 @@ fn validate_declaration(declaration: &GraphDeclaration) -> Result<(), Declaratio
         if binding.target().index() >= declaration.nodes.len() {
             return Err(DeclarationError::UnknownPortTarget(binding.target()));
         }
+        if let Some(condition) = binding.prerequisite().condition()
+            && condition.index() >= declaration.conditions.len()
+        {
+            return Err(DeclarationError::UnknownCondition {
+                node: binding.target(),
+                condition,
+            });
+        }
     }
     Ok(())
 }
@@ -521,6 +533,12 @@ fn keeps_all_identities(declaration: &GraphDeclaration) -> bool {
             }
         }
     }
+    // 端口条件也是活跃条件来源；额外 O(B) 扫描，不按节点重扫连接表。
+    for connection in &declaration.port_connections {
+        if let Some(condition) = connection.prerequisite().condition() {
+            used[condition.index()] = true;
+        }
+    }
     used.into_iter().all(|used| used)
 }
 
@@ -565,6 +583,13 @@ fn used_conditions(
             }
         }
         if let Some(condition) = condition {
+            used[condition.index()] = true;
+        }
+    }
+    for connection in &declaration.port_connections {
+        if active_nodes[connection.target().index()]
+            && let Some(condition) = connection.prerequisite().condition()
+        {
             used[condition.index()] = true;
         }
     }
@@ -719,6 +744,7 @@ fn project_port_connections(
     bindings: &[PortConnection],
     active: &[bool],
     node_mapping: &[Option<usize>],
+    condition_mapping: &[Option<usize>],
 ) -> Result<Vec<PortConnection>, DeclarationError> {
     let mut projected = Vec::new();
     for binding in bindings {
@@ -731,10 +757,20 @@ fn project_port_connections(
                 target: binding.target(),
             });
         }
-        projected.push(PortConnection::new(
-            NodeId::new(node_mapping[binding.source().index()].expect("active source mapping")),
-            NodeId::new(node_mapping[binding.target().index()].expect("active target mapping")),
-        ));
+        let source =
+            NodeId::new(node_mapping[binding.source().index()].expect("active source mapping"));
+        let target =
+            NodeId::new(node_mapping[binding.target().index()].expect("active target mapping"));
+        projected.push(match binding.prerequisite().condition() {
+            None => PortConnection::new(source, target),
+            Some(condition) => PortConnection::conditional(
+                source,
+                target,
+                ConditionId::new(
+                    condition_mapping[condition.index()].expect("active connection condition"),
+                ),
+            ),
+        });
     }
     Ok(projected)
 }
@@ -745,6 +781,45 @@ mod tests {
     use crate::execution::{ConditionId, PortConnection, RuntimeCondition};
     use crate::lowering::{DeclaredGraph, DeclaredNodeKind, GraphId};
     use topology::NodeId;
+
+    #[test]
+    fn conditional_port_keeps_and_projects_its_condition() {
+        let declaration = GraphDeclaration::new(
+            [DeclaredGraph::Root],
+            (0..3).map(|_| {
+                DeclarationNode::new(
+                    GraphId::new(0),
+                    DeclaredNodeKind::Leaf,
+                    NodeActivation::Active {
+                        prerequisites: vec![],
+                        condition: None,
+                    },
+                )
+            }),
+            [
+                RuntimeCondition::new([]),
+                RuntimeCondition::new([NodeId::new(0)]),
+            ],
+            [PortConnection::conditional(
+                NodeId::new(1),
+                NodeId::new(2),
+                ConditionId::new(1),
+            )],
+        );
+        let compiled = declaration.compile().unwrap();
+        assert_eq!(compiled.declaration_conditions(), &[ConditionId::new(1)]);
+        assert_eq!(
+            compiled.graph().conditions(),
+            &[RuntimeCondition::new([NodeId::new(0)])]
+        );
+        assert_eq!(
+            compiled.graph().nodes()[2].prerequisites(),
+            &[crate::Prerequisite::Conditional {
+                node: NodeId::new(1),
+                condition: ConditionId::new(0)
+            },]
+        );
+    }
 
     fn active_hierarchy() -> GraphDeclaration {
         let active = |prerequisites, condition| NodeActivation::Active {

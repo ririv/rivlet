@@ -83,7 +83,7 @@ validated before pruning, so a false static rule cannot legalize a structural cy
 
 ## Capabilities and global compilation
 
-PortConnection validates components and ports at declaration time, but does not
+Edge validates components and ports at declaration time, but does not
 become a local blocking arc between composites. The real dependency is from an
 internal provider output to an internal consumer input, located and lowered during
 compilation.

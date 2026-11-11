@@ -21,8 +21,7 @@ type ExportOrigins = (
 
 struct PythonTypes<'py> {
     graph: Bound<'py, PyAny>,
-    conditional_edge: Bound<'py, PyAny>,
-    port_connection: Bound<'py, PyAny>,
+    edge: Bound<'py, PyAny>,
     runtime_condition: Bound<'py, PyAny>,
     result_edge: Bound<'py, PyAny>,
 }
@@ -30,11 +29,9 @@ struct PythonTypes<'py> {
 impl<'py> PythonTypes<'py> {
     fn import(py: Python<'py>) -> PyResult<Self> {
         let model = py.import("rivlet.model")?;
-        let port = py.import("rivlet.interface")?;
         Ok(Self {
             graph: model.getattr("Graph")?,
-            conditional_edge: model.getattr("ConditionalEdge")?,
-            port_connection: port.getattr("PortConnection")?,
+            edge: model.getattr("Edge")?,
             runtime_condition: model.getattr("RuntimeCondition")?,
             result_edge: model.getattr("ResultEdge")?,
         })
@@ -424,10 +421,6 @@ impl<'py> Collector<'py> {
         let has_static_bindings = static_bindings.len()? != 0;
         for (edge_index, edge) in edges.try_iter()?.enumerate() {
             let edge = edge?;
-            if edge.is_instance(&self.types.port_connection)? {
-                self.collect_port_connection(&edge, graph_index)?;
-                continue;
-            }
             let source_step = edge.getattr("source")?;
             let target_step = edge.getattr("target")?;
             let source = self.require_local_node(graph_index, &source_step)?;
@@ -451,23 +444,28 @@ impl<'py> Collector<'py> {
                     continue;
                 }
             }
-            let prerequisite = if edge.is_instance(&self.types.conditional_edge)? {
-                let condition = edge.getattr("condition")?;
-                if condition.is_instance(&self.types.runtime_condition)? {
-                    DeclarationPrerequisite::RuntimeConditional {
-                        node: NodeId::new(source),
-                        condition: self.register_runtime_condition(
-                            &condition,
-                            target,
-                            Some(edge_index),
-                        )?,
+            if edge.is_instance(&self.types.edge)? && !edge.getattr("ports")?.is_none() {
+                self.collect_port_connection(&edge, graph_index, edge_index)?;
+                continue;
+            }
+            let prerequisite =
+                if edge.is_instance(&self.types.edge)? && !edge.getattr("condition")?.is_none() {
+                    let condition = edge.getattr("condition")?;
+                    if condition.is_instance(&self.types.runtime_condition)? {
+                        DeclarationPrerequisite::RuntimeConditional {
+                            node: NodeId::new(source),
+                            condition: self.register_runtime_condition(
+                                &condition,
+                                target,
+                                Some(edge_index),
+                            )?,
+                        }
+                    } else {
+                        return Err(PyValueError::new_err("unsupported graph edge condition"));
                     }
                 } else {
-                    return Err(PyValueError::new_err("unsupported graph edge condition"));
-                }
-            } else {
-                DeclarationPrerequisite::Required(NodeId::new(source))
-            };
+                    DeclarationPrerequisite::Required(NodeId::new(source))
+                };
             self.push_node_prerequisite(target, prerequisite);
         }
         Ok(())
@@ -477,30 +475,43 @@ impl<'py> Collector<'py> {
         &mut self,
         edge: &Bound<'py, PyAny>,
         graph_index: usize,
+        edge_index: usize,
     ) -> PyResult<()> {
         let provider_component = self.require_local_node(graph_index, &edge.getattr("source")?)?;
         let consumer_component = self.require_local_node(graph_index, &edge.getattr("target")?)?;
-        let port = edge.getattr("port")?;
+        let ports = edge.getattr("ports")?;
         let provider_graph = self.require_child_graph(provider_component)?;
         let consumer_graph = self.require_child_graph(consumer_component)?;
         let provider_port = require_interface_port(
             self.graphs[provider_graph].source_graph.bind(self.py),
             "outputs",
-            &port,
+            &ports.get_item(0)?,
         )?;
         let consumer_port = require_interface_port(
             self.graphs[consumer_graph].source_graph.bind(self.py),
             "inputs",
-            &port,
+            &ports.get_item(1)?,
         )?;
         let provider = self.require_descendant_node(provider_component, &provider_port)?;
+        let declared_condition = edge.getattr("condition")?;
+        let condition = if declared_condition.is_none() {
+            None
+        } else {
+            Some(self.register_runtime_condition(
+                &declared_condition,
+                consumer_component,
+                Some(edge_index),
+            )?)
+        };
         // 一个公开输入可以约束多个内部步骤；不插入额外的运行时等待节点。
         for step in consumer_port.try_iter()? {
             let consumer = self.require_descendant_node(consumer_component, &step?)?;
-            self.port_connections.push(PortConnection::new(
-                NodeId::new(provider),
-                NodeId::new(consumer),
-            ));
+            let source = NodeId::new(provider);
+            let target = NodeId::new(consumer);
+            self.port_connections.push(match condition {
+                None => PortConnection::new(source, target),
+                Some(condition) => PortConnection::conditional(source, target, condition),
+            });
         }
         Ok(())
     }

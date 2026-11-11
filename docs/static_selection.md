@@ -74,7 +74,7 @@ fail.” Another true condition still produces a conflict. There is no implicit 
 The same rules and topology can be declared without the DSL:
 
 ```python
-from rivlet import Case, Graph, GraphExecution, StaticSelection, Step, UnconditionalEdge
+from rivlet import Case, Graph, GraphExecution, StaticSelection, Step, Edge
 
 first = Step(lambda: print("first"), label="first")
 second = Step(lambda: print("second"), label="second")
@@ -83,7 +83,7 @@ cases = (Case(False, first), Case(True, second))
 
 graph = Graph(
     steps=tuple(case.step for case in cases) + (finish,),
-    edges=tuple(UnconditionalEdge(case.step, finish) for case in cases),
+    edges=tuple(Edge(case.step, finish) for case in cases),
     static_selections=(StaticSelection(cases=cases),),
 )
 GraphExecution(graph).run()

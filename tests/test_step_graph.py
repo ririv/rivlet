@@ -3,6 +3,7 @@ from __future__ import annotations
 import pytest
 
 from rivlet import (
+    Edge,
     Graph,
     GraphError,
     GraphWiring,
@@ -11,7 +12,6 @@ from rivlet import (
     Step,
     StepRunContext,
     StepWiring,
-    UnconditionalEdge,
     compile_graph,
     render_graph,
     render_graph_mermaid,
@@ -118,12 +118,8 @@ def test_step_can_be_declared_with_different_predecessors() -> None:
 
     assert normal_graph.steps[1] is compile_step
     assert cached_graph.steps[1] is compile_step
-    assert normal_graph.edges == (
-        UnconditionalEdge(source=configure, target=compile_step),
-    )
-    assert cached_graph.edges == (
-        UnconditionalEdge(source=restore_cache, target=compile_step),
-    )
+    assert normal_graph.edges == (Edge(source=configure, target=compile_step),)
+    assert cached_graph.edges == (Edge(source=restore_cache, target=compile_step),)
 
 
 def test_graph_wiring_sequences_steps() -> None:
@@ -137,8 +133,8 @@ def test_graph_wiring_sequences_steps() -> None:
     assert isinstance(wiring, GraphWiring)
     assert graph.steps == (prepare, compile_step, install)
     assert graph.edges == (
-        UnconditionalEdge(source=prepare, target=compile_step),
-        UnconditionalEdge(source=compile_step, target=install),
+        Edge(source=prepare, target=compile_step),
+        Edge(source=compile_step, target=install),
     )
 
 
@@ -152,10 +148,10 @@ def test_graph_wiring_fans_out_and_in() -> None:
 
     assert graph.steps == (prepare, compile_a, compile_b, install)
     assert graph.edges == (
-        UnconditionalEdge(source=prepare, target=compile_a),
-        UnconditionalEdge(source=prepare, target=compile_b),
-        UnconditionalEdge(source=compile_a, target=install),
-        UnconditionalEdge(source=compile_b, target=install),
+        Edge(source=prepare, target=compile_a),
+        Edge(source=prepare, target=compile_b),
+        Edge(source=compile_a, target=install),
+        Edge(source=compile_b, target=install),
     )
 
 
@@ -169,8 +165,8 @@ def test_graph_wiring_preserves_independent_branches() -> None:
 
     assert graph.steps == (prepare_a, compile_a, prepare_b, compile_b)
     assert graph.edges == (
-        UnconditionalEdge(source=prepare_a, target=compile_a),
-        UnconditionalEdge(source=prepare_b, target=compile_b),
+        Edge(source=prepare_a, target=compile_a),
+        Edge(source=prepare_b, target=compile_b),
     )
 
 
@@ -214,8 +210,8 @@ def test_graph_wiring_wraps_graph_operand_without_expanding_it() -> None:
     assert child_prepare not in outer.steps
     assert child_compile not in outer.steps
     assert outer.edges == (
-        UnconditionalEdge(source=before, target=mounted_child),
-        UnconditionalEdge(source=mounted_child, target=after),
+        Edge(source=before, target=mounted_child),
+        Edge(source=mounted_child, target=after),
     )
 
 
@@ -242,7 +238,7 @@ def test_graph_from_wiring_accepts_composed_wiring() -> None:
 
     assert graph.label == "root"
     assert graph.steps == (prepare, compile_step)
-    assert graph.edges == (UnconditionalEdge(source=prepare, target=compile_step),)
+    assert graph.edges == (Edge(source=prepare, target=compile_step),)
 
 
 def test_graph_wiring_rejects_duplicate_step_object() -> None:
@@ -266,7 +262,7 @@ def test_step_decorator_uses_function_name_and_composes() -> None:
     assert prepare.label == "prepare"
     assert compile_step.label == "compile_step"
     assert graph.steps == (prepare, compile_step)
-    assert graph.edges == (UnconditionalEdge(source=prepare, target=compile_step),)
+    assert graph.edges == (Edge(source=prepare, target=compile_step),)
 
 
 def test_step_function_accepts_normalized_leaf_action() -> None:

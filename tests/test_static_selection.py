@@ -8,6 +8,7 @@ from rivlet import (
     AsyncGraphRunOptions,
     Case,
     CompiledStep,
+    Edge,
     Graph,
     GraphError,
     GraphExecution,
@@ -15,13 +16,11 @@ from rivlet import (
     GraphMode,
     MultipleStaticBranchesSelectedError,
     NoStaticBranchSelectedError,
-    PortConnection,
     StaticCondition,
     StaticConditions,
     StaticSelection,
     Step,
     ThreadGraphRunOptions,
-    UnconditionalEdge,
     compile_graph,
     render_graph,
     render_graph_mermaid,
@@ -135,7 +134,7 @@ def test_direct_graph_declaration_matches_dsl() -> None:
     cases = (Case(False, first), Case(True, second))
     direct = Graph(
         steps=(first, second, finish),
-        edges=(UnconditionalEdge(first, finish), UnconditionalEdge(second, finish)),
+        edges=(Edge(first, finish), Edge(second, finish)),
         static_selections=(StaticSelection(cases),),
     )
     dsl = (static.select(cases=cases) >> finish).graph()
@@ -237,7 +236,7 @@ def test_selected_subgraph_retains_its_interface_ports() -> None:
     ).step()
     graph = Graph(
         steps=(case.step, consumer),
-        edges=(PortConnection(case.step, consumer, ready),),
+        edges=(Edge(case.step, consumer, ports=ready),),
         static_selections=(StaticSelection((case,)),),
     )
     GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
@@ -258,7 +257,7 @@ def test_required_port_cannot_use_unselected_provider() -> None:
     ).step()
     graph = Graph(
         steps=(provider_case.step, selected, consumer),
-        edges=(PortConnection(provider_case.step, consumer, ready),),
+        edges=(Edge(provider_case.step, consumer, ports=ready),),
         static_selections=(StaticSelection((provider_case, Case(True, selected))),),
     )
     with pytest.raises(GraphError, match="inactive provider"):

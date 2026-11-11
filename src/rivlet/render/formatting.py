@@ -14,10 +14,9 @@ from ..compile import (
     GraphCompilation,
     compile_graph,
 )
-from ..interface import PortConnection
 from ..model import (
-    ConditionalEdge,
     ConditionalPrerequisite,
+    Edge,
     Graph,
     GraphEdge,
     ResultEdge,
@@ -121,14 +120,20 @@ def render_graph_port_suffix(graph: Graph, step: Step) -> str:
     bindings = tuple(
         edge
         for edge in graph.edges
-        if isinstance(edge, PortConnection) and edge.target is step
+        if isinstance(edge, Edge) and edge.ports is not None and edge.target is step
     )
     if not bindings:
         return ""
     requirements = ", ".join(
-        f"{edge.port} <- "
+        f"{edge.ports[1]} <- {edge.ports[0]} @ "
         f"{'<unlabeled>' if edge.source.label is None else edge.source.label}"
+        + (
+            ""
+            if edge.condition is None
+            else f" (条件边: {condition_name(edge.condition)})"
+        )
         for edge in bindings
+        if edge.ports is not None
     )
     return f" [requires: {requirements}]"
 
@@ -143,7 +148,7 @@ def format_graph_edge(
     binding = graph._static_bindings.get((edge.source, edge.target))
     if binding is not None:
         dep_id += f" (static: {format_static_condition(binding.condition)})"
-    if isinstance(edge, ConditionalEdge):
+    if isinstance(edge, Edge) and edge.condition is not None:
         return f"{dep_id} (条件边: {condition_name(edge.condition)})"
     if isinstance(edge, ResultEdge):
         return f"{dep_id} ({result_receiver_label(edge)} input: {edge.argument_index})"

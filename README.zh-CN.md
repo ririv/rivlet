@@ -76,7 +76,7 @@ GraphExecution(graph=graph).run(ThreadGraphRunOptions(workers=2))
 ```python
 from rivlet import (
     str,
-    PortConnection,
+    Edge,
     GraphInterface,
     Graph,
     GraphExecution,
@@ -108,7 +108,7 @@ graph = Graph(
     label="pipeline",
     steps=(producer, consumer),
     edges=(
-        PortConnection(source=producer, target=consumer, port=data_ready),
+        Edge(source=producer, target=consumer, ports=data_ready),
     ),
 )
 GraphExecution(graph).run(ThreadGraphRunOptions(workers=3))
@@ -124,7 +124,7 @@ consumer: prepare → process [input] → report
 消费者的 `prepare` 可以立即开始。`validate` 成功且消费者自己的准备也完成后，
 `process` 就可以运行，不需要等待 `archive`。整次执行仍会等待两个子图结束。
 
-端口名称相同**不会自动建立依赖**，示例用 `PortConnection` 显式连接提供方与消费者。
+端口名称相同**不会自动建立依赖**，示例用 `Edge` 显式连接提供方与消费者。
 端口负责就绪同步，不会传递 Python 返回值，也不会检查外部数据；传参使用结果边。
 声明出口时，必须保证后续步骤不会再使消费者读取的内容失效。
 
@@ -306,7 +306,7 @@ json.dumps({"declaration": declaration, "compiled": compiled})
 execution.run()  # 复用同一份编译结果
 ```
 
-版本化 JSON 文档保留挂载 ID、子图边界、边类型、条件与端口端口。声明检查不执行宿主代码，
+版本化 JSON 文档保留挂载 ID、子图边界、边类型、条件与端口。声明检查不执行宿主代码，
 编译导出只读取已有决定、不重新编译；运行事件与返回值仍然独立。
 schema、历史冻结及静态／动态范围见[结构导出](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/graph_export.md)。
 

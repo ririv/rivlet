@@ -40,7 +40,7 @@ Defined in [model.py](../src/rivlet/model.py), `Graph` contains:
 - `observation: GraphObservationMessages`
 - `static: tuple[StaticConditions, ...]`
 
-It describes an execution DAG and has no `run()` method. Capabilities hold
+It describes an execution DAG and has no `run()` method. Its interface holds
 read-only input/output mappings. At construction, passing an inner Graph as
 `interface` explicitly forwards its entire interface.
 
@@ -93,14 +93,16 @@ therefore need no fabricated stable label.
 ## Edges and wiring
 
 ```python
-type GraphEdge = UnconditionalEdge | ConditionalEdge | PortConnection | ResultEdge
+type GraphEdge = Edge | ResultEdge
 ```
 
 Ordinary and conditional edges reference actual Step objects:
 
 ```python
-UnconditionalEdge(source, target)
-ConditionalEdge(source, target, condition)
+Edge(source, target)
+Edge(source, target, condition=condition)
+Edge(source, target, ports="ready")
+Edge(source, target, ports=("sdk-ready", "toolchain-ready"), condition=condition)
 ```
 
 Usually, declare them through `wire()`:
@@ -130,7 +132,7 @@ archive.wire(
 ```
 
 Strings cannot reference Steps. Object references avoid ambiguity from duplicate
-labels, renaming, and nested scopes. PortConnection represents resolved
+labels, renaming, and nested scopes. Edge represents resolved
 cross-subgraph wiring; see [interfaces](./interfaces.md).
 
 ## Composition DSL
@@ -250,7 +252,7 @@ already running graph.
 
 ## Conditions
 
-`Step.condition` and ConditionalEdge accept runtime conditions. StaticConditions binds
+`Step.condition` and Edge accept runtime conditions. StaticConditions binds
 node and edge rules to an evaluator for compilation. See [static rules](./conditional_steps.md).
 RuntimeCondition is evaluated during execution.
 

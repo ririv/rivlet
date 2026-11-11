@@ -47,7 +47,9 @@ class PortEdgeDocument(TypedDict):
     graph: str
     source: str
     target: str
-    port: str
+    source_port: str
+    target_port: str
+    condition: str | None
     provider_node: str
     consumer_nodes: list[str]
 

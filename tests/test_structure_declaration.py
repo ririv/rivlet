@@ -4,18 +4,16 @@ import json
 
 from rivlet import (
     Case,
-    ConditionalEdge,
+    Edge,
     Graph,
     GraphInterface,
     LeafAction,
-    PortConnection,
     ResultEdge,
     RuntimeCondition,
     StaticCondition,
     StaticConditions,
     Step,
     StepWiring,
-    UnconditionalEdge,
     export_graph,
     static,
 )
@@ -55,8 +53,8 @@ def test_export_preserves_order_result_and_conditional_edges() -> None:
     graph = Graph(
         steps=(data, gate, prerequisite, consumer),
         edges=(
-            UnconditionalEdge(gate, consumer),
-            ConditionalEdge(prerequisite, consumer, edge_condition),
+            Edge(gate, consumer),
+            Edge(prerequisite, consumer, condition=edge_condition),
             ResultEdge(data, consumer, 0, action),
             ResultEdge(gate, consumer, 0, node_condition),
             ResultEdge(data, consumer, 0, edge_condition),
@@ -122,7 +120,7 @@ def test_ports_and_binding_refer_to_exact_descendants() -> None:
     )
     graph = Graph(
         steps=(provider, consumer),
-        edges=(PortConnection(provider, consumer, ready),),
+        edges=(Edge(provider, consumer, ports=ready),),
     )
     document = export_graph(graph)
     edge = next(edge for edge in document["edges"] if edge["kind"] == "port")

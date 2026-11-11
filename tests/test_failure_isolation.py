@@ -9,6 +9,7 @@ import pytest
 from rivlet import (
     AsyncGraphRunOptions,
     ConditionalPrerequisite,
+    Edge,
     ExactProviderRequirement,
     Graph,
     GraphExecution,
@@ -22,7 +23,6 @@ from rivlet import (
     Step,
     StepId,
     ThreadGraphRunOptions,
-    UnconditionalEdge,
     compile_graph,
     render_graph_execution,
     render_live_graph_execution,
@@ -200,7 +200,7 @@ def test_port_success_survives_failure_in_another_subgraph_branch(mode):
     )
     graph = Graph(
         steps=(provider, consumer, whole),
-        edges=(*bindings, UnconditionalEdge(source=provider, target=whole)),
+        edges=(*bindings, Edge(source=provider, target=whole)),
     )
     plan = GraphExecution(graph=graph)
     with pytest.raises(RuntimeError, match="action failed"):

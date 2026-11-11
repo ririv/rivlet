@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from .._compilation_origins import NodeConditionOrigin
 from ..compile import CompiledConditionalDependency
 from ..errors import GraphError
-from ..model import ConditionalEdge, Graph, RuntimeCondition
+from ..model import Edge, Graph, RuntimeCondition
 from .declaration import edge_id, index_declaration
 
 if TYPE_CHECKING:
@@ -66,7 +66,7 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
             scope = index.node_scopes[target]
             assert isinstance(scope.graph, Graph)
             edge = scope.graph.edges[origin.edge_index]
-            assert isinstance(edge, ConditionalEdge)
+            assert isinstance(edge, Edge)
             source_condition = edge.condition
             edge_conditions[(target, origin.edge_index)] = f"condition:{i}"
         assert isinstance(source_condition, RuntimeCondition)
@@ -105,6 +105,10 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
             ]
             if not edge["consumer_nodes"]:
                 continue
+            if edge["condition"] is not None:
+                edge["condition"] = edge_conditions[
+                    (target, index.edge_indexes[edge["id"]])
+                ]
             if edge["provider_node"] not in active:
                 raise GraphError("compiled port has no active provider")
         exported_edges.append(edge)

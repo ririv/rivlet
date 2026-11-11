@@ -7,7 +7,7 @@
 条件边表达“B 仅在条件成立时依赖 A”，不决定 A 或 B 是否执行。
 节点本身的启用条件见[条件 Step](./conditional_steps.md)。
 
-运行时形式是 `ConditionalEdge(source, target, condition)`，接线 API 则写为：
+运行时形式是 `Edge(source, target, condition=condition)`，接线 API 则写为：
 
 ```python
 target.wire(
@@ -15,13 +15,13 @@ target.wire(
 )
 ```
 
-`Graph.from_wiring()` 将其归一化为 ConditionalEdge，不创建隐藏 hook 或修改运行时拓扑。
+`Graph.from_wiring()` 将其归一化为 Edge，不创建隐藏 hook 或修改运行时拓扑。
 显式 skip 仍可使用，但属于图结构的可选依赖应直接声明，不应藏在 action 副作用里。
 
 ## 两类条件
 
-静态条件通过绑定 evaluator 的 StaticConditions 声明；ConditionalEdge 和
-ConditionalPrerequisite 只接收 RuntimeCondition。两者求值时机不同：
+静态条件通过绑定 evaluator 的 StaticConditions 声明；Edge 和
+ConditionalPrerequisite 的 `condition` 参数只接收 RuntimeCondition。两者求值时机不同：
 
 - 静态条件由声明编译器调用显式 evaluator 求值，保留或移除关系。
 - 运行时条件编译为带 ConditionId 的 prerequisite，交给统一 Rust session 调度。
@@ -74,8 +74,8 @@ condition = StaticCondition(
 graph = Graph(
     steps=(build, write_android_env_shim, archive),
     edges=(
-        UnconditionalEdge(source=build, target=archive),
-        UnconditionalEdge(source=write_android_env_shim, target=archive),
+        Edge(source=build, target=archive),
+        Edge(source=write_android_env_shim, target=archive),
     ),
     static=StaticConditions(
         evaluator=evaluate_target_condition,

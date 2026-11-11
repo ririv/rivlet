@@ -64,8 +64,8 @@ child_graph = static.when(is_android, android_graph).graph()
 graph = Graph(
     steps=(android, checks, build),
     edges=(
-        UnconditionalEdge(source=android, target=build),
-        UnconditionalEdge(source=checks, target=build),
+        Edge(source=android, target=build),
+        Edge(source=checks, target=build),
     ),
     static=StaticConditions(
         evaluator=evaluate_target_condition,

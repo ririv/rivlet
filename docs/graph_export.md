@@ -80,7 +80,7 @@ One condition object reused at several sites can produce multiple compiled insta
 - `label_path` follows mount labels. The root scope has ID `graph:root`; each child
   scope has `graph:<owner StepId>`. Scope `owner` and local `nodes`, together with a
   subgraph node's `child_graph`, preserve composition rather than inventing no-op actions.
-- Capabilities retain their names and exact input/output node references in `ports`.
+- Interfaces retain their port names and exact input/output node references in `ports`.
   Port forwarding appears on the scope that explicitly exposes it.
 
 Graph labels, node labels, and port names are deliberately visible. Hosts must
@@ -96,7 +96,7 @@ Both views retain declaration edge IDs and distinguish:
 | `order` | An explicit completion dependency, without result transfer |
 | `result` | A result argument at `argument_index`, addressed to the action or specific condition instances |
 | `conditional` | A dependency guarded by the referenced runtime condition |
-| `port` | A binding between mounted components, with `provider_node` and `consumer_nodes` showing exact readiness endpoints |
+| `port` | A connection with `source_port`, `target_port`, an optional `condition` ID, and exact `provider_node` / `consumer_nodes` readiness endpoints |
 
 Compiled `dependencies` is a separate view of the Rust compiler's actual prerequisite
 relationships: `required` or `conditional`. A port connection can therefore show
@@ -120,9 +120,11 @@ revision, run ID, or fingerprint. Hosts should store their own run/revision iden
 alongside it. Do not regenerate an old history's topology from today's source graph,
 add nodes that never existed, or relabel unknown historical work as executed.
 
-Version 2 names interface bindings with edge kind `port` and a `port` string
-field. Version 1 used `capability` for both. Consumers must check the schema
-version rather than interpreting the old document as the new format.
+Version 2 uses edge kind `port`, separate `source_port` and `target_port` names,
+and a `condition` field that is null for an unconditional port connection. Scope
+port declarations still use a single `port` name. Version 1 used `capability`
+for the edge kind and common name. Consumers must check the schema version
+rather than interpreting the old document as the new format.
 
 Events and execution snapshots remain separate. Join them with the exact frozen
 node ID; do not import arbitrary return values, shared objects, exception messages,

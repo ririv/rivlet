@@ -7,15 +7,12 @@ from typing import TYPE_CHECKING, assert_never
 
 from .._native import NativeGraph
 from ..errors import GraphError
-from ..interface import PortConnection
 from ..model import (
-    ConditionalEdge,
     Graph,
     LeafAction,
     ResultEdge,
     RuntimeCondition,
     StepId,
-    UnconditionalEdge,
     resolve_step_label,
     step_ids_for_mount,
 )
@@ -242,24 +239,7 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
         identifier = edge_id(scope.owner, i)
         index.edge_indexes[identifier] = i
         item: EdgeDocument
-        if isinstance(edge, UnconditionalEdge):
-            item = {
-                "kind": "order",
-                "id": identifier,
-                "graph": scope.id,
-                "source": source,
-                "target": target,
-            }
-        elif isinstance(edge, ConditionalEdge):
-            item = {
-                "kind": "conditional",
-                "id": identifier,
-                "graph": scope.id,
-                "source": source,
-                "target": target,
-                "condition": index.condition_id(target, edge.condition),
-            }
-        elif isinstance(edge, ResultEdge):
+        if isinstance(edge, ResultEdge):
             assert isinstance(edge.receiver, (LeafAction, RuntimeCondition))
             item = {
                 "kind": "result",
@@ -275,7 +255,7 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
                     "conditions": [index.condition_id(target, edge.receiver)],
                 },
             }
-        elif isinstance(edge, PortConnection):
+        elif edge.ports is not None:
             provider = index.scopes[scope_id(scope.ids[edge.source])]
             consumer = index.scopes[scope_id(scope.ids[edge.target])]
             provider_graph, consumer_graph = provider.graph, consumer.graph
@@ -288,17 +268,36 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
                 "graph": scope.id,
                 "source": source,
                 "target": target,
-                "port": edge.port,
+                "source_port": edge.ports[0],
+                "target_port": edge.ports[1],
+                "condition": None
+                if edge.condition is None
+                else index.condition_id(target, edge.condition),
                 "provider_node": provider.require_descendant(
-                    provider_graph.interface.outputs[edge.port]
+                    provider_graph.interface.outputs[edge.ports[0]]
                 ),
                 "consumer_nodes": [
                     consumer.require_descendant(step)
-                    for step in consumer_graph.interface.inputs[edge.port]
+                    for step in consumer_graph.interface.inputs[edge.ports[1]]
                 ],
             }
+        elif edge.condition is not None:
+            item = {
+                "kind": "conditional",
+                "id": identifier,
+                "graph": scope.id,
+                "source": source,
+                "target": target,
+                "condition": index.condition_id(target, edge.condition),
+            }
         else:
-            assert_never(edge)
+            item = {
+                "kind": "order",
+                "id": identifier,
+                "graph": scope.id,
+                "source": source,
+                "target": target,
+            }
         document["edges"].append(item)
     for i, (target, _binding) in enumerate(graph._static_bindings.items()):
         condition = f"{scope.id}/static:{i}"

@@ -85,7 +85,7 @@ This complete example connects two otherwise independent subgraphs:
 ```python
 from rivlet import (
     str,
-    PortConnection,
+    Edge,
     GraphInterface,
     Graph,
     GraphExecution,
@@ -117,7 +117,7 @@ graph = Graph(
     label="pipeline",
     steps=(producer, consumer),
     edges=(
-        PortConnection(source=producer, target=consumer, port=data_ready),
+        Edge(source=producer, target=consumer, ports=data_ready),
     ),
 )
 GraphExecution(graph).run(ThreadGraphRunOptions(workers=3))
@@ -134,7 +134,7 @@ The consumer can prepare immediately. Once validation succeeds, `process` can ru
 without waiting for `archive`, provided its own preparation has also completed.
 The overall execution still waits for both subgraphs to finish.
 
-Matching port names do **not** create dependencies: `PortConnection` explicitly
+Matching port names do **not** create dependencies: `Edge` explicitly
 connects this producer and consumer. Ports synchronize readiness; they do not
 transfer Python return values or inspect external data. Use result edges for
 argument passing, and publish an output only when later steps will no longer

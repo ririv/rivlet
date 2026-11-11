@@ -70,7 +70,7 @@ Python 在调用 API 前计算布尔表达式，并构造所有候选组件。�
 不使用 DSL 时，可以声明同一份选择和拓扑：
 
 ```python
-from rivlet import Case, Graph, GraphExecution, StaticSelection, Step, UnconditionalEdge
+from rivlet import Case, Graph, GraphExecution, StaticSelection, Step, Edge
 
 first = Step(lambda: print("first"), label="first")
 second = Step(lambda: print("second"), label="second")
@@ -79,7 +79,7 @@ cases = (Case(False, first), Case(True, second))
 
 graph = Graph(
     steps=tuple(case.step for case in cases) + (finish,),
-    edges=tuple(UnconditionalEdge(case.step, finish) for case in cases),
+    edges=tuple(Edge(case.step, finish) for case in cases),
     static_selections=(StaticSelection(cases=cases),),
 )
 GraphExecution(graph).run()
@@ -95,7 +95,7 @@ GraphExecution(graph).run()
 复用实现时，传入可复用子图，各 Case 按已有挂载规则获得独立边界，不隐式合并节点。
 每次编译、每次挂载独立选择，不把选中结果缓存到声明对象。
 
-选择不自动公开或转发子图端口端口。通过 `case.step` 可按现有 API 显式绑定端口；
+选择不自动公开或转发子图端口。通过 `case.step` 可按现有 API 显式绑定端口；
 仍活跃的消费者若需要未选分支的端口或结果，编译报错，不静默删除需求。
 运行时条件不会触发重新选择；结果输入、线程/异步执行继续使用既有规则。
 

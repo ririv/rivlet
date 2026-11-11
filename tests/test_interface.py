@@ -6,13 +6,13 @@ import pytest
 
 from rivlet import (
     AnyProviderRequirement,
+    Edge,
     ExactProviderRequirement,
     Graph,
     GraphError,
     GraphExecution,
     GraphInterface,
     GraphMode,
-    PortConnection,
     ProviderSelection,
     Step,
     ThreadGraphRunOptions,
@@ -275,8 +275,8 @@ def test_direct_connections_gate_each_named_port_independently(mode: GraphMode) 
     graph = Graph(
         steps=(provider, consumer),
         edges=(
-            PortConnection(source=provider, target=consumer, port=library_ready),
-            PortConnection(source=provider, target=consumer, port=docs_ready),
+            Edge(source=provider, target=consumer, ports=library_ready),
+            Edge(source=provider, target=consumer, ports=docs_ready),
         ),
     )
     GraphExecution(graph).run(ThreadGraphRunOptions(workers=2), mode=mode)

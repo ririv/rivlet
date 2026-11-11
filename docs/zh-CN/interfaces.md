@@ -134,6 +134,31 @@ consumer = (
 彼此不互相等待。外部只连接一次该端口，编译器将绑定展开到全部输入步骤，不插入
 空 action 或共享等待节点。输出暂不支持多个步骤，避免隐式引入“全部/任一就绪”语义。
 
+## 直接接线
+
+`Edge` 统一表达普通完成依赖、端口选择与可选的运行时条件。端口名属于各自的图：
+
+```python
+from rivlet import Edge
+
+Edge(source=a, target=b)  # 等整个 A 完成后才启动 B
+Edge(source=a, target=b, ports="ready")  # A.ready -> B.ready
+Edge(source=a, target=b, ports=("sdk-ready", "toolchain-ready"))
+Edge(source=a, target=b, ports=("sdk-ready", "toolchain-ready"), condition=needed)
+```
+
+固定二元组顺序为 `(来源出口名, 目标入口名)`；字符串归一化成 `(name, name)`。
+这是引用，不是再次声明端口。两端必须已经在各自 `GraphInterface` 中声明；来源只查出口，
+目标只查入口，不搜索相反方向。不同名字可以直接连接，无需为了改名再包装一层图。
+
+条件只决定入口内部步骤是否等待出口步骤，不会挡住整个消费者子图，也不会跳过任意一端。
+一个入口对应多个步骤时，共享这条边的同一个条件实例。条件读取结果仍通过 `ResultEdge`
+声明，目标是消费者组件，receiver 是该条件对象；与端口无关的消费者准备步骤可以提前执行。
+静态边规则也可以在编译期移除整条端口连接。
+
+端口仍只表达就绪关系，不传递结果。`ResultEdge`、`inputs` 与其 `Option` 参数保持原样；
+这次没有引入 `.input()`／`.output()` 或 `.argument()` 端点 API。
+
 ## 两种需求
 
 声明层明确区分两种语义：
@@ -173,16 +198,17 @@ ExactProviderRequirement(
 ## 提供者解析
 
 `resolve_port_requirements()` 在 Graph 执行前把符号需求解析为确定的
-`PortConnection`：
+`Edge(..., ports=name)`。需求解析仍按双方共同的名称匹配提供者；两端局部名称不同时，
+使用显式 `Edge` 直接接线：
 
 ```text
 AnyProviderRequirement(123)
     └── provider selection
-        └── PortConnection(A.123 -> B.123)
+        └── Edge(A.123 -> B.123)
 
 ExactProviderRequirement(A.123)
     └── validate A provides 123
-        └── PortConnection(A.123 -> B.123)
+        └── Edge(A.123 -> B.123)
 ```
 
 如果当前组合中只有一个提供者，任意提供者需求可以直接解析。如果 A、C 同时提供

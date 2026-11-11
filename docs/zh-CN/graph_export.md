@@ -88,7 +88,7 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 | `order` | 只等待完成、不传返回值的顺序依赖 |
 | `result` | 按 `argument_index` 绑定给 action 或指定条件实例的结果参数 |
 | `conditional` | 由对应运行期条件决定是否生效的依赖 |
-| `port` | 两个挂载组件的端口接线，`provider_node`、`consumer_nodes` 标明实际就绪端点 |
+| `port` | 两个挂载组件的接线，分别记录 `source_port`、`target_port`、可选条件 ID 及实际 `provider_node`／`consumer_nodes` |
 
 编译文档中的 `dependencies` 单独描述 Rust 编译器实际采用的前置关系，分为 `required`
 与 `conditional`。端口边在 `edges` 中可以是组件 `0 → 1`，在 `dependencies` 中则是
@@ -105,7 +105,9 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 不会影响 Graph 或下次导出；保存 JSON 才是冻结该次历史的具体值。
 
 `schema_version=2` 只表示文档格式，不是 Rivlet 版本、工作流修订、run ID 或 fingerprint。
-第 2 版把接口接线的边类型及名称字段统一为 `port`；第 1 版二者均为 `capability`。
+第 2 版使用 `port` 边类型，以 `source_port`、`target_port` 分别记录两端名称；
+`condition` 为条件 ID，无条件时为 null。图接口自身的端口声明仍用单个 `port` 名称。
+第 1 版以 `capability` 表示边类型和双方共同名称。
 消费者必须按 schema 版本识别格式，不能把旧记录当成新格式读取。
 宿主在外层单独记录自己的运行／修订身份。不要用今天的 Graph 重画旧历史，不给旧历史补上
 当时不存在的节点，更不能把无法证明执行过的工作标成已执行。

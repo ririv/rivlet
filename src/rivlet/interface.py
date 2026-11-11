@@ -11,7 +11,7 @@ from .errors import GraphError
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from .model import Graph, Step
+    from .model import Edge, Graph, Step
 
 
 type InterfaceInputs = Mapping[str, Step | tuple[Step, ...]] | Graph
@@ -99,25 +99,15 @@ class ProviderSelection:
     provider: Step
 
 
-@dataclass(frozen=True, slots=True)
-class PortConnection:
-    """A resolved port connection between two mounted graph components."""
-
-    source: Step
-    target: Step
-    port: str
-
-    def __post_init__(self) -> None:
-        _validate_port_name(self.port)
-
-
 def resolve_port_requirements(
     components: Iterable[Step],
     requirements: Iterable[PortRequirement],
     *,
     selections: Iterable[ProviderSelection] = (),
-) -> tuple[PortConnection, ...]:
+) -> tuple[Edge, ...]:
     """Resolve symbolic requirements into deterministic port connections."""
+
+    from .model import Edge
 
     mounted_components = tuple(components)
     mounted_set = set(mounted_components)
@@ -193,10 +183,10 @@ def resolve_port_requirements(
 
     ports_by_index = tuple(ports)
     return tuple(
-        PortConnection(
+        Edge(
             source=mounted_components[provider],
             target=mounted_components[consumer],
-            port=ports_by_index[port],
+            ports=ports_by_index[port],
         )
         for provider, consumer, port in resolved
     )

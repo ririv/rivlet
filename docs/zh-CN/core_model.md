@@ -88,7 +88,7 @@ runtime 消费三种 action：
 
 - 同一个 Step 不能在同一张 Graph 中挂载两次
 - 同一个 Step 可以在不同 Graph 中使用不同接线
-- 普通边与结果输入的跨图引用会在 Graph 构造时失败；跨子图同步使用端口端口
+- 普通边与结果输入的跨图引用会在 Graph 构造时失败；跨子图同步使用端口
 
 ## 身份与展示
 
@@ -116,18 +116,15 @@ runtime 消费三种 action：
 规范化边是和类型：
 
 ```python
-type GraphEdge = (
-    UnconditionalEdge
-    | ConditionalEdge
-    | PortConnection
-    | ResultEdge
-)
+type GraphEdge = Edge | ResultEdge
 ```
 
 这些边引用真实 Step 对象：
 
-- `UnconditionalEdge(source, target)`
-- `ConditionalEdge(source, target, condition)`
+- `Edge(source, target)`
+- `Edge(source, target, condition=condition)`
+- `Edge(source, target, ports="ready")`
+- `Edge(source, target, ports=("sdk-ready", "toolchain-ready"), condition=condition)`
 - `ResultEdge(source, target, argument_index, receiver)`：同时声明等待关系与结果参数位置
 
 作者通常不需要直接构造边，可以使用 `Step.wire(...)`：
@@ -164,7 +161,7 @@ archive.wire(
 字符串不能引用 Step。声明图必须直接引用对象，避免 label 同名、重命名或子图作用域
 导致引用歧义。
 
-`PortConnection` 是解析完成后的跨子图端口边。端口接口、任意提供者需求、精确
+`Edge` 是解析完成后的跨子图端口边。端口接口、任意提供者需求、精确
 提供者需求和 compiled lowering 见 [interfaces.md](./interfaces.md)。
 
 ## 组合 DSL
@@ -297,7 +294,7 @@ graph = Graph.from_wiring((select_strategy.wire(), selection.wire(inputs={select
 `workers` / `concurrency` 上限约束；串行执行使用显式栈，不递归调用执行器。
 
 此上限计算正在执行的 Graph 叶子动作，不限制 action 自己启动的线程、子进程或模型
-请求数量。它保持已有的子图边界、结果引用、端口端口和失败传播规则，不会修改已经
+请求数量。它保持已有的子图边界、结果引用、端口和失败传播规则，不会修改已经
 声明的图或允许任意向运行中的图插入节点。纯 Python session 不创建空的 Rust 线程池。
 
 ## 条件
@@ -306,10 +303,10 @@ graph = Graph.from_wiring((select_strategy.wire(), selection.wire(inputs={select
 
 - `Step.condition`
   - 控制 Step 本身是否参与执行
-- `ConditionalEdge`
+- `Edge`
   - 控制一条 prerequisite 是否成立
 
-Step.condition 和 ConditionalEdge 只接受 RuntimeCondition。
+Step.condition 和 Edge 只接受 RuntimeCondition。
 静态条件通过 `StaticConditions(evaluator=..., conditions=...)` 绑定节点或边，
 在编译阶段求值；直接构造与 DSL 写法见[条件 Step](./conditional_steps.md)。
 
