@@ -32,6 +32,8 @@ pip install rivlet
 CPython 3.13–3.15 在 Linux x86_64（glibc 2.28+）和 macOS arm64（macOS 11+）上
 提供预编译 wheel，安装这些 wheel 不需要 Rust 工具链。其它平台需要从源码构建，见
 [交付范围](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/releasing.md)。
+Windows x64 的源码构建与安装后验收见
+[Windows 环境](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/development.md#windows-环境)。
 
 ## 组合步骤与可复用子图
 

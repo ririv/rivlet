@@ -38,6 +38,8 @@ Prebuilt wheels are available for CPython 3.13–3.15 on Linux x86_64 (glibc 2.2
 and macOS arm64 (macOS 11+). These installations need no Rust toolchain.
 Other platforms require a source build; see
 [distribution support](https://github.com/ririv/rivlet/blob/main/docs/releasing.md).
+For Windows x64 source builds and installed-wheel validation, see
+[Windows setup](https://github.com/ririv/rivlet/blob/main/docs/development.md#windows-setup).
 
 ## Compose steps and reusable subgraphs
 

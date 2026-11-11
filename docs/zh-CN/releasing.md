@@ -7,9 +7,10 @@
 
 ## 交付范围
 
-首批 wheel 覆盖 CPython 3.13、3.14、3.15，以及 Linux x86_64（glibc 2.28 起）和
-macOS arm64（macOS 11 起）。同时提供源码包。其它平台需要兼容的 Rust 工具链自行
-编译源码，不能据此声称这些平台已经通过 wheel 验收。
+发行矩阵覆盖 CPython 3.13、3.14、3.15，以及 Linux x86_64（glibc 2.28 起）、
+macOS arm64（macOS 11 起）与 Windows x86_64（`win_amd64`，MSVC）。同时提供源码包。
+其它平台需要兼容的 Rust 工具链自行编译源码，不能据此声称这些平台已经通过 wheel 验收。
+此矩阵不包含 Windows ARM64 或自由线程 Python。
 
 原生扩展是必需依赖，没有纯 Python 兜底实现。项目尚处于 1.0 之前；首次公开发布
 不等于承诺 API 已稳定。
@@ -35,8 +36,7 @@ macOS arm64（macOS 11 起）。同时提供源码包。其它平台需要兼容
 挂载身份、能力端口及静态排除项。GraphExecution 首次成功编译后由 compile/run/arun
 复用，声明与宿主绑定不可替换；需要重新求静态条件时创建新实例。见[结构导出](./graph_export.md)。
 
-本版不包含 JavaScript、Swift、Java 绑定、跨语言 Action 编排、浏览器支持或已验收的
-Windows wheel。
+本版不包含 JavaScript、Swift、Java 绑定、跨语言 Action 编排或浏览器支持。
 
 0.2.0 新增强类型的直接失败与阻断来源。步骤事件消费方把 `event.phase` 改为
 `event.state`，`StepExecutionPhase` 改为 `StepExecutionState`。构造事件使用
@@ -44,6 +44,11 @@ Windows wheel。
 [失败事件](./failure_events.md)。这次发行没有增加检查点恢复、自动重试或事件序号。
 
 ## 验证与发布
+
+配置矩阵不代表产物已经通过验收；必须构建成功，并在目标操作系统完成安装后测试，才能发布。
+交叉编译的 wheel 同样必须经过目标系统的原生验证，交叉编译成功不能代替运行测试。
+本地构建和 CI 共用的验收入口见 [Windows 环境](./development.md#windows-环境)；
+本地验证和 token 上传不需要 Actions。
 
 `.github/workflows/publish.yml` 提供两个明确入口：
 
@@ -55,6 +60,10 @@ Windows wheel。
 每个平台先安装 wheel，再以 Python 隔离模式运行测试，避免误用 checkout 内的源码。
 源码任务检查 Python 和 Rust，生成 sdist，再从 sdist 构建并安装 wheel，运行测试。
 Twine 检查发行元数据。历史基准数据不作为本轮发行的性能保证。
+
+`scripts/verify_wheel.py` 接收只包含一个 wheel 的目录，用当前 Python 解释器完成安装后
+检查。每个平台／Python 组合使用独立虚拟环境和输出目录。脚本不展开 shell 通配符，
+不隐式安装依赖，也不发布；运行前显式安装 `pytest` 和 `twine`。
 
 PyPI 使用 Trusted Publishing，绑定 `ririv/rivlet` 仓库、`publish.yml` 工作流和
 `pypi` GitHub environment。只有发布任务取得 `id-token: write`，构建任务只有仓库

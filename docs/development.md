@@ -24,6 +24,32 @@ The last command builds the required native extension and installs the Python
 package in editable mode. Rebuild it after changing Rust code. There is no
 Python-only execution fallback.
 
+## Windows setup
+
+Use x64 CPython 3.13–3.15 and the Rust `x86_64-pc-windows-msvc` toolchain.
+Building from source also requires Visual Studio Build Tools with the C++ toolset
+and a Windows SDK; installing a wheel does not require these build tools.
+In PowerShell, use the environment's executables directly; activation is optional:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install 'maturin==1.15.0' 'pytest>=8' 'twine>=6'
+.\.venv\Scripts\maturin.exe build --release --locked --target x86_64-pc-windows-msvc --interpreter .\.venv\Scripts\python.exe --out dist
+.\.venv\Scripts\python.exe scripts/verify_wheel.py --dist dist --junitxml windows-results.xml
+cargo +1.95.0 test --locked --workspace --exclude python
+```
+
+Run this in a fresh checkout and environment for each Python version. `dist` must
+contain exactly one wheel for that interpreter. The shared verification script
+checks metadata, installs the exact wheel, verifies the installed native extension
+in isolated mode, and runs the full Python suite. It works without shell globbing.
+It never uploads artifacts. Python subprocesses, dynamic graphs, native actions,
+and their shared concurrency budget are tested on Windows without POSIX-only skips.
+
+No Unix shell is supplied implicitly. Native adapters must explicitly provide a
+program, an argument vector, a working directory, and the child environment;
+choosing a shell, if needed, is the adapter's responsibility.
+
 ## Checks
 
 With the virtual environment activated:

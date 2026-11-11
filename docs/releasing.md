@@ -8,10 +8,12 @@ The public repository is <https://github.com/ririv/rivlet>. The previous
 
 ## Supported distributions
 
-The initial release builds CPython 3.13, 3.14, and 3.15 wheels for Linux x86_64
-(glibc 2.28 or later) and macOS arm64 (macOS 11 or later). It also provides a
-source distribution. Other platforms require a compatible Rust toolchain and
-a source build; they are not claimed as wheel-tested platforms.
+The release matrix targets CPython 3.13, 3.14, and 3.15 on Linux x86_64
+(glibc 2.28 or later), macOS arm64 (macOS 11 or later), and Windows x86_64
+(`win_amd64`, MSVC). It also provides a source distribution. Other platforms
+require a compatible Rust toolchain and a source build; they are not claimed as
+wheel-tested platforms. Windows ARM64 and free-threaded Python are not part of
+this matrix.
 
 Rivlet requires the native extension. There is no Python-only fallback.
 The project is pre-1.0; a first public release does not guarantee API stability.
@@ -45,7 +47,7 @@ successful compilation and reuses it for compile/run/arun; its bindings are froz
 Use a new execution for fresh static decisions. See [structural export](./graph_export.md).
 
 This version does not add JavaScript, Swift, or Java bindings, cross-language
-action orchestration, browser support, or validated Windows wheels.
+action orchestration, or browser support.
 
 Version 0.2.0 adds typed direct failure and blockage sources. Step event consumers
 must replace `event.phase` with `event.state` and `StepExecutionPhase` with
@@ -55,6 +57,14 @@ determines the read-only `state`. There are no old-name aliases. See
 This release adds no checkpoint restoration, automatic retry, or event numbering.
 
 ## Validation and publication
+
+Adding a matrix target is not evidence that its artifacts have passed: release
+only after a successful build and installed-wheel validation on the target
+operating system. Cross-built wheels must also pass native target validation;
+cross-compilation alone is not a runtime test. See
+[Windows setup](./development.md#windows-setup) for local builds and the same
+validation entry point used by CI; Actions is not required for local validation
+or token-based publication.
 
 `.github/workflows/publish.yml` supports two explicit entry points:
 
@@ -68,6 +78,12 @@ Each platform installs its wheel before running the Python test suite in isolate
 mode. The source job checks Python and Rust, builds an sdist, builds a wheel from
 that sdist, and runs the tests against the installed result. Twine checks the
 distribution metadata. Historical benchmarks are not release performance claims.
+
+`scripts/verify_wheel.py` accepts a directory containing exactly one wheel and
+runs the installed-artifact checks with the current Python interpreter. Use a
+fresh virtual environment and separate output directory for each platform/Python
+combination. It does not expand shell wildcards, install dependencies implicitly,
+or publish. Install `pytest` and `twine` explicitly before running it.
 
 PyPI uses Trusted Publishing, restricted to repository `ririv/rivlet`, workflow
 `publish.yml`, and GitHub environment `pypi`. Only the publishing job receives
