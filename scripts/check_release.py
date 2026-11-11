@@ -16,8 +16,12 @@ RELEASE_VERSION = re.compile(
 
 def check_release_identity(root: Path, *, tag: str | None = None) -> None:
     """Require an exact release identity, allowing metadata-only post-releases."""
-    project = tomllib.loads((root / "pyproject.toml").read_text())["project"]
-    cargo = tomllib.loads((root / "Cargo.toml").read_text())["workspace"]["package"]
+    project = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))[
+        "project"
+    ]
+    cargo = tomllib.loads((root / "Cargo.toml").read_text(encoding="utf-8"))[
+        "workspace"
+    ]["package"]
     if project["name"] != "rivlet":
         raise ValueError("project name must be rivlet")
     version = project["version"]
