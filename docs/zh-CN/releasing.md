@@ -36,7 +36,7 @@ macOS arm64（macOS 11 起）。同时提供源码包。其它平台需要兼容
 复用，声明与宿主绑定不可替换；需要重新求静态条件时创建新实例。见[结构导出](./graph_export.md)。
 
 本版不包含 JavaScript、Swift、Java 绑定、跨语言 Action 编排、浏览器支持或已验收的
-Windows wheel；上面的交付矩阵保持不变。
+Windows wheel。
 
 0.2.0 新增强类型的直接失败与阻断来源。步骤事件消费方把 `event.phase` 改为
 `event.state`，`StepExecutionPhase` 改为 `StepExecutionState`。构造事件使用
@@ -60,7 +60,8 @@ PyPI 使用 Trusted Publishing，绑定 `ririv/rivlet` 仓库、`publish.yml` �
 `pypi` GitHub environment。只有发布任务取得 `id-token: write`，构建任务只有仓库
 读取权限，不保存长期 PyPI token。
 
-Actions 不可用时，只能在其它构建环境完成同一支持矩阵的 wheel 与源码包验收后本地发布。
+Actions 不可用时，本地发布也必须先完成拟上传产物的构建与安装后检查。
+之后可以向同一版本追加已验收的 wheel，但不能覆盖已经发布的同名文件。
 记录源码 commit、解释器／工具链版本、产物摘要和安装后测试结果。项目级 PyPI token 必须
 保存在仓库外并限制访问，不能放入发行说明或产物；本地 token 认证不等同于 GitHub OIDC
 来源证明。

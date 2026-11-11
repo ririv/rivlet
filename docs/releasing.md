@@ -45,8 +45,7 @@ successful compilation and reuses it for compile/run/arun; its bindings are froz
 Use a new execution for fresh static decisions. See [structural export](./graph_export.md).
 
 This version does not add JavaScript, Swift, or Java bindings, cross-language
-action orchestration, browser support, or validated Windows wheels. The supported
-distribution matrix above is unchanged.
+action orchestration, browser support, or validated Windows wheels.
 
 Version 0.2.0 adds typed direct failure and blockage sources. Step event consumers
 must replace `event.phase` with `event.state` and `StepExecutionPhase` with
@@ -76,7 +75,9 @@ PyPI uses Trusted Publishing, restricted to repository `ririv/rivlet`, workflow
 PyPI token is stored in the repository.
 
 When Actions is unavailable, publication can be performed locally only after the
-same supported wheel matrix and source-distribution checks have been completed.
+distributions being uploaded have passed their build and installed-artifact checks.
+Additional validated wheels may be appended to the same release later; published
+filenames are never overwritten.
 Record the source commit, interpreter/toolchain versions, distribution hashes,
 and installed-artifact test results. Use a project-scoped PyPI token stored outside
 the repository with restricted access; never place it in release notes or artifacts.
