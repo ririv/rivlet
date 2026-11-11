@@ -38,6 +38,12 @@ is no branch-order precedence, implicit fallback, or selector action. See
 [static selection](./static_selection.md) for composition and capability boundaries.
 Existing evaluator-bound `StaticConditions` rules remain available.
 
+The same release adds versioned JSON structural export through `export_graph()`,
+with declaration and compiled views, typed edge provenance, mounted identities,
+capability ports, and explicit static exclusions. GraphExecution prepares one
+successful compilation and reuses it for compile/run/arun; its bindings are frozen.
+Use a new execution for fresh static decisions. See [structural export](./graph_export.md).
+
 This version does not add JavaScript, Swift, or Java bindings, cross-language
 action orchestration, browser support, or validated Windows wheels. The supported
 distribution matrix above is unchanged.
@@ -68,6 +74,13 @@ PyPI uses Trusted Publishing, restricted to repository `ririv/rivlet`, workflow
 `publish.yml`, and GitHub environment `pypi`. Only the publishing job receives
 `id-token: write`; build jobs have read-only repository access. No long-lived
 PyPI token is stored in the repository.
+
+When Actions is unavailable, publication can be performed locally only after the
+same supported wheel matrix and source-distribution checks have been completed.
+Record the source commit, interpreter/toolchain versions, distribution hashes,
+and installed-artifact test results. Use a project-scoped PyPI token stored outside
+the repository with restricted access; never place it in release notes or artifacts.
+Do not treat local token authentication as a GitHub OIDC provenance attestation.
 
 Before the first upload, the PyPI account owner must configure a pending publisher
 with project name `rivlet`. This does not reserve the name. A version uploaded

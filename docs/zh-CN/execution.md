@@ -21,6 +21,14 @@
 正式 runtime 只接收 `GraphCompilation`。action 在运行期返回的 `Graph` 会携带父
 step id、label path 与父结果作用域，再进入同一个编译执行流程。
 
+## 编译准备
+
+GraphExecution 的声明及宿主引用在构造后不可替换。首次成功的 `compile()`、`run()` 或
+`arun()` 固定同一份根编译结果，后续复用；只读 `execution.compilation` 在准备成功前为
+None，之后返回该对象。编译异常不提交半成品。重新求静态条件需要新建 GraphExecution；
+独立工具 compile_graph 仍独立编译。准备结果复用不重置执行状态，也不是业务结果缓存。
+冻结当次真实图的用法见[结构导出](./graph_export.md)。
+
 ## Python action 返回值
 
 串行和线程执行器先调用 Python action，再根据实际返回值处理：

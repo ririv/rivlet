@@ -33,6 +33,7 @@ from rivlet import Graph, GraphExecution, Step
 ## 文档
 
 - [核心模型](./core_model.md)
+- [版本化结构导出](./graph_export.md)
 - [图内静态选择](./static_selection.md)
 - [拓扑复杂度与实现开销](./topology_complexity.md)
 - [执行语义](./execution.md)

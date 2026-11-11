@@ -128,9 +128,19 @@ if TYPE_CHECKING:
         not_,
     )
     from .static_conditions import StaticConditions
+    from .structure import (
+        CompilationDocument,
+        DeclarationDocument,
+        GraphDocument,
+        export_graph,
+    )
     from .topology import Arc, DAGTopology, DirectedTopology, TopologyCycleError
 
 _EXPORT_GROUPS = (
+    (
+        ".structure",
+        ("CompilationDocument", "DeclarationDocument", "GraphDocument", "export_graph"),
+    ),
     (".static", ("Case", "StaticSelection")),
     (".static_conditions", ("StaticConditions",)),
     ("._native", ("NativeGraph",)),
@@ -291,6 +301,10 @@ _EXPORT_GROUPS = (
 )
 
 __all__ = [
+    "CompilationDocument",
+    "DeclarationDocument",
+    "GraphDocument",
+    "export_graph",
     "static",
     "Case",
     "StaticSelection",

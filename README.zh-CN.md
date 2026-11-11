@@ -289,6 +289,25 @@ GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
 如果想跳过发布本身，应使用 `Step(..., condition=...)` 声明，而不是使用条件边。
 静态条件边则通过 `static.edge(source, target, condition=...)` 声明。
 
+## 不运行任务，直接导出结构
+
+```python
+import json
+from rivlet import Graph, GraphExecution, Step, export_graph
+
+graph = (Step(lambda: None, label="prepare") >> Step(lambda: None, label="finish")).graph()
+execution = GraphExecution(graph)
+declaration = export_graph(graph)
+compilation = execution.compile()
+compiled = export_graph(compilation)
+json.dumps({"declaration": declaration, "compiled": compiled})
+execution.run()  # 复用同一份编译结果
+```
+
+版本化 JSON 文档保留挂载 ID、子图边界、边类型、条件与能力端口。声明检查不执行宿主代码，
+编译导出只读取已有决定、不重新编译；运行事件与返回值仍然独立。
+schema、历史冻结及静态／动态范围见[结构导出](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/graph_export.md)。
+
 ## 更多用法
 
 - [结果输入与动作上下文](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/core_model.md#结果与运行上下文)

@@ -35,6 +35,7 @@ domain workflows are connected explicitly, not read from implicit global facilit
 ## Documentation
 
 - [Core model](./core_model.md)
+- [Versioned structural graph export](./graph_export.md)
 - [Static selection during compilation](./static_selection.md)
 - [Topology complexity and implementation costs](./topology_complexity.md)
 - [Execution semantics](./execution.md)

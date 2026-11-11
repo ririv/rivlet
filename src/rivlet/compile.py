@@ -4,6 +4,11 @@ from dataclasses import dataclass, field, replace
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
+from ._compilation_origins import (
+    CompilationOrigins,
+    EdgeConditionOrigin,
+    NodeConditionOrigin,
+)
 from ._native import (
     NativeActionBindings,
     NativeCompiledExecutionGraph,
@@ -199,6 +204,9 @@ class GraphCompilation:
     root_label_path: StepLabelPath = ()
     root_graph_step_ids: Mapping[Step, StepId] = field(
         default_factory=lambda: MappingProxyType({})
+    )
+    _structure_origins: CompilationOrigins | None = field(
+        default=None, repr=False, compare=False
     )
     _execution_graph_input: _ExecutionGraphInput = field(
         default=_MATERIALIZE_EXECUTION_GRAPH,
@@ -790,6 +798,7 @@ def _materialize_native_compilation(
         refs_by_declaration[active_declarations[index]]
         for index in native.graph.roots()
     )
+    prefix, disabled_edges, condition_origins = native.export_origins()
     return GraphCompilation(
         source_graph=source_graph,
         label=graph_labels[0],
@@ -798,6 +807,19 @@ def _materialize_native_compilation(
         roots=roots,
         root_label_path=graph_label_paths[0],
         root_graph_step_ids=graph_step_ids[0],
+        _structure_origins=CompilationOrigins(
+            parent_step_id=StepId(tuple(prefix)) if prefix else None,
+            disabled_edges=tuple(
+                (None if owner is None else StepId(tuple(owner)), index)
+                for owner, index in disabled_edges
+            ),
+            conditions=tuple(
+                NodeConditionOrigin(StepId(tuple(target)))
+                if edge_index is None
+                else EdgeConditionOrigin(StepId(tuple(target)), edge_index)
+                for target, edge_index in condition_origins
+            ),
+        ),
         _execution_graph_input=_PrecompiledExecutionGraph(
             graph=native.graph,
             conditions=compiled_conditions,

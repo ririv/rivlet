@@ -31,6 +31,10 @@ macOS arm64（macOS 11 起）。同时提供源码包。其它平台需要兼容
 决定优先级，没有隐式兜底，也不增加选择步骤。组合与能力边界见
 [静态选择](./static_selection.md)。原有绑定 evaluator 的 `StaticConditions` 规则继续保留。
 
+本版同时增加 `export_graph()` 版本化 JSON 结构导出，区分声明和编译视图，保留边类型来源、
+挂载身份、能力端口及静态排除项。GraphExecution 首次成功编译后由 compile/run/arun
+复用，声明与宿主绑定不可替换；需要重新求静态条件时创建新实例。见[结构导出](./graph_export.md)。
+
 本版不包含 JavaScript、Swift、Java 绑定、跨语言 Action 编排、浏览器支持或已验收的
 Windows wheel；上面的交付矩阵保持不变。
 
@@ -55,6 +59,11 @@ Twine 检查发行元数据。历史基准数据不作为本轮发行的性能�
 PyPI 使用 Trusted Publishing，绑定 `ririv/rivlet` 仓库、`publish.yml` 工作流和
 `pypi` GitHub environment。只有发布任务取得 `id-token: write`，构建任务只有仓库
 读取权限，不保存长期 PyPI token。
+
+Actions 不可用时，只能在其它构建环境完成同一支持矩阵的 wheel 与源码包验收后本地发布。
+记录源码 commit、解释器／工具链版本、产物摘要和安装后测试结果。项目级 PyPI token 必须
+保存在仓库外并限制访问，不能放入发行说明或产物；本地 token 认证不等同于 GitHub OIDC
+来源证明。
 
 首次上传前，PyPI 账户所有者需要配置项目名为 `rivlet` 的 pending publisher。
 配置本身不会占用名称。已经上传的版本不能覆盖；修复必须发布新版本。

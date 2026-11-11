@@ -28,6 +28,22 @@ impl NativeGraph {
     fn label(&self) -> &str {
         self.graph.label()
     }
+
+    /// Returns only labels and topology, never action commands or environments.
+    fn structure(&self) -> (Vec<String>, Vec<(usize, usize)>) {
+        (
+            self.graph
+                .steps()
+                .iter()
+                .map(|step| step.label().to_owned())
+                .collect(),
+            self.graph
+                .arcs()
+                .iter()
+                .map(|arc| (arc.source.index(), arc.target.index()))
+                .collect(),
+        )
+    }
 }
 
 /// Constructs one graph from a complete process declaration in a single FFI call.

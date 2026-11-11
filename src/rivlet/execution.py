@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import InitVar, dataclass, field
+from threading import Lock
 from typing import TYPE_CHECKING
 
 from .compile import (
@@ -32,7 +33,7 @@ if TYPE_CHECKING:
     from .option import Some
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class GraphExecution:
     """DAG 图的实例化执行载体。
 
@@ -61,6 +62,21 @@ class GraphExecution:
         default=None, kw_only=True
     )
     events: InitVar[StepEventSink | None] = field(default=None, kw_only=True)
+    _compilation: GraphCompilation | None = field(
+        default=None, init=False, repr=False, compare=False
+    )
+    _compilation_lock: Lock = field(
+        default_factory=Lock, init=False, repr=False, compare=False
+    )
+
+    @property
+    def compilation(self) -> GraphCompilation | None:
+        """Return this execution's successfully prepared root compilation.
+
+        首次 compile/run/arun 成功编译后固定；执行失败不删除它。重新求值静态
+        条件须创建新的 GraphExecution，声明和宿主绑定不允许事后替换。
+        """
+        return self._compilation
 
     def __post_init__(
         self, step_log_paths: Mapping[Step, Path] | None, events: StepEventSink | None
@@ -80,7 +96,19 @@ class GraphExecution:
         self.execution_state._initialize_execution_inputs(resolved, events)
 
     def compile(self) -> GraphCompilation:
-        return compile_graph(self.graph, root_label=self.graph.display_label)
+        """Prepare once; subsequent compile/run/arun calls reuse the same structure."""
+        if self._compilation is not None:
+            return self._compilation
+        # 只在首次准备时加锁，避免两个调用者重复求静态条件；完整编译成功才提交。
+        # 每实例只承担一次既有编译成本，后续读取 O(1)，无跨 execution 的全局缓存。
+        with self._compilation_lock:
+            compilation = self._compilation
+            if compilation is None:
+                compilation = compile_graph(
+                    self.graph, root_label=self.graph.display_label
+                )
+                object.__setattr__(self, "_compilation", compilation)
+            return compilation
 
     def require_result(self, step: Step) -> Some[object]:
         """按声明 step 引用读取本次图挂载中的执行结果。"""

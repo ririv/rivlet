@@ -13,6 +13,12 @@ use crate::NativeCompiledExecutionGraph;
 use crate::mixed_execution::NativeActionBindings;
 use crate::native_graph::NativeGraph;
 
+type ExportOrigins = (
+    Vec<usize>,
+    Vec<(Option<Vec<usize>>, usize)>,
+    Vec<(Vec<usize>, Option<usize>)>,
+);
+
 struct PythonTypes<'py> {
     graph: Bound<'py, PyAny>,
     conditional_edge: Bound<'py, PyAny>,
@@ -63,6 +69,8 @@ enum NodeAction {
 struct ConditionRecord {
     predicate: Py<PyAny>,
     reads: Vec<usize>,
+    target: usize,
+    edge_index: Option<usize>,
 }
 
 struct Collector<'py> {
@@ -75,6 +83,7 @@ struct Collector<'py> {
     conditions: Vec<ConditionRecord>,
     runtime_conditions: Vec<RuntimeCondition>,
     capability_bindings: Vec<CapabilityBinding>,
+    disabled_edges: Vec<(usize, usize)>,
 }
 
 impl<'py> Collector<'py> {
@@ -89,6 +98,7 @@ impl<'py> Collector<'py> {
             conditions: Vec::new(),
             runtime_conditions: Vec::new(),
             capability_bindings: Vec::new(),
+            disabled_edges: Vec::new(),
         })
     }
 
@@ -151,6 +161,8 @@ impl<'py> Collector<'py> {
             nodes: self.nodes,
             conditions: self.conditions,
             native_actions,
+            disabled_edges: self.disabled_edges,
+            id_prefix: id_prefix.to_vec(),
         })
     }
 
@@ -392,7 +404,7 @@ impl<'py> Collector<'py> {
             let step = source_step.bind(self.py).clone();
             let condition = step.getattr("condition")?;
             if condition.is_instance(&self.types.runtime_condition)? {
-                let condition = self.register_runtime_condition(&condition, node_index)?;
+                let condition = self.register_runtime_condition(&condition, node_index, None)?;
                 self.set_node_condition(node_index, condition);
             } else if !condition.is_none() {
                 return Err(PyValueError::new_err("unsupported graph step condition"));
@@ -410,7 +422,7 @@ impl<'py> Collector<'py> {
         let edges = source_graph.getattr("edges")?;
         let static_bindings = source_graph.getattr("_static_bindings")?;
         let has_static_bindings = static_bindings.len()? != 0;
-        for edge in edges.try_iter()? {
+        for (edge_index, edge) in edges.try_iter()?.enumerate() {
             let edge = edge?;
             if edge.is_instance(&self.types.capability_binding)? {
                 self.collect_capability_binding(&edge, graph_index)?;
@@ -435,6 +447,7 @@ impl<'py> Collector<'py> {
             if has_static_bindings && !edge.is_instance(&self.types.result_edge)? {
                 let binding = static_bindings.call_method1("get", ((source_step, target_step),))?;
                 if !binding.is_none() && !binding.call_method0("evaluate")?.extract::<bool>()? {
+                    self.disabled_edges.push((graph_index, edge_index));
                     continue;
                 }
             }
@@ -443,7 +456,11 @@ impl<'py> Collector<'py> {
                 if condition.is_instance(&self.types.runtime_condition)? {
                     DeclarationPrerequisite::RuntimeConditional {
                         node: NodeId::new(source),
-                        condition: self.register_runtime_condition(&condition, target)?,
+                        condition: self.register_runtime_condition(
+                            &condition,
+                            target,
+                            Some(edge_index),
+                        )?,
                     }
                 } else {
                     return Err(PyValueError::new_err("unsupported graph edge condition"));
@@ -492,6 +509,7 @@ impl<'py> Collector<'py> {
         &mut self,
         condition: &Bound<'py, PyAny>,
         target: usize,
+        edge_index: Option<usize>,
     ) -> PyResult<ConditionId> {
         let reads: Vec<_> = self.nodes[target]
             .condition_inputs
@@ -505,6 +523,8 @@ impl<'py> Collector<'py> {
         self.conditions.push(ConditionRecord {
             predicate: condition.getattr("when")?.unbind(),
             reads: reads.iter().map(|node| node.index()).collect(),
+            target,
+            edge_index,
         });
         self.runtime_conditions.push(RuntimeCondition::new(reads));
         Ok(condition_id)
@@ -688,6 +708,8 @@ pub(crate) struct NativeDeclarationCompilation {
     nodes: Vec<NodeRecord>,
     conditions: Vec<ConditionRecord>,
     native_actions: NativeActionBindings,
+    disabled_edges: Vec<(usize, usize)>,
+    id_prefix: Vec<usize>,
 }
 
 impl NativeDeclarationCompilation {
@@ -702,6 +724,36 @@ impl NativeDeclarationCompilation {
 
 #[pymethods]
 impl NativeDeclarationCompilation {
+    /// Captures compiler decisions without reevaluating any host condition.
+    fn export_origins(&self) -> ExportOrigins {
+        // S/C 为被移除的静态边与活跃条件数，L 为复制的挂载路径总长：
+        // 时间/空间 O(S + C + L)，不另存完整声明拓扑或遍历全部边。
+        (
+            self.id_prefix.clone(),
+            self.disabled_edges
+                .iter()
+                .map(|&(graph, edge)| {
+                    (
+                        self.graphs[graph]
+                            .owner
+                            .map(|node| self.nodes[node].step_id.clone()),
+                        edge,
+                    )
+                })
+                .collect(),
+            self.declaration_conditions
+                .iter()
+                .map(|&condition| {
+                    let condition = &self.conditions[condition];
+                    (
+                        self.nodes[condition.target].step_id.clone(),
+                        condition.edge_index,
+                    )
+                })
+                .collect(),
+        )
+    }
+
     #[getter]
     fn graph(&self) -> NativeCompiledExecutionGraph {
         self.graph.clone()

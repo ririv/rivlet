@@ -309,6 +309,27 @@ for it. Both tasks remain part of the overall run. To skip publishing itself,
 declare it with `Step(..., condition=...)` instead. Static edge conditions are available
 through `static.edge(source, target, condition=...)`.
 
+## Export structure without running tasks
+
+```python
+import json
+from rivlet import Graph, GraphExecution, Step, export_graph
+
+graph = (Step(lambda: None, label="prepare") >> Step(lambda: None, label="finish")).graph()
+execution = GraphExecution(graph)
+declaration = export_graph(graph)
+compilation = execution.compile()
+compiled = export_graph(compilation)
+json.dumps({"declaration": declaration, "compiled": compiled})
+execution.run()  # reuses the same compilation
+```
+
+The versioned JSON document preserves mounted IDs, subgraph boundaries, typed edges,
+conditions, and capability ports. Declaration inspection evaluates no host code;
+compiled export reads existing decisions without recompiling. Runtime events and
+results stay separate. See [structural export](https://github.com/ririv/rivlet/blob/main/docs/graph_export.md)
+for the schema, historical snapshots, and static/dynamic scope limits.
+
 ## Explore more
 
 - [Result inputs and action context](https://github.com/ririv/rivlet/blob/main/docs/core_model.md#results-and-runtime-context)

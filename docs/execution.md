@@ -16,6 +16,16 @@ GraphCompilation, not a second Python scheduling model. Runtime-returned graphs
 enter the same compilation pipeline with their parent StepId, label path, and
 ancestor result scopes.
 
+## Compilation preparation
+
+GraphExecution binds its declaration and host references immutably. Its first
+successful `compile()`, `run()`, or `arun()` prepares and fixes one root compilation;
+later calls reuse that same object. `execution.compilation` is None before successful
+preparation and exposes that object afterward. Compilation errors commit nothing.
+Create a new GraphExecution to reevaluate static choices; the standalone compile_graph
+tool remains independent. Preparation reuse does not reset execution state or cache
+business results. See [structural export](./graph_export.md) to freeze the exact graph.
+
 ## Python action return values
 
 Serial and thread drivers invoke a Python action, then inspect its return value:
