@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 
 import pytest
 
@@ -285,11 +286,17 @@ def test_native_failure_preserves_successes_in_same_completion_batch(execute, tm
     native = _native_process_graph(
         "native",
         [
-            ("fail", "/bin/sh", ["-c", "exit 7"], str(tmp_path), dict(os.environ)),
+            (
+                "fail",
+                sys.executable,
+                ["-c", "raise SystemExit(7)"],
+                str(tmp_path),
+                dict(os.environ),
+            ),
             (
                 "succeed",
-                "/bin/sh",
-                ["-c", "touch success"],
+                sys.executable,
+                ["-c", "from pathlib import Path; Path('success').touch()"],
                 str(tmp_path),
                 dict(os.environ),
             ),
@@ -298,7 +305,7 @@ def test_native_failure_preserves_successes_in_same_completion_batch(execute, tm
     )
     calls = []
     graph = Graph(steps=(Step(native), Step(lambda: calls.append("python"))))
-    with pytest.raises(RuntimeError, match="exit status: 7"):
+    with pytest.raises(RuntimeError, match=r"exited with status .*7"):
         execute(graph, GraphExecutionState())
     assert (tmp_path / "success").is_file()
     assert calls == ["python"]
@@ -370,12 +377,24 @@ def test_parallel_native_errors_are_collected_without_losing_completions(
     native = _native_process_graph(
         "native",
         [
-            ("fail-a", "/bin/sh", ["-c", "exit 7"], str(tmp_path), dict(os.environ)),
-            ("fail-b", "/bin/sh", ["-c", "exit 8"], str(tmp_path), dict(os.environ)),
+            (
+                "fail-a",
+                sys.executable,
+                ["-c", "raise SystemExit(7)"],
+                str(tmp_path),
+                dict(os.environ),
+            ),
+            (
+                "fail-b",
+                sys.executable,
+                ["-c", "raise SystemExit(8)"],
+                str(tmp_path),
+                dict(os.environ),
+            ),
             (
                 "succeed",
-                "/bin/sh",
-                ["-c", "touch success"],
+                sys.executable,
+                ["-c", "from pathlib import Path; Path('success').touch()"],
                 str(tmp_path),
                 dict(os.environ),
             ),

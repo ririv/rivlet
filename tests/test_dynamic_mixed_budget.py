@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import json
 import os
+import socketserver
 import subprocess
 import sys
+import threading
 
 import pytest
 
@@ -29,31 +30,34 @@ from rivlet._native import _native_process_graph
 
 @pytest.mark.parametrize("asynchronous", [False, True])
 def test_native_and_python_actions_share_dynamic_budget(tmp_path, asynchronous) -> None:
-    pytest.importorskip("fcntl")
-    state_path = tmp_path / "activity.json"
-    state_path.write_text(json.dumps({"active": 0, "peak": 0, "completed": 0}))
+    # 计数由单线程 TCP server 串行提交，跨进程、跨平台，不依赖文件锁或执行事件。
+    state = {"active": 0, "peak": 0, "completed": 0}
+
+    class ActivityHandler(socketserver.StreamRequestHandler):
+        def handle(self) -> None:
+            delta = int(self.rfile.readline())
+            state["active"] += delta
+            state["peak"] = max(state["peak"], state["active"])
+            if delta < 0:
+                state["completed"] += 1
+            self.wfile.write(b"ok\n")
+
     script = """
-import fcntl, json, sys, time
-path = sys.argv[1]
+import socket, sys, time
 def change(delta):
-    with open(path, 'r+') as file:
-        fcntl.flock(file, fcntl.LOCK_EX)
-        state = json.load(file)
-        state['active'] += delta
-        state['peak'] = max(state['peak'], state['active'])
-        if delta < 0:
-            state['completed'] += 1
-        file.seek(0)
-        file.truncate()
-        json.dump(state, file)
+    with socket.create_connection(('127.0.0.1', int(sys.argv[1])), timeout=10) as conn:
+        conn.sendall(f'{delta}\\n'.encode('ascii'))
+        with conn.makefile('rb') as reply:
+            assert reply.readline() == b'ok\\n'
 change(1)
 time.sleep(0.02)
 change(-1)
 """
-    command = [sys.executable, "-c", script, str(state_path)]
+    server = socketserver.TCPServer(("127.0.0.1", 0), ActivityHandler)
+    command = [sys.executable, "-c", script, str(server.server_address[1])]
 
     def python_action() -> None:
-        subprocess.run(command, check=True)
+        subprocess.run(command, check=True, timeout=30)
 
     def branch() -> Graph:
         native = _native_process_graph(
@@ -70,15 +74,23 @@ change(-1)
         def emit(self, event: StepExecutionEvent) -> None:
             events.append(event)
 
-    GraphExecution(graph, events=Sink()).run(
-        AsyncGraphRunOptions(concurrency=2)
-        if asynchronous
-        else ThreadGraphRunOptions(workers=2)
-    )
-    state = json.loads(state_path.read_text())
+    with server:
+        thread = threading.Thread(
+            target=server.serve_forever, kwargs={"poll_interval": 0.02}
+        )
+        thread.start()
+        try:
+            GraphExecution(graph, events=Sink()).run(
+                AsyncGraphRunOptions(concurrency=2)
+                if asynchronous
+                else ThreadGraphRunOptions(workers=2)
+            )
+        finally:
+            server.shutdown()
+            thread.join()
     assert state["completed"] == 12
     assert state["active"] == 0
-    assert state["peak"] <= 2
+    assert 1 <= state["peak"] <= 2
     native_events = [event for event in events if event.label_path[-1] == "process"]
     assert (
         sum(event.state is StepExecutionState.STARTED for event in native_events) == 4

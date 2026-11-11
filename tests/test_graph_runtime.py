@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -153,8 +154,13 @@ def test_graph_execution_executes_python_and_native_actions_in_one_graph(
     native = Step(
         _process_graph(
             label="native-process",
-            program="/bin/sh",
-            arguments=["-c", f"printf 'rust\\n' >> {output}"],
+            program=sys.executable,
+            arguments=[
+                "-c",
+                "from pathlib import Path; import sys; "
+                "p = Path(sys.argv[1]); p.write_text(p.read_text() + 'rust\\n')",
+                str(output),
+            ],
             cwd=tmp_path,
         ),
         label="native",
@@ -181,10 +187,11 @@ def test_native_action_writes_to_bound_component_log(tmp_path: Path) -> None:
     native = Step(
         _process_graph(
             label="native-process",
-            program="/bin/sh",
+            program=sys.executable,
             arguments=[
+                "-u",
                 "-c",
-                "printf 'native stdout\\n'; printf 'native stderr\\n' >&2",
+                "import sys; print('native stdout'); print('native stderr', file=sys.stderr)",
             ],
             cwd=tmp_path,
         ),
@@ -219,18 +226,18 @@ def test_step_log_paths_resolve_at_construction(tmp_path: Path) -> None:
     assert plan.execution_state.get_step_log_path(StepId((1,))) == second_log
 
 
-def test_native_action_failure_is_a_graph_action_failure() -> None:
+def test_native_action_failure_is_a_graph_action_failure(tmp_path: Path) -> None:
     native = Step(
         _process_graph(
             label="native-process",
-            program="/bin/sh",
-            arguments=["-c", "exit 7"],
-            cwd=Path("/"),
+            program=sys.executable,
+            arguments=["-c", "raise SystemExit(7)"],
+            cwd=tmp_path,
         ),
         label="native",
     )
 
-    with pytest.raises(RuntimeError, match="exited with status exit status: 7"):
+    with pytest.raises(RuntimeError, match=r"exited with status .*7"):
         GraphExecution(graph=Graph(steps=(native,), label="native-failure")).run()
 
 
@@ -241,8 +248,12 @@ def test_async_graph_executor_runs_native_action_without_blocking_model_changes(
     native = Step(
         _process_graph(
             label="native-process",
-            program="/bin/sh",
-            arguments=["-c", f"printf async > {output}"],
+            program=sys.executable,
+            arguments=[
+                "-c",
+                "from pathlib import Path; import sys; Path(sys.argv[1]).write_text('async')",
+                str(output),
+            ],
             cwd=tmp_path,
         ),
         label="native",
