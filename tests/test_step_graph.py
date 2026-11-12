@@ -15,7 +15,6 @@ from rivlet import (
     compile_graph,
     render_graph,
     render_graph_mermaid,
-    runtime_condition,
     step,
 )
 
@@ -176,18 +175,13 @@ def test_result_edges_define_wiring_boundaries() -> None:
         label="conditional",
         action=LeafAction(fn=_noop),
         condition=(
-            conditional_condition := runtime_condition(
-                when=lambda result: bool(result.unwrap()),
-            )
+            _conditional_condition := (lambda result: bool(result.unwrap()), probe)
         ),
     )
 
     wiring = GraphWiring(
         steps=(probe, conditional),
-        edges=(
-            ResultEdge(probe, conditional, 0, receiver=conditional.action),
-            ResultEdge(probe, conditional, 0, receiver=conditional_condition),
-        ),
+        edges=(ResultEdge(probe, conditional, 0, receiver=conditional.action),),
     )
 
     assert wiring.entries == (probe,)
@@ -285,7 +279,9 @@ def test_step_function_wraps_labeled_graph_without_expanding_it() -> None:
 
 def test_graph_step_wraps_graph_with_mount_parameters() -> None:
     child = Graph(label="child")
-    condition = runtime_condition(when=lambda: True)
+
+    def condition():
+        return True
 
     default_mount = child.step()
     configured_mount = child.step(label="build", condition=condition)
@@ -293,7 +289,8 @@ def test_graph_step_wraps_graph_with_mount_parameters() -> None:
     assert default_mount.label == "child"
     assert default_mount.action is child
     assert configured_mount.label == "build"
-    assert configured_mount.condition is condition
+    assert configured_mount.condition is not None
+    assert configured_mount.condition.when is condition
     assert configured_mount.action is child
 
 

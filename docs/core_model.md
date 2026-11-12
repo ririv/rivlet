@@ -49,8 +49,9 @@ is displayed as `<unlabeled>`; an unlabeled nested graph uses its mounting Step'
 label. An explicit Graph label takes precedence.
 
 Explicit wiring lives in `Graph.edges`. A normalized Graph does not accept
-StepWiring objects, and Step does not store `after` or `inputs`. ResultEdge carries
-the data bindings; there is no second source of dependency topology in conditions.
+StepWiring objects, and Step does not store `after` or action `inputs`. ResultEdge
+carries action data bindings; each condition directly declares its result sources,
+without duplicate ResultEdges for those sources.
 
 ## Step
 
@@ -59,7 +60,7 @@ A Step contains:
 ```python
 label: str | None
 action: LeafAction | Graph | NativeGraph
-condition: RuntimeCondition | None
+condition: ConditionInput | None  # constructor input, normalized internally
 ```
 
 It has no public `id` or `after` field.
@@ -254,17 +255,16 @@ already running graph.
 
 `Step.condition` and Edge accept runtime conditions. StaticConditions binds
 node and edge rules to an evaluator for compilation. See [static rules](./conditional_steps.md).
-RuntimeCondition is evaluated during execution.
+Runtime predicates are evaluated during execution, never during declaration.
 
 ```python
-cache_miss = runtime_condition(
-    when=lambda result: not bool(result.unwrap()),
-)
+condition=(lambda result: not bool(result.unwrap()), cache_probe)
 ```
 
-The target's `wire(inputs={condition: (cache_probe,)})` binds the predicate arguments and
-action parameters. Result edges participate in cycle detection, scheduling and
-wiring boundaries. The condition itself carries no producer references.
+`condition` accepts a zero-argument predicate or a flat `(predicate, source, ...)`
+tuple. Each source is a local Step whose Option result becomes one argument.
+These references participate in cycle detection, scheduling and wiring boundaries.
+Action parameters remain bound separately through `wire(inputs={action: (...)})`.
 
 ## GraphExecution
 
@@ -332,25 +332,18 @@ includes its waiting requirement; do not repeat it in after.
 Graph.from_wiring lowers inputs to `ResultEdge(source, target, argument_index, receiver)`.
 Direct Graph construction accepts these edges in `edges`; argument indexes
 must be unique and contiguous from zero. Input order and repeated sources are
-preserved per receiver. The inputs mapping keys are existing LeafAction and
-RuntimeCondition declaration objects, compared by identity, not by their callable
-or field values. Each action, node condition and conditional-edge condition receives
-only its own tuple. Conditions have no ctx parameter.
-
-The same receiver object reused within one wiring shares one input tuple. Separate
-condition objects wrapping the same callable can bind different tuples. Bindings in
-different wirings and graph mounts are independent. A key must belong to the target
-step or one of its conditional prerequisites; unrelated receivers are rejected,
-including empty bindings. No function-name lookup or extra port wrapper is involved.
-
-For type checking, retain a named condition variable, or narrow step.condition
-before using it as a key: the field may be None on an unconditional Step.
+preserved per receiver. The inputs mapping key must be the target's existing
+LeafAction object, compared by identity. Unrelated receivers are rejected even
+with empty bindings. Node and edge conditions declare their own independent
+arguments in `condition=(predicate, source, ...)`, without receiver lookup or ctx.
+Reusing a callable or tuple at several sites does not merge condition evaluations;
+different graph mounts remain independent. No function-name lookup is involved.
 
 Results are bound to the current mount. A reused subgraph does not read results
 from a different mount. A runtime-returned graph can capture the values already
 passed to its declaring action. There is no ancestor-result lookup API.
-A predeclared Graph-valued Step has no callable to receive parameters: its inputs
-are consumed by its conditions. Use a Python action returning a Graph to pass
+A predeclared Graph-valued Step has no callable to receive action parameters;
+its condition declares sources independently. Use a Python action returning a Graph to pass
 runtime values into a newly declared child graph.
 
 `GraphResultStore` records each successful StepId once as `Some(value)`.

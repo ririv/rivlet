@@ -188,28 +188,49 @@ type StepActionInput = StepAction | LeafActionCallable
 type ConditionalEdgePredicate = Callable[..., bool]
 
 
+type ConditionInput = (
+    ConditionalEdgePredicate | tuple[ConditionalEdgePredicate, Step, *tuple[Step, ...]]
+)
+
+
 @dataclass(frozen=True, slots=True, eq=False)
-class RuntimeCondition:
-    """执行期判断声明；按本对象绑定的输入顺序接收 Option 结果。"""
+class _RuntimeCondition:
+    """Normalized predicate and its ordered, graph-local result sources."""
 
     when: ConditionalEdgePredicate
+    inputs: tuple[Step, ...]
+
+    def as_input(self) -> ConditionInput:
+        if not self.inputs:
+            return self.when
+        return (self.when, self.inputs[0], *self.inputs[1:])
 
 
-type ResultReceiver = StepAction | RuntimeCondition
+def _normalize_condition(condition: ConditionInput) -> _RuntimeCondition:
+    if callable(condition):
+        return _RuntimeCondition(when=condition, inputs=())
+    if not isinstance(condition, tuple) or len(condition) < 2:
+        raise GraphError("condition must be a predicate or (predicate, step, ...)")
+    predicate, *inputs = condition
+    if not callable(predicate) or any(
+        not isinstance(source, Step) for source in inputs
+    ):
+        raise GraphError("condition must be a predicate or (predicate, step, ...)")
+    return _RuntimeCondition(when=predicate, inputs=tuple(inputs))
+
+
+type ResultReceiver = StepAction
 type ResultBindings = Mapping[ResultReceiver, tuple[Step, ...]]
 
 
-def runtime_condition(
-    *,
-    when: ConditionalEdgePredicate,
-) -> RuntimeCondition:
-    return RuntimeCondition(when=when)
-
-
-@dataclass(frozen=True, slots=True)
+@dataclass(frozen=True, slots=True, init=False)
 class ConditionalPrerequisite:
     step: Step
-    condition: RuntimeCondition = field(kw_only=True)
+    condition: _RuntimeCondition
+
+    def __init__(self, step: Step, *, condition: ConditionInput) -> None:
+        object.__setattr__(self, "step", step)
+        object.__setattr__(self, "condition", _normalize_condition(condition))
 
 
 type StepPrerequisite = Step | ConditionalPrerequisite
@@ -224,13 +245,14 @@ def prerequisite_step(dep: StepPrerequisite) -> Step:
 def _validated_blocking_arcs(
     edges: tuple[GraphEdge, ...],
     *,
+    steps: tuple[Step, ...],
     known_steps: set[Step],
     graph_label: str,
 ) -> Iterator[Arc[Step]]:
     """Validate domain edges while projecting every blocking relationship."""
 
-    # 普通边、条件边和结果边均显式保存在 edges。投影 O(E)，连同
-    # 节点校验与环检测，总时间 O(V + E)，辅助空间 O(V + E)。
+    # I 为条件输入引用数。普通边与条件输入共同投影阻塞关系，
+    # 连同节点校验与环检测，总时间/辅助空间 O(V + E + I)。
     seen: set[Arc[Step]] = set()
 
     def unique_arc(source: Step, target: Step) -> Arc[Step] | None:
@@ -265,7 +287,7 @@ def _validated_blocking_arcs(
                 raise GraphError(
                     f"component {edge.target.label} does not require port {input_name}"
                 )
-            if isinstance(edge.source.condition, RuntimeCondition):
+            if edge.source.condition is not None:
                 raise GraphError(
                     f"graph '{graph_label}' port provider component must not "
                     f"have a runtime condition: {edge.source.label}"
@@ -273,7 +295,7 @@ def _validated_blocking_arcs(
             provider_graph = edge.source.action
             if isinstance(provider_graph, Graph):
                 output = provider_graph.interface.outputs[output_name]
-                if isinstance(output.condition, RuntimeCondition):
+                if output.condition is not None:
                     raise GraphError(
                         f"graph '{graph_label}' port output step must not have "
                         f"a runtime condition: {output_name}"
@@ -284,6 +306,27 @@ def _validated_blocking_arcs(
         if arc is not None:
             yield arc
 
+    for target, condition in _condition_uses(steps, edges):
+        for source in condition.inputs:
+            if source not in known_steps:
+                raise GraphError(
+                    f"graph '{graph_label}' condition input references a step outside this graph"
+                )
+            arc = unique_arc(source, target)
+            if arc is not None:
+                yield arc
+
+
+def _condition_uses(
+    steps: tuple[Step, ...], edges: tuple[GraphEdge, ...]
+) -> Iterator[tuple[Step, _RuntimeCondition]]:
+    for step in steps:
+        if step.condition is not None:
+            yield step, step.condition
+    for edge in edges:
+        if isinstance(edge, Edge) and edge.condition is not None:
+            yield edge.target, edge.condition
+
 
 @dataclass(eq=False, frozen=True, slots=True, init=False)
 class Step:
@@ -291,16 +334,16 @@ class Step:
     action: StepAction
     # `condition` 控制的是 step 本身是否参与这次图执行，而不是依赖边是否成立。
     # 约定：
-    # - RuntimeCondition: 运行时求值；为 False 时该 step 进入 Skipped 终态
+    # 运行时求值为 False 时，该 step 进入 Skipped 终态。
     # 这条语义对 leaf step 和 graph-action step 完全一致。
-    condition: RuntimeCondition | None = None
+    condition: _RuntimeCondition | None = None
 
     def __init__(
         self,
         action: StepActionInput,
         *,
         label: str | None = None,
-        condition: RuntimeCondition | None = None,
+        condition: ConditionInput | None = None,
     ) -> None:
         if label == "":
             raise GraphError("step label must not be empty")
@@ -317,7 +360,11 @@ class Step:
 
         object.__setattr__(self, "label", label)
         object.__setattr__(self, "action", normalized_action)
-        object.__setattr__(self, "condition", condition)
+        object.__setattr__(
+            self,
+            "condition",
+            None if condition is None else _normalize_condition(condition),
+        )
 
     def wire(
         self,
@@ -387,7 +434,7 @@ class Edge:
     source: Step
     target: Step
     ports: tuple[str, str] | None
-    condition: RuntimeCondition | None
+    condition: _RuntimeCondition | None
 
     def __init__(
         self,
@@ -395,7 +442,7 @@ class Edge:
         target: Step,
         *,
         ports: str | tuple[str, str] | None = None,
-        condition: RuntimeCondition | None = None,
+        condition: ConditionInput | None = None,
     ) -> None:
         names = (ports, ports) if isinstance(ports, str) else ports
         if names is not None:
@@ -405,7 +452,11 @@ class Edge:
         object.__setattr__(self, "source", source)
         object.__setattr__(self, "target", target)
         object.__setattr__(self, "ports", names)
-        object.__setattr__(self, "condition", condition)
+        object.__setattr__(
+            self,
+            "condition",
+            None if condition is None else _normalize_condition(condition),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -434,10 +485,19 @@ class GraphWiring:
         sources: set[Step] = set()
         targets: set[Step] = set()
 
-        # 所有执行和数据关系均来自显式边，O(E) 推导组合边界。
+        # O(V + E + I) 推导组合边界。只计算当前接线内部的条件输入，
+        # 否则子表达式引用外部 probe 会错误地抹掉其入口，丢失 >> 的顺序边。
+        known_steps: set[Step] | None = None
         for edge in self.edges:
             sources.add(edge.source)
             targets.add(edge.target)
+        for target, condition in _condition_uses(self.steps, self.edges):
+            for source in condition.inputs:
+                if known_steps is None:
+                    known_steps = set(self.steps)
+                if source in known_steps:
+                    sources.add(source)
+                    targets.add(target)
         return sources, targets
 
     @property
@@ -558,7 +618,14 @@ class Graph:
             resolve_static_bindings(
                 self.static,
                 steps=self.steps,
-                edge_pairs={(edge.source, edge.target) for edge in self.edges}
+                edge_pairs={
+                    *((edge.source, edge.target) for edge in self.edges),
+                    *(
+                        (source, target)
+                        for target, condition in _condition_uses(self.steps, self.edges)
+                        for source in condition.inputs
+                    ),
+                }
                 if self.static
                 else set(),
             ),
@@ -614,7 +681,7 @@ class Graph:
         self,
         *,
         label: str | None = None,
-        condition: RuntimeCondition | None = None,
+        condition: ConditionInput | None = None,
     ) -> Step:
         """把当前图包装成一个可挂载 step。"""
 
@@ -721,16 +788,8 @@ def _graph_wiring_from_step_wirings(
     declared_edges: list[GraphEdge] = []
     for item in wiring:
         target = item.step
-        receivers = {id(target.action), id(target.condition)}
-        receivers.update(
-            id(dep.condition)
-            for dep in item.after
-            if isinstance(dep, ConditionalPrerequisite)
-        )
         for receiver in item.inputs:
-            if id(receiver) not in receivers or not isinstance(
-                receiver, (LeafAction, RuntimeCondition)
-            ):
+            if receiver is not target.action or not isinstance(receiver, LeafAction):
                 raise GraphError(
                     "result receiver does not belong to this step or is not callable"
                 )
@@ -751,7 +810,7 @@ def _graph_wiring_from_step_wirings(
                 Edge(
                     source=source,
                     target=target,
-                    condition=prerequisite.condition
+                    condition=prerequisite.condition.as_input()
                     if isinstance(prerequisite, ConditionalPrerequisite)
                     else None,
                 )
@@ -764,20 +823,11 @@ def _validate_result_bindings(
 ) -> None:
     # O(V + E)，不为每个消费者重新扫描所有边。
     slots: dict[tuple[Step, ResultReceiver], set[int]] = {}
-    conditions: dict[Step, set[RuntimeCondition]] = {
-        step: {step.condition} if step.condition is not None else set()
-        for step in steps
-    }
-    for edge in edges:
-        if isinstance(edge, Edge) and edge.condition is not None:
-            conditions[edge.target].add(edge.condition)
     for edge in edges:
         if isinstance(edge, ResultEdge):
             if not (
                 isinstance(edge.receiver, LeafAction)
                 and edge.receiver is edge.target.action
-                or isinstance(edge.receiver, RuntimeCondition)
-                and edge.receiver in conditions[edge.target]
             ):
                 raise GraphError(
                     "result receiver does not belong to this step or is not callable"
@@ -794,14 +844,14 @@ def _validate_result_bindings(
     for step in steps:
         if isinstance(step.action, LeafAction):
             step.action.validate_inputs(len(slots.get((step, step.action), ())))
-        for condition in conditions[step]:
-            count = len(slots.get((step, condition), ()))
-            try:
-                inspect.signature(condition.when).bind(*([object()] * count))
-            except (TypeError, ValueError) as exc:
-                raise GraphError(
-                    f"condition signature does not match {count} result inputs: {exc}"
-                ) from exc
+    for _, condition in _condition_uses(steps, edges):
+        count = len(condition.inputs)
+        try:
+            inspect.signature(condition.when).bind(*([object()] * count))
+        except (TypeError, ValueError) as exc:
+            raise GraphError(
+                f"condition signature does not match {count} result inputs: {exc}"
+            ) from exc
 
 
 def _validate_graph_topology(
@@ -815,6 +865,7 @@ def _validate_graph_topology(
     blocking_arcs = tuple(
         _validated_blocking_arcs(
             edges,
+            steps=steps,
             known_steps=known_steps,
             graph_label=graph_label,
         )

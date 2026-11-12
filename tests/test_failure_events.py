@@ -33,7 +33,6 @@ from rivlet import (
     SubgraphFailed,
     ThreadGraphRunOptions,
     resolve_port_requirements,
-    runtime_condition,
 )
 from rivlet._native import _native_process_graph
 
@@ -105,7 +104,7 @@ def test_failure_events_describe_direct_causes_without_exceptions(
 def test_predicate_failure_is_not_an_action_or_dependency_failure(
     execute: Execute, mode: GraphMode, edge: bool
 ) -> None:
-    condition = runtime_condition(when=fail)
+    condition = fail
     source = Step(lambda: None)
     target = Step(lambda: None, condition=None if edge else condition)
     after = (ConditionalPrerequisite(source, condition=condition),) if edge else ()
@@ -137,15 +136,21 @@ def test_failed_condition_input_does_not_claim_the_predicate_ran(
     def should_not_run(_value: Option[object]) -> bool:
         pytest.fail("predicate must not read a failed producer")
 
-    condition = runtime_condition(when=should_not_run)
+    condition = should_not_run
     source, predecessor = Step(fail), Step(lambda: None)
-    target = Step(lambda: None, condition=None if edge else condition)
-    after = (ConditionalPrerequisite(predecessor, condition=condition),) if edge else ()
+    target = Step(lambda: None, condition=None if edge else (condition, source))
+    after = (
+        (ConditionalPrerequisite(predecessor, condition=(condition, source)),)
+        if edge
+        else ()
+    )
     graph = Graph.from_wiring(
         (
             source.wire(),
             predecessor.wire(),
-            target.wire(after=after, inputs={condition: (source,)}),
+            target.wire(
+                after=after,
+            ),
         )
     )
     events = Events()
@@ -166,7 +171,10 @@ def test_false_edge_does_not_report_a_failed_but_unused_predecessor(
 ) -> None:
     source = Step(fail)
     target = Step(lambda: None)
-    condition = runtime_condition(when=lambda: False)
+
+    def condition():
+        return False
+
     graph = Graph.from_wiring(
         (
             source.wire(),

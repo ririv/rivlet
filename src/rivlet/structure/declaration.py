@@ -11,8 +11,8 @@ from ..model import (
     Graph,
     LeafAction,
     ResultEdge,
-    RuntimeCondition,
     StepId,
+    _RuntimeCondition,
     resolve_step_label,
     step_ids_for_mount,
 )
@@ -61,17 +61,23 @@ class DeclarationIndex:
     document: DeclarationDocument
     scopes: dict[str, Scope] = field(default_factory=dict)
     node_scopes: dict[str, Scope] = field(default_factory=dict)
-    condition_objects: dict[tuple[str, RuntimeCondition], str] = field(
+    condition_objects: dict[tuple[str, _RuntimeCondition], str] = field(
         default_factory=dict
     )
     edge_indexes: dict[str, int] = field(default_factory=dict)
 
-    def condition_id(self, target: str, condition: RuntimeCondition) -> str:
+    def condition_id(self, target: str, condition: _RuntimeCondition) -> str:
         key = (target, condition)
         if key not in self.condition_objects:
             identifier = f"{target}/condition:{len(self.condition_objects)}"
             self.condition_objects[key] = identifier
-            self.document["conditions"].append({"id": identifier, "inputs": []})
+            scope = self.node_scopes[target]
+            self.document["conditions"].append(
+                {
+                    "id": identifier,
+                    "inputs": [str(scope.ids[source]) for source in condition.inputs],
+                }
+            )
         return self.condition_objects[key]
 
 
@@ -219,14 +225,6 @@ def index_declaration(
     for scope in index.scopes.values():
         if isinstance(scope.graph, Graph):
             _export_scope(index, scope)
-    conditions = {condition["id"]: condition for condition in document["conditions"]}
-    inputs: dict[str, dict[int, str]] = {}
-    for edge in document["edges"]:
-        if edge["kind"] == "result" and edge["receiver"]["kind"] == "condition":
-            for receiver in edge["receiver"]["conditions"]:
-                inputs.setdefault(receiver, {})[edge["argument_index"]] = edge["source"]
-    for identifier, arguments in inputs.items():
-        conditions[identifier]["inputs"] = [arguments[i] for i in range(len(arguments))]
     return index
 
 
@@ -240,7 +238,7 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
         index.edge_indexes[identifier] = i
         item: EdgeDocument
         if isinstance(edge, ResultEdge):
-            assert isinstance(edge.receiver, (LeafAction, RuntimeCondition))
+            assert isinstance(edge.receiver, LeafAction)
             item = {
                 "kind": "result",
                 "id": identifier,
@@ -248,12 +246,7 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
                 "source": source,
                 "target": target,
                 "argument_index": edge.argument_index,
-                "receiver": {"kind": "action"}
-                if isinstance(edge.receiver, LeafAction)
-                else {
-                    "kind": "condition",
-                    "conditions": [index.condition_id(target, edge.receiver)],
-                },
+                "receiver": {"kind": "action"},
             }
         elif edge.ports is not None:
             provider = index.scopes[scope_id(scope.ids[edge.source])]

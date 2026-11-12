@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from .._compilation_origins import NodeConditionOrigin
 from ..compile import CompiledConditionalDependency
 from ..errors import GraphError
-from ..model import Edge, Graph, RuntimeCondition
 from .declaration import edge_id, index_declaration
 
 if TYPE_CHECKING:
@@ -51,32 +50,10 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
         }
         for i, condition in enumerate(compilation._native_conditions)
     ]
-    condition_instances: dict[tuple[str, RuntimeCondition], list[str]] = {}
     edge_conditions: dict[tuple[str, int], str] = {}
-    steps = {
-        str(identifier): step
-        for scope in index.scopes.values()
-        for step, identifier in scope.ids.items()
-    }
     for i, origin in enumerate(origins.conditions):
-        target = str(origin.target)
-        if isinstance(origin, NodeConditionOrigin):
-            source_condition = steps[target].condition
-        else:
-            scope = index.node_scopes[target]
-            assert isinstance(scope.graph, Graph)
-            edge = scope.graph.edges[origin.edge_index]
-            assert isinstance(edge, Edge)
-            source_condition = edge.condition
-            edge_conditions[(target, origin.edge_index)] = f"condition:{i}"
-        assert isinstance(source_condition, RuntimeCondition)
-        condition_instances.setdefault((target, source_condition), []).append(
-            f"condition:{i}"
-        )
-    receivers = {
-        identifier: condition_instances.get(key, [])
-        for key, identifier in index.condition_objects.items()
-    }
+        if not isinstance(origin, NodeConditionOrigin):
+            edge_conditions[(str(origin.target), origin.edge_index)] = f"condition:{i}"
     disabled = {
         edge_id(origins.parent_step_id if owner is None else owner, edge)
         for owner, edge in origins.disabled_edges
@@ -90,15 +67,6 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
             edge["condition"] = edge_conditions[
                 (target, index.edge_indexes[edge["id"]])
             ]
-        elif edge["kind"] == "result" and edge["receiver"]["kind"] == "condition":
-            targets = [
-                condition
-                for receiver in edge["receiver"]["conditions"]
-                for condition in receivers[receiver]
-            ]
-            if not targets:
-                continue
-            edge["receiver"] = {"kind": "condition", "conditions": targets}
         elif edge["kind"] == "port":
             edge["consumer_nodes"] = [
                 consumer for consumer in edge["consumer_nodes"] if consumer in active

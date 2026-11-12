@@ -9,6 +9,7 @@ from ..model import (
     ResultEdge,
     Step,
     StepId,
+    _condition_uses,
     resolve_step_label,
     step_ids_for_mount,
 )
@@ -155,5 +156,11 @@ def append_graph_mermaid(
         else:
             lines.append(
                 f"{indent}    {node_ids[edge.source]} --> {node_ids[edge.target]}"
+            )
+    for target, condition in _condition_uses(graph.steps, graph.edges):
+        receiver = "condition" if condition is target.condition else "edge condition"
+        for index, source in enumerate(condition.inputs):
+            lines.append(
+                f'{indent}    {node_ids[source]} -.->|"{receiver} input {index}"| {node_ids[target]}'
             )
     lines.append(f"{indent}end")

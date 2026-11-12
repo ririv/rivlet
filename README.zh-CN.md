@@ -152,7 +152,7 @@ wrapped = (setup >> producer_graph).graph(
 | 想做什么 | API | 条件为假时 |
 | --- | --- | --- |
 | 执行前排除可选任务 | `StaticConditions.when(...)` | 编译时移除节点及关联边 |
-| 决定任务是否执行 | `Step(condition=runtime_condition(...))` | 跳过 action；对子图则不进入内部 |
+| 决定任务是否执行 | `Step(condition=predicate)` 或 `Step(condition=(predicate, source, ...))` | 跳过 action；对子图则不进入内部 |
 | 决定任务是否等待某个前置 | `ConditionalPrerequisite(...)` | 只取消这条等待关系，不取消任一任务 |
 
 ### 静态条件：执行前选择任务
@@ -222,7 +222,7 @@ evaluator。Python 构图时已计算布尔条件，编译时检查选择。子�
 ### 运行时条件：根据步骤结果决定是否执行
 
 ```python
-from rivlet import Graph, GraphExecution, Option, Step, runtime_condition
+from rivlet import Graph, GraphExecution, Option, Step
 
 
 def should_process(result: Option[object]) -> bool:
@@ -230,16 +230,15 @@ def should_process(result: Option[object]) -> bool:
 
 
 probe = Step(lambda: False, label="has work")
-has_work = runtime_condition(when=should_process)
 process = Step(
-    lambda: print("process work"), label="process", condition=has_work
+    lambda: print("process work"), label="process", condition=(should_process, probe)
 )
 done = Step(lambda: print("workflow finished"), label="done")
 
 graph = Graph.from_wiring(
     (
         probe.wire(),
-        process.wire(inputs={has_work: (probe,)}),
+        process.wire(),
         done.wire(after=(process,)),
     ),
     label="runtime conditions",
@@ -247,8 +246,10 @@ graph = Graph.from_wiring(
 GraphExecution(graph).run()
 ```
 
-`inputs` 同时声明结果依赖，并把结果作为 `Option` 传给条件函数，无需再维护一条
-`after=(probe,)`。probe 返回 `False`，所以 `process` 被跳过，但 `done` 仍会执行；
+`condition=(should_process, probe)` 声明结果依赖，并把结果作为 `Option` 传给判断函数，
+无需再维护一条 `after=(probe,)`。元组为扁平的 `(predicate, source_a, source_b, ...)`，
+不固定来源数量。无输入时直接传函数，例如 `condition=lambda: True`。
+这些仍是轻量条件声明，不会增加 Step。probe 返回 `False`，所以 `process` 被跳过，但 `done` 仍会执行；
 改为返回 `True` 就会执行 `process`。被跳过的 action 没有结果，正常返回 `None` 的
 action 则得到 `Some(None)`。来源可能被跳过时，先用 `is_some()` 或 `is_none()` 判断，
 再解包。条件函数抛错会阻断相关任务，不会被当成条件为假。
@@ -264,21 +265,23 @@ from rivlet import (
     GraphExecution,
     Step,
     ThreadGraphRunOptions,
-    runtime_condition,
 )
 
 decision = Step(lambda: False, label="wait for checks")
 checks = Step(lambda: print("run checks"), label="checks")
 publish = Step(lambda: print("publish"), label="publish")
-wait_for_checks = runtime_condition(when=lambda result: result.unwrap() is True)
+wait_for_checks = lambda result: result.unwrap() is True
 
 graph = Graph.from_wiring(
     (
         decision.wire(),
         checks.wire(),
         publish.wire(
-            after=(ConditionalPrerequisite(checks, condition=wait_for_checks),),
-            inputs={wait_for_checks: (decision,)},
+            after=(
+                ConditionalPrerequisite(
+                    checks, condition=(wait_for_checks, decision),
+                ),
+            ),
         ),
     ),
     label="conditional dependency",

@@ -60,8 +60,8 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 
 编译导出只保留通过静态裁剪的节点和边。`excluded_nodes`、`excluded_edges` 引用对应声明
 中的位置身份，不是运行期 skipped 状态。运行期条件此时尚未执行，因此编译图不是执行轨迹。
-编译条件表提供真实 session 内的 `index`、ID 和有序输入节点 ID，节点条件、条件边及条件的
-结果接收位置均引用该表。同一个条件对象复用在多个位置时，可以产生多个编译条件实例。
+编译条件表提供真实 session 内的 `index`、ID 和有序输入节点 ID，节点条件与条件边
+引用该表。同一个函数或条件元组复用在多个位置时，可以产生多个编译条件实例。
 
 ## 身份与组合边界
 
@@ -86,7 +86,7 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 | `kind` | 含义 |
 | --- | --- |
 | `order` | 只等待完成、不传返回值的顺序依赖 |
-| `result` | 按 `argument_index` 绑定给 action 或指定条件实例的结果参数 |
+| `result` | 按 `argument_index` 绑定给 action 的结果参数；条件来源记录在条件表的 `inputs` |
 | `conditional` | 由对应运行期条件决定是否生效的依赖 |
 | `port` | 两个挂载组件的接线，分别记录 `source_port`、`target_port`、可选条件 ID 及实际 `provider_node`／`consumer_nodes` |
 

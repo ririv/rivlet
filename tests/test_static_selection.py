@@ -24,7 +24,6 @@ from rivlet import (
     compile_graph,
     render_graph,
     render_graph_mermaid,
-    runtime_condition,
     static,
 )
 
@@ -194,7 +193,7 @@ def test_runtime_condition_and_result_binding_remain_independent() -> None:
     source = Step(lambda: 42)
     selected = Step(
         lambda _ctx, result: calls.append(result.unwrap()),
-        condition=runtime_condition(when=lambda: True),
+        condition=lambda: True,
     )
     choice = static.select(cases=(Case(True, selected),))
     graph = Graph.from_wiring(

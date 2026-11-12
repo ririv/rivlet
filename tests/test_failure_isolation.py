@@ -27,7 +27,6 @@ from rivlet import (
     render_graph_execution,
     render_live_graph_execution,
     resolve_port_requirements,
-    runtime_condition,
 )
 from rivlet._native import _native_process_graph
 
@@ -102,7 +101,7 @@ def test_condition_exception_blocks_all_users_without_stopping_other_work(execut
         calls.append("condition")
         raise RuntimeError("predicate failed")
 
-    condition = runtime_condition(when=broken)
+    condition = broken
     graph = Graph(
         steps=(
             Step(lambda: calls.append("wrong-a"), condition=condition),
@@ -135,17 +134,12 @@ def test_condition_does_not_read_failed_action_result(execute):
             (
                 consumer_134 := Step(
                     lambda _ctx, *_inputs: None,
-                    condition=(
-                        needs_result_condition := runtime_condition(when=needs_result)
-                    ),
+                    condition=(_needs_result_condition := (needs_result, producer)),
                 )
             ),
             Step(lambda: calls.append("good")),
         ),
-        edges=(
-            ResultEdge(producer, consumer_134, 0, receiver=consumer_134.action),
-            ResultEdge(producer, consumer_134, 0, receiver=needs_result_condition),
-        ),
+        edges=(ResultEdge(producer, consumer_134, 0, receiver=consumer_134.action),),
     )
     state = GraphExecutionState()
     with pytest.raises(RuntimeError, match="action failed"):
@@ -166,11 +160,7 @@ def test_inactive_conditional_edge_does_not_propagate_failure(execute):
         (
             producer.wire(),
             consumer.wire(
-                after=(
-                    ConditionalPrerequisite(
-                        producer, condition=runtime_condition(when=disabled)
-                    ),
-                )
+                after=(ConditionalPrerequisite(producer, condition=disabled),)
             ),
         )
     )
@@ -348,14 +338,11 @@ def test_cancellation_from_condition_waits_for_started_async_action():
             (
                 consumer_337 := Step(
                     lambda _ctx, *_inputs: None,
-                    condition=(cancel_condition := runtime_condition(when=cancel)),
+                    condition=(_cancel_condition := (cancel, ready)),
                 )
             ),
         ),
-        edges=(
-            ResultEdge(ready, consumer_337, 0, receiver=consumer_337.action),
-            ResultEdge(ready, consumer_337, 0, receiver=cancel_condition),
-        ),
+        edges=(ResultEdge(ready, consumer_337, 0, receiver=consumer_337.action),),
     )
     plan = GraphExecution(graph=graph, execution_control=control)
     with pytest.raises(GraphExecutionStopped):

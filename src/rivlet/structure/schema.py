@@ -9,11 +9,6 @@ class ActionReceiverDocument(TypedDict):
     kind: Literal["action"]
 
 
-class ConditionReceiverDocument(TypedDict):
-    kind: Literal["condition"]
-    conditions: list[str]
-
-
 class OrderEdgeDocument(TypedDict):
     kind: Literal["order"]
     id: str
@@ -37,7 +32,7 @@ class ResultEdgeDocument(TypedDict):
     graph: str
     source: str
     target: str
-    receiver: ActionReceiverDocument | ConditionReceiverDocument
+    receiver: ActionReceiverDocument
     argument_index: int
 
 

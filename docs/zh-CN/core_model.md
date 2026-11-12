@@ -59,8 +59,8 @@ GraphExecutionState
 - Graph 显式声明 label 时，该值优先
 
 显式接线只保存在 `Graph.edges` 中。规范化后的 `Graph` 不接受 `StepWiring`，
-Step 本身不保存 `after` 或 `inputs`。ResultEdge 承载数据绑定，条件中不再另存
-一份依赖关系；所有阻塞关系均来自图的接线。
+Step 本身不保存 `after` 或 action `inputs`。ResultEdge 承载 action 数据绑定；
+条件直接声明自己的结果来源，不再通过 ResultEdge 重复绑定。
 
 ## `Step`
 
@@ -68,7 +68,7 @@ Step 本身不保存 `after` 或 `inputs`。ResultEdge 承载数据绑定，条�
 
 - `label: str | None`
 - `action: LeafAction | Graph | NativeGraph`
-- `condition: RuntimeCondition | None`
+- 构造参数 `condition: ConditionInput | None`，内部归一化为轻量条件声明
 
 `Step` 没有公开 `id`，也不保存 `after`。
 
@@ -306,20 +306,19 @@ graph = Graph.from_wiring((select_strategy.wire(), selection.wire(inputs={select
 - `Edge`
   - 控制一条 prerequisite 是否成立
 
-Step.condition 和 Edge 只接受 RuntimeCondition。
+Step.condition 和 Edge 接受零参判断函数，或扁平元组 `(predicate, source_step, ...)`。
+函数在前，后续每个元素是一个来源 Step；无条件时传 None。
 静态条件通过 `StaticConditions(evaluator=..., conditions=...)` 绑定节点或边，
 在编译阶段求值；直接构造与 DSL 写法见[条件 Step](./conditional_steps.md)。
 
-运行时条件只声明判断函数，生产者引用放在目标步骤的接线中：
+运行时条件把判断函数和来源 Step 声明在一起：
 
 ```python
-cache_miss = runtime_condition(
-    when=lambda result: not bool(result.unwrap()),
-)
+condition=(lambda result: not bool(result.unwrap()), cache_probe)
 ```
 
-目标通过 `wire(inputs={condition: (cache_probe,)})` 声明结果绑定，产生明确的 ResultEdge，
-参与调度、环检测和接线边界计算。条件对象本身不保存生产者引用。
+这些引用参与调度、环检测和接线边界计算，不再产生重复的条件 ResultEdge。
+action 参数仍通过 `wire(inputs={action: (...)})` 独立声明。
 
 ## `GraphExecution`
 
@@ -417,18 +416,14 @@ Rust 编译路径会把声明期已知子图转换为统一执行结构：
 Graph.from_wiring 把 inputs 归一化成
 `ResultEdge(source, target, argument_index, receiver)`。直接构造 Graph 时可以放入 edges；
 参数索引必须从零连续且不重复。输入顺序与重复来源均保留。
-inputs 的键是已有 LeafAction / RuntimeCondition 声明对象，按对象身份区分，
-不按内部函数或字段值比较。action、节点条件、每条条件边的条件分别接收自己的输入，
-条件函数不接收 ctx。同一对象在一次接线中复用时共享一组绑定；包装同一函数的不同
-条件对象可以分别绑定。不同接线及不同挂载之间独立。
-
-键必须属于当前步骤或它的某条条件前置边；无关对象即使绑定空元组也会报错。
-不使用函数名查找，不增加端口包装类型。
-类型检查时可以保留具名 condition 变量，或先收窄 step.condition；无条件步骤的该字段为 None。
+inputs 的键必须是目标现有的 LeafAction，按对象身份区分；无关对象即使绑定空元组也报错。
+节点条件和每条条件边直接通过 `condition=(predicate, source_step, ...)` 声明各自的输入，
+不再查找 receiver，也不接收 ctx。复用函数或条件元组不会合并不同位置的求值，
+不同挂载之间也独立。不使用函数名查找，不增加端口包装类型。
 
 结果绑定到当前挂载；同一子图重复挂载时不会串读其它挂载的结果。
 运行时返回的 Graph 可以通过闭包捕获声明动作已经收到的参数，不再通过祖先引用查结果。
-预先声明的 Graph-valued Step 没有接收参数的 callable，其 inputs 用于条件判断。
+预先声明的 Graph-valued Step 没有接收参数的 callable；条件输入仍在 condition 中声明。
 需要把运行期值带入子图时，使用接收结果参数、返回 Graph 的 Python action。
 
 GraphResultStore 按 StepId 将成功结果登记一次，包装为 Some(value)。

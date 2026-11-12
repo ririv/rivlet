@@ -9,7 +9,6 @@ from rivlet import (
     GraphInterface,
     LeafAction,
     ResultEdge,
-    RuntimeCondition,
     StaticCondition,
     StaticConditions,
     Step,
@@ -24,7 +23,7 @@ def forbidden(*_args: object) -> bool:
 
 
 def test_declaration_does_not_evaluate_any_host_code_or_select_cases() -> None:
-    condition = RuntimeCondition(when=forbidden)
+    condition = forbidden
     left = Step(forbidden, label="left", condition=condition)
     right = Step(forbidden, label="right")
     rules = StaticConditions(evaluator=forbidden)
@@ -46,26 +45,27 @@ def test_export_preserves_order_result_and_conditional_edges() -> None:
     data = Step(lambda: "private result", label="data")
     gate = Step(lambda: True, label="gate")
     prerequisite = Step(lambda: None, label="prerequisite")
-    node_condition = RuntimeCondition(when=lambda flag: flag.unwrap())
-    edge_condition = RuntimeCondition(when=lambda flag: flag.unwrap())
+
+    def node_condition(flag):
+        return flag.unwrap()
+
+    def edge_condition(flag):
+        return flag.unwrap()
+
     action = LeafAction(lambda _ctx, value: value.unwrap())
-    consumer = Step(action, label="consumer", condition=node_condition)
+    consumer = Step(action, label="consumer", condition=(node_condition, gate))
     graph = Graph(
         steps=(data, gate, prerequisite, consumer),
         edges=(
             Edge(gate, consumer),
-            Edge(prerequisite, consumer, condition=edge_condition),
+            Edge(prerequisite, consumer, condition=(edge_condition, data)),
             ResultEdge(data, consumer, 0, action),
-            ResultEdge(gate, consumer, 0, node_condition),
-            ResultEdge(data, consumer, 0, edge_condition),
         ),
     )
     document = export_graph(graph)
     assert [edge["kind"] for edge in document["edges"]] == [
         "order",
         "conditional",
-        "result",
-        "result",
         "result",
     ]
     result = document["edges"][2]

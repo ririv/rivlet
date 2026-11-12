@@ -13,13 +13,11 @@ from rivlet import (
     GraphError,
     GraphExecution,
     GraphInterface,
-    ResultEdge,
     StaticCondition,
     StaticConditions,
     Step,
     ThreadGraphRunOptions,
     export_graph,
-    runtime_condition,
 )
 
 
@@ -88,19 +86,18 @@ def test_conditional_named_ports_gate_only_internal_consumers(
         calls.append(result.unwrap())
         return result.unwrap() is True
 
-    condition = runtime_condition(when=predicate)
+    condition = predicate
     unused = Step(lambda: pytest.fail("static exclusion did not apply"))
     graph = Graph(
         steps=(unused, probe, provider, consumer)
         if project
         else (probe, provider, consumer),
         edges=(
-            ResultEdge(probe, consumer, 0, condition),
             Edge(
                 provider,
                 consumer,
                 ports=("sdk-ready", "toolchain-ready"),
-                condition=condition,
+                condition=(condition, probe),
             ),
         ),
         static=StaticConditions(
@@ -160,7 +157,7 @@ def test_port_condition_controls_failure_propagation(enabled, mode):
                 provider,
                 consumer,
                 ports=("out", "in"),
-                condition=runtime_condition(when=lambda: enabled),
+                condition=lambda: enabled,
             ),
         ),
     )
@@ -177,9 +174,10 @@ def test_static_exclusion_removes_port_connection_and_its_condition():
     ).step()
     use = Step(lambda: calls.append("use"))
     consumer = Graph(steps=(use,), interface=GraphInterface(inputs={"in": use})).step()
-    condition = runtime_condition(
-        when=lambda: pytest.fail("excluded condition evaluated")
-    )
+
+    def condition():
+        return pytest.fail("excluded condition evaluated")
+
     graph = Graph(
         steps=(provider, consumer),
         edges=(Edge(provider, consumer, ports=("out", "in"), condition=condition),),
@@ -203,9 +201,10 @@ def test_static_exclusion_removes_port_connection_and_its_condition():
 
 def test_condition_with_all_port_consumers_excluded_is_not_exported_or_evaluated():
     output, unused = Step(lambda: None), Step(lambda: pytest.fail("excluded input ran"))
-    condition = runtime_condition(
-        when=lambda: pytest.fail("unused condition evaluated")
-    )
+
+    def condition():
+        return pytest.fail("unused condition evaluated")
+
     provider = Graph(
         steps=(output,), interface=GraphInterface(outputs={"out": output})
     ).step()
@@ -245,12 +244,11 @@ def test_same_port_graph_can_be_mounted_twice_with_distinct_condition_inputs():
         seen.append(result.unwrap())
         return result.unwrap()
 
-    condition = runtime_condition(when=decide)
+    condition = decide
     child = Graph(
         steps=(probe, provider, consumer),
         edges=(
-            ResultEdge(probe, consumer, 0, condition),
-            Edge(provider, consumer, ports=("out", "in"), condition=condition),
+            Edge(provider, consumer, ports=("out", "in"), condition=(condition, probe)),
         ),
     )
     execution = GraphExecution(Graph(steps=(child.step(), child.step())))

@@ -16,23 +16,26 @@ Defined in [model.py](../src/rivlet/model.py):
 Step(action=..., label=..., condition=...)
 ```
 
-Label is optional presentation. `condition` accepts
-`RuntimeCondition | None`, not bool.
-Wiring belongs to `Step.wire(after=...)` and Graph.edges, not to Step itself.
-
-The outer `condition` binds a condition object, just like a conditional edge.
-Inside `runtime_condition`, `when` is the function deciding whether it holds:
+Label is optional presentation. `condition` accepts `None`, a zero-argument
+predicate, or a flat tuple `(predicate, source_step, ...)` with at least one source.
+The function comes first; each following element is a Step, not a nested tuple or
+an already computed value. Every predicate must return bool. Declaration never
+calls it. The public `runtime_condition()` helper is no longer needed.
 
 ```python
 probe = Step(lambda: 42)
-condition = runtime_condition(
-    when=lambda result: result.unwrap() == 42,
+build = Step(
+    lambda ctx, result: build_source(),
+    condition=(lambda result: result.unwrap() == 42, probe),
 )
-build = Step(lambda ctx, result: build_source(), condition=condition)
-graph = Graph.from_wiring((probe.wire(), build.wire(inputs={condition: (probe,), build.action: (probe,)})))
+graph = Graph.from_wiring((
+    probe.wire(),
+    build.wire(inputs={build.action: (probe,)}),
+))
 ```
 
-`child_graph.step(condition=condition)` uses the same spelling for a subgraph mount.
+Use `condition=lambda: True` without result inputs. Subgraph mounts use the same
+forms through `child_graph.step(condition=...)`.
 
 ## Semantics
 
@@ -131,8 +134,11 @@ still retain their dependency boundary.
 
 ## Inputs versus action prerequisites
 
-Step.wire(inputs=...) maps each existing receiver object to its own result sources. Node conditions wait only for their bound results. Action inputs and ordinary after prerequisites constrain execution after the node is enabled.
-Inputs must refer to Steps in the current graph and participate in DAG validation.
+`Step.wire(inputs=...)` binds action arguments only. Conditions declare their own
+sources in `(predicate, source_step, ...)`. A node condition waits only for its
+sources; after it enables the node, action inputs and `after` constrain execution.
+Both kinds of inputs must reference Steps in the current graph and participate
+in DAG validation and wiring entry/exit calculation.
 
 ```python
 probe = Step(probe_cache, label="probe")
@@ -141,9 +147,7 @@ prepare_b = Step(prepare_b_source, label="prepare_b")
 heavy_build = Step(
     lambda ctx, result: build_source(),
     label="heavy_build",
-    condition=(cache_condition := runtime_condition(
-        when=lambda result: bool(result.unwrap()),
-    )),
+    condition=(lambda result: bool(result.unwrap()), probe),
 )
 graph = Graph.from_wiring(
     wiring=(
@@ -152,7 +156,7 @@ graph = Graph.from_wiring(
         prepare_b.wire(),
         heavy_build.wire(
             after=(prepare_a, prepare_b),
-            inputs={cache_condition: (probe,), heavy_build.action: (probe,)},
+            inputs={heavy_build.action: (probe,)},
         ),
     )
 )
@@ -163,20 +167,20 @@ preparation. If false, heavy_build is skipped immediately. If true, it still wai
 for prepare_a and prepare_b.
 
 Each compiled condition instance is evaluated at most once per session. Reusing
-one RuntimeCondition object on several nodes does not merge those instances.
+one predicate or condition tuple at several sites does not merge those instances.
 A recorded result is reused while other after prerequisites remain pending.
 
 If the only model were a flat after list, it could not distinguish the early probe
 needed for the decision from preparations needed only for execution. That is why
-inputs is separate.
+condition inputs are distinct from action prerequisites.
 
-Inputs also participates in wiring entry/exit calculation. Do not repeat the same
+Condition inputs also participate in wiring entry/exit calculation. Do not repeat the same
 probe in ordinary after solely to make the condition wait; declare after only for
 independent ordering constraints.
 
 ## Result inputs
 
-`inputs` declares both dependencies and positional predicate arguments:
+The flat condition tuple declares dependencies and positional predicate arguments:
 
 ```python
 count_step = Step(lambda: 42)
@@ -185,16 +189,14 @@ approval_step = Step(lambda: True)
 def should_run(count: Option[object], approval: Option[object]) -> bool:
     return count.unwrap() == 42 and approval.unwrap_or(False) is True
 
-condition = runtime_condition(when=should_run)
 consumer = Step(
     lambda ctx, count, approval: print(count.unwrap(), approval.unwrap()),
-    condition=condition,
+    condition=(should_run, count_step, approval_step),
 )
 graph = Graph.from_wiring((
     count_step.wire(),
     approval_step.wire(),
     consumer.wire(inputs={
-        condition: (count_step, approval_step),
         consumer.action: (count_step, approval_step),
     }),
 ))
@@ -205,8 +207,8 @@ When both Steps execute successfully, the predicate receives `Some(42)` and
 presence markers.
 
 No separate `after` is needed for these inputs. A predicate with no inputs takes
-no arguments: `runtime_condition(when=lambda: True)`.
-Declaring inputs automatically enables result recording before their producers run.
+no arguments: `condition=lambda: True`.
+Declaring condition or action inputs enables result recording before producers run.
 Graphs without inputs retain optional result recording.
 
 `Option[T]` is `Some[T] | Nothing`:
@@ -222,7 +224,7 @@ Graphs without inputs retain optional result recording.
 Inputs reference Steps in the current graph. Reusing that graph under two parents
 binds each input to its own mount, not to another execution of the same declaration.
 Static pruning of an input is a compilation error, not Nothing.
-Input order and duplicates are preserved, so `inputs={condition: (probe, probe)}` supplies two
+Input order and duplicates are preserved, so `condition=(predicate, probe, probe)` supplies two
 arguments even though they wait for the same producer.
 
 Step is not generic today: annotations should use `Option[object]`, then validate or

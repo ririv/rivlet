@@ -166,7 +166,7 @@ only one direction or declare a new interface with `GraphInterface`.
 | What you want | API | When the condition is false |
 | --- | --- | --- |
 | Exclude optional work before execution | `StaticConditions.when(...)` | Remove the node and its incident edges during compilation |
-| Decide whether a task runs | `Step(condition=runtime_condition(...))` | Skip its action; a subgraph is not entered |
+| Decide whether a task runs | `Step(condition=predicate)` or `Step(condition=(predicate, source, ...))` | Skip its action; a subgraph is not entered |
 | Decide whether a task waits for another | `ConditionalPrerequisite(...)` | Remove only that waiting requirement, not either task |
 
 ### Static conditions: choose work before execution
@@ -240,7 +240,7 @@ for subgraphs, boundaries, and direct declarations.
 ### Runtime conditions: decide from a step result
 
 ```python
-from rivlet import Graph, GraphExecution, Option, Step, runtime_condition
+from rivlet import Graph, GraphExecution, Option, Step
 
 
 def should_process(result: Option[object]) -> bool:
@@ -248,16 +248,15 @@ def should_process(result: Option[object]) -> bool:
 
 
 probe = Step(lambda: False, label="has work")
-has_work = runtime_condition(when=should_process)
 process = Step(
-    lambda: print("process work"), label="process", condition=has_work
+    lambda: print("process work"), label="process", condition=(should_process, probe)
 )
 done = Step(lambda: print("workflow finished"), label="done")
 
 graph = Graph.from_wiring(
     (
         probe.wire(),
-        process.wire(inputs={has_work: (probe,)}),
+        process.wire(),
         done.wire(after=(process,)),
     ),
     label="runtime conditions",
@@ -265,8 +264,11 @@ graph = Graph.from_wiring(
 GraphExecution(graph).run()
 ```
 
-`inputs` declares the result dependency and passes the result to the predicate as
-an `Option`; there is no second `after=(probe,)` to maintain. Because the probe
+`condition=(should_process, probe)` declares the result dependency and passes it as
+an `Option`; there is no second `after=(probe,)` to maintain. The tuple is flat:
+`(predicate, source_a, source_b, ...)`, with no fixed maximum number of sources.
+With no inputs, pass the predicate directly, for example `condition=lambda: True`.
+These are lightweight condition declarations, not extra Steps. Because the probe
 returns `False`, `process` is skipped and `done` still runs. Return `True` to run
 `process`. A skipped action produces no result; an action returning `None` produces
 `Some(None)`. If a source may be skipped, inspect `is_some()` or `is_none()` before
@@ -283,21 +285,23 @@ from rivlet import (
     GraphExecution,
     Step,
     ThreadGraphRunOptions,
-    runtime_condition,
 )
 
 decision = Step(lambda: False, label="wait for checks")
 checks = Step(lambda: print("run checks"), label="checks")
 publish = Step(lambda: print("publish"), label="publish")
-wait_for_checks = runtime_condition(when=lambda result: result.unwrap() is True)
+wait_for_checks = lambda result: result.unwrap() is True
 
 graph = Graph.from_wiring(
     (
         decision.wire(),
         checks.wire(),
         publish.wire(
-            after=(ConditionalPrerequisite(checks, condition=wait_for_checks),),
-            inputs={wait_for_checks: (decision,)},
+            after=(
+                ConditionalPrerequisite(
+                    checks, condition=(wait_for_checks, decision),
+                ),
+            ),
         ),
     ),
     label="conditional dependency",

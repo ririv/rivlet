@@ -14,16 +14,18 @@ from ..compile import (
     GraphCompilation,
     compile_graph,
 )
+from ..errors import GraphError
 from ..model import (
     ConditionalPrerequisite,
     Edge,
     Graph,
     GraphEdge,
     ResultEdge,
-    RuntimeCondition,
     Step,
     StepId,
     StepPrerequisite,
+    _condition_uses,
+    _RuntimeCondition,
     resolve_step_label,
 )
 from ..static_condition import StaticCondition
@@ -89,13 +91,24 @@ def render_graph_after_suffix(
     *,
     step_ids: Mapping[Step, StepId],
 ) -> str:
-    incoming = graph.incoming_edges(step)
-    if not incoming:
-        return ""
-    deps = ", ".join(
-        format_graph_edge(edge, graph=graph, step_ids=step_ids) for edge in incoming
+    deps = (
+        [format_graph_edge(edge, graph=graph, step_ids=step_ids) for edge in incoming]
+        if (incoming := graph.incoming_edges(step))
+        else []
     )
-    return f" [after: {deps}]"
+    for target, condition in _condition_uses((step,), graph.edges):
+        if target is not step:
+            continue
+        receiver = (
+            "condition"
+            if condition is step.condition
+            else f"edge condition {condition_name(condition)}"
+        )
+        deps.extend(
+            f"{resolve_step_label(source, step_ids[source])} ({receiver} input: {index})"
+            for index, source in enumerate(condition.inputs)
+        )
+    return "" if not deps else f" [after: {', '.join(deps)}]"
 
 
 def render_static_suffix(graph: Graph, step: Step) -> str:
@@ -158,10 +171,7 @@ def format_graph_edge(
 def result_receiver_label(edge: ResultEdge) -> str:
     if edge.receiver is edge.target.action:
         return "action"
-    if edge.receiver is edge.target.condition:
-        return "condition"
-    assert isinstance(edge.receiver, RuntimeCondition)
-    return f"edge condition {condition_name(edge.receiver)}"
+    raise GraphError("result receiver must be the target action")
 
 
 def render_step_path(path: tuple[str, ...]) -> str:
@@ -205,11 +215,11 @@ def prerequisite_step_label(dep: StepPrerequisite) -> str | None:
 
 
 def condition_name(
-    condition: StaticCondition | RuntimeCondition | CompiledRuntimeCondition,
+    condition: StaticCondition | _RuntimeCondition | CompiledRuntimeCondition,
 ) -> str:
     if isinstance(
         condition,
-        (RuntimeCondition, CompiledRuntimeCondition),
+        (_RuntimeCondition, CompiledRuntimeCondition),
     ):
         qualname = getattr(condition.when, "__qualname__", None)
         if isinstance(qualname, str) and qualname:

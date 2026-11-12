@@ -18,7 +18,6 @@ from rivlet import (
     compile_graph,
     render_graph,
     resolve_port_requirements,
-    runtime_condition,
 )
 
 ENABLED = StaticCondition(payload=True, description="enabled")
@@ -116,11 +115,11 @@ def test_static_and_runtime_rules_coexist_on_nodes_and_edges(mode: GraphMode) ->
     first = Step(lambda: calls.append("first"))
     last = Step(
         lambda: calls.append("last"),
-        condition=runtime_condition(when=lambda: False),
+        condition=lambda: False,
     )
     graph = Graph(
         steps=(first, last),
-        edges=(Edge(first, last, condition=runtime_condition(when=lambda: True)),),
+        edges=(Edge(first, last, condition=lambda: True),),
         static=StaticConditions(
             evaluator=evaluate,
             conditions={last: ENABLED, (first, last): ENABLED},
@@ -205,18 +204,13 @@ def test_static_pruning_does_not_leave_runtime_reads_without_a_source() -> None:
     consumer = Step(
         lambda _ctx, *_inputs: None,
         condition=(
-            consumer_condition := runtime_condition(
-                when=lambda result: bool(result.unwrap())
-            )
+            _consumer_condition := (lambda result: bool(result.unwrap()), probe)
         ),
     )
     graph = Graph(
         steps=(probe, consumer),
         static=StaticConditions(evaluator=evaluate, conditions={probe: DISABLED}),
-        edges=(
-            ResultEdge(probe, consumer, 0, receiver=consumer.action),
-            ResultEdge(probe, consumer, 0, receiver=consumer_condition),
-        ),
+        edges=(ResultEdge(probe, consumer, 0, receiver=consumer.action),),
     )
 
     with pytest.raises(GraphError, match="result input was removed"):

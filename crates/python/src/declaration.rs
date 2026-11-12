@@ -32,7 +32,7 @@ impl<'py> PythonTypes<'py> {
         Ok(Self {
             graph: model.getattr("Graph")?,
             edge: model.getattr("Edge")?,
-            runtime_condition: model.getattr("RuntimeCondition")?,
+            runtime_condition: model.getattr("_RuntimeCondition")?,
             result_edge: model.getattr("ResultEdge")?,
         })
     }
@@ -55,7 +55,6 @@ struct NodeRecord {
     step_id: Vec<usize>,
     label: String,
     inputs: Vec<usize>,
-    condition_inputs: HashMap<usize, Vec<usize>>,
 }
 
 enum NodeAction {
@@ -238,7 +237,6 @@ impl<'py> Collector<'py> {
                 step_id: step_id.clone(),
                 label: step_label.clone(),
                 inputs: Vec::new(),
-                condition_inputs: HashMap::new(),
             });
             let activation = if active {
                 NodeActivation::Active {
@@ -348,7 +346,6 @@ impl<'py> Collector<'py> {
                 step_id,
                 label: native_step.label().to_owned(),
                 inputs: Vec::new(),
-                condition_inputs: HashMap::new(),
             });
             let activation = if parent_active {
                 NodeActivation::Active {
@@ -426,14 +423,6 @@ impl<'py> Collector<'py> {
             let source = self.require_local_node(graph_index, &source_step)?;
             let target = self.require_local_node(graph_index, &target_step)?;
             if !graph_active || matches!(self.node_activation(target), NodeActivation::Inactive) {
-                continue;
-            }
-            if edge.is_instance(&self.types.result_edge)?
-                && edge
-                    .getattr("receiver")?
-                    .is_instance(&self.types.runtime_condition)?
-            {
-                // 条件输入由 RuntimeCondition.reads 调度，不成为 action 的无条件前置边。
                 continue;
             }
             // 结果边已在 collect_result_inputs 中求值并校验，避免重复调用求值器。
@@ -522,14 +511,30 @@ impl<'py> Collector<'py> {
         target: usize,
         edge_index: Option<usize>,
     ) -> PyResult<ConditionId> {
-        let reads: Vec<_> = self.nodes[target]
-            .condition_inputs
-            .get(&object_key(condition))
-            .into_iter()
-            .flatten()
-            .copied()
-            .map(NodeId::new)
-            .collect();
+        // I 为条件的输入引用数。按当前挂载的局部索引一次解析，时间/空间 O(I)，
+        // 不从结果边反查，也不把条件输入加入 action 的无条件前置。
+        let graph_index = self.nodes[target].graph;
+        let graph = self.graphs[graph_index].source_graph.bind(self.py);
+        let bindings = graph.getattr("_static_bindings")?;
+        let target_step = self.nodes[target]
+            .source_step
+            .as_ref()
+            .expect("Python condition must belong to a Python step")
+            .bind(self.py);
+        let mut reads = Vec::new();
+        for source in condition.getattr("inputs")?.try_iter()? {
+            let source = source?;
+            let node = self.require_local_node(graph_index, &source)?;
+            let binding = bindings.call_method1("get", ((&source, target_step),))?;
+            if matches!(self.node_activation(node), NodeActivation::Inactive)
+                || (!binding.is_none() && !binding.call_method0("evaluate")?.extract::<bool>()?)
+            {
+                return Err(PyValueError::new_err(
+                    "condition input was removed by static conditions",
+                ));
+            }
+            reads.push(NodeId::new(node));
+        }
         let condition_id = ConditionId::new(self.conditions.len());
         self.conditions.push(ConditionRecord {
             predicate: condition.getattr("when")?.unbind(),
@@ -570,15 +575,7 @@ impl<'py> Collector<'py> {
                 ));
             }
             let index: usize = edge.getattr("argument_index")?.extract()?;
-            let receiver = edge.getattr("receiver")?;
-            let inputs = if receiver.is_instance(&self.types.runtime_condition)? {
-                self.nodes[target]
-                    .condition_inputs
-                    .entry(object_key(&receiver))
-                    .or_default()
-            } else {
-                &mut self.nodes[target].inputs
-            };
+            let inputs = &mut self.nodes[target].inputs;
             if inputs.len() <= index {
                 inputs.resize(index + 1, usize::MAX);
             }

@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     )
     from .model import (
         ConditionalPrerequisite,
+        ConditionInput,
         Edge,
         Graph,
         GraphEdge,
@@ -63,14 +64,12 @@ if TYPE_CHECKING:
         LeafAction,
         LeafActionCallable,
         ResultEdge,
-        RuntimeCondition,
         Step,
         StepAction,
         StepActionInput,
         StepId,
         StepLabelPath,
         StepWiring,
-        runtime_condition,
         step,
     )
     from .observe import GraphObservationEvent, GraphObserver
@@ -209,8 +208,7 @@ _EXPORT_GROUPS = (
             "Edge",
             "ResultEdge",
             "ConditionalPrerequisite",
-            "RuntimeCondition",
-            "runtime_condition",
+            "ConditionInput",
             "Step",
             "StepAction",
             "StepActionInput",
@@ -334,8 +332,7 @@ __all__ = [
     "Edge",
     "ResultEdge",
     "ConditionalPrerequisite",
-    "RuntimeCondition",
-    "runtime_condition",
+    "ConditionInput",
     "StaticCondition",
     "StaticConditions",
     "StaticConditionEval",

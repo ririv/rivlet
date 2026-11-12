@@ -65,8 +65,8 @@ Compilation export includes only statically retained nodes and edges. Excluded I
 refer to the corresponding declaration, not runtime `skipped` events. Runtime
 conditions remain unevaluated, so a compiled graph is not an execution trace.
 Its condition table gives the actual session condition `index`, ID, and ordered
-input node IDs. Node/edge guards and condition result receivers refer to this table.
-One condition object reused at several sites can produce multiple compiled instances.
+input node IDs. Node and edge guards refer to this table. Reusing a predicate or
+condition tuple at several sites can produce multiple compiled instances.
 
 ## Identities and composition boundaries
 
@@ -94,7 +94,7 @@ Both views retain declaration edge IDs and distinguish:
 | `kind` | Meaning |
 | --- | --- |
 | `order` | An explicit completion dependency, without result transfer |
-| `result` | A result argument at `argument_index`, addressed to the action or specific condition instances |
+| `result` | An action result argument at `argument_index`; condition sources are in the condition table's `inputs` |
 | `conditional` | A dependency guarded by the referenced runtime condition |
 | `port` | A connection with `source_port`, `target_port`, an optional `condition` ID, and exact `provider_node` / `consumer_nodes` readiness endpoints |
 

@@ -20,7 +20,6 @@ from rivlet import (
     StepRunContext,
     ThreadGraphRunOptions,
     compile_graph,
-    runtime_condition,
 )
 
 type Backend = Literal["serial", "thread", "async"]
@@ -63,9 +62,7 @@ def test_inputs_distinguish_skipped_from_none_in_declared_order(
 ) -> None:
     seen: list[tuple[Option[object], ...]] = []
     calls: list[str] = []
-    skipped = Step(
-        lambda: "unreachable", condition=runtime_condition(when=lambda: False)
-    )
+    skipped = Step(lambda: "unreachable", condition=lambda: False)
     returned_none = Step(lambda: None)
     returned_false = Step(lambda: False)
 
@@ -77,21 +74,25 @@ def test_inputs_distinguish_skipped_from_none_in_declared_order(
             missing.is_none() and present.unwrap() is None and false.unwrap() is False
         )
 
-    predicate = runtime_condition(when=condition)
+    predicate = condition
     prerequisite = Step(lambda: calls.append("prerequisite"))
     consumer = Step(
         lambda _ctx, *_inputs: calls.append("consumer"),
-        condition=None if edge else predicate,
+        condition=None if edge else (predicate, skipped, returned_none, returned_false),
     )
     graph = Graph.from_wiring(
         (
             consumer.wire(
-                after=(ConditionalPrerequisite(prerequisite, condition=predicate),)
+                after=(
+                    ConditionalPrerequisite(
+                        prerequisite,
+                        condition=(predicate, skipped, returned_none, returned_false),
+                    ),
+                )
                 if edge
                 else (),
                 inputs={
                     consumer.action: (skipped, returned_none, returned_false),
-                    predicate: (skipped, returned_none, returned_false),
                 },
             ),
             prerequisite.wire(),
@@ -124,12 +125,14 @@ def test_repeated_nested_graph_mounts_supply_their_own_results(
 
     consumer = Step(
         lambda _ctx, _result: None,
-        condition=(consumer_condition := runtime_condition(when=condition)),
+        condition=(_consumer_condition := (condition, probe)),
     )
     child = Graph.from_wiring(
         (
             consumer.wire(
-                inputs={consumer.action: (probe,), consumer_condition: (probe,)}
+                inputs={
+                    consumer.action: (probe,),
+                }
             ),
             probe.wire(),
         )
@@ -150,7 +153,7 @@ def test_repeated_input_preserves_arguments_without_rewrapping() -> None:
 
     consumer = Step(
         lambda _ctx, _first, _second: None,
-        condition=(consumer_condition := runtime_condition(when=condition)),
+        condition=(_consumer_condition := (condition, probe, probe)),
     )
     execution = GraphExecution(
         Graph.from_wiring(
@@ -158,7 +161,6 @@ def test_repeated_input_preserves_arguments_without_rewrapping() -> None:
                 consumer.wire(
                     inputs={
                         consumer.action: (probe, probe),
-                        consumer_condition: (probe, probe),
                     }
                 ),
                 probe.wire(),
@@ -183,7 +185,7 @@ def test_actions_and_conditions_share_explicit_result_bindings(
         return 42
 
     source = Step(produce)
-    skipped = Step(lambda: "unused", condition=runtime_condition(when=lambda: False))
+    skipped = Step(lambda: "unused", condition=lambda: False)
 
     def allowed(value: Option[object], absent: Option[object]) -> bool:
         seen.append((value, absent))
@@ -201,7 +203,7 @@ def test_actions_and_conditions_share_explicit_result_bindings(
         seen.append((value, absent))
 
     consumer = Step(
-        consume, condition=(consumer_condition := runtime_condition(when=allowed))
+        consume, condition=(_consumer_condition := (allowed, source, skipped))
     )
     execute(
         Graph.from_wiring(
@@ -209,7 +211,6 @@ def test_actions_and_conditions_share_explicit_result_bindings(
                 consumer.wire(
                     inputs={
                         consumer.action: (source, skipped),
-                        consumer_condition: (source, skipped),
                     }
                 ),
                 skipped.wire(),
@@ -265,12 +266,11 @@ def test_each_receiver_binds_its_own_results_on_each_mount(backend: Backend) -> 
         seen.append(("check", value.unwrap()))
         return True
 
-    node_condition = runtime_condition(when=check_value)
-    edge_condition = runtime_condition(when=check_value)
-    assert node_condition is not edge_condition
+    node_condition = check_value
+    edge_condition = check_value
     consumer = Step(
         lambda _ctx, plan: seen.append(("action", plan.unwrap())),
-        condition=node_condition,
+        condition=(node_condition, permission),
     )
     child = Graph.from_wiring(
         (
@@ -279,10 +279,10 @@ def test_each_receiver_binds_its_own_results_on_each_mount(backend: Backend) -> 
             design.wire(),
             prepare.wire(),
             consumer.wire(
-                after=(ConditionalPrerequisite(prepare, condition=edge_condition),),
+                after=(
+                    ConditionalPrerequisite(prepare, condition=(edge_condition, check)),
+                ),
                 inputs={
-                    node_condition: (permission,),
-                    edge_condition: (check,),
                     consumer.action: (design,),
                 },
             ),
@@ -313,12 +313,14 @@ def test_false_node_condition_does_not_wait_for_other_receiver_inputs() -> None:
     action_input = Step(delayed)
     edge_input = Step(delayed)
     prepare = Step(lambda: None)
-    condition = runtime_condition(when=reject)
-    edge_condition = runtime_condition(
-        when=lambda _value: pytest.fail("unused edge condition ran")
-    )
+    condition = reject
+
+    def edge_condition(_value):
+        return pytest.fail("unused edge condition ran")
+
     consumer = Step(
-        lambda _ctx, _value: pytest.fail("skipped action ran"), condition=condition
+        lambda _ctx, _value: pytest.fail("skipped action ran"),
+        condition=(condition, permission),
     )
     graph = Graph.from_wiring(
         (
@@ -327,10 +329,12 @@ def test_false_node_condition_does_not_wait_for_other_receiver_inputs() -> None:
             edge_input.wire(),
             prepare.wire(),
             consumer.wire(
-                after=(ConditionalPrerequisite(prepare, condition=edge_condition),),
+                after=(
+                    ConditionalPrerequisite(
+                        prepare, condition=(edge_condition, edge_input)
+                    ),
+                ),
                 inputs={
-                    condition: (permission,),
-                    edge_condition: (edge_input,),
                     consumer.action: (action_input,),
                 },
             ),
@@ -343,7 +347,10 @@ def test_false_node_condition_does_not_wait_for_other_receiver_inputs() -> None:
 @pytest.mark.parametrize("backend", ["serial", "thread", "async"])
 def test_one_condition_object_can_bind_two_conditional_edges(backend: Backend) -> None:
     source = Step(lambda: False)
-    condition = runtime_condition(when=lambda value: value.unwrap() is True)
+
+    def condition(value):
+        return value.unwrap() is True
+
     left = Step(lambda: None)
     right = Step(lambda: None)
     seen: list[str] = []
@@ -356,10 +363,9 @@ def test_one_condition_object_can_bind_two_conditional_edges(backend: Backend) -
                 right.wire(),
                 consumer.wire(
                     after=(
-                        ConditionalPrerequisite(left, condition=condition),
-                        ConditionalPrerequisite(right, condition=condition),
+                        ConditionalPrerequisite(left, condition=(condition, source)),
+                        ConditionalPrerequisite(right, condition=(condition, source)),
                     ),
-                    inputs={condition: (source,)},
                 ),
             )
         ),
@@ -370,6 +376,6 @@ def test_one_condition_object_can_bind_two_conditional_edges(backend: Backend) -
 
 def test_unrelated_receiver_is_rejected_even_with_empty_inputs() -> None:
     consumer = Step(lambda: None)
-    foreign = runtime_condition(when=lambda: True)
+    foreign = Step(lambda: None)
     with pytest.raises(GraphError, match="receiver"):
-        Graph.from_wiring((consumer.wire(inputs={foreign: ()}),))
+        Graph.from_wiring((consumer.wire(inputs={foreign.action: ()}),))

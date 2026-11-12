@@ -152,11 +152,12 @@ Edge(source=a, target=b, ports=("sdk-ready", "toolchain-ready"), condition=neede
 目标只查入口，不搜索相反方向。不同名字可以直接连接，无需为了改名再包装一层图。
 
 条件只决定入口内部步骤是否等待出口步骤，不会挡住整个消费者子图，也不会跳过任意一端。
-一个入口对应多个步骤时，共享这条边的同一个条件实例。条件读取结果仍通过 `ResultEdge`
-声明，目标是消费者组件，receiver 是该条件对象；与端口无关的消费者准备步骤可以提前执行。
+一个入口对应多个步骤时，共享这条边的同一个条件实例。条件直接通过
+`condition=(predicate, probe, ...)` 声明来源，按消费者组件所在的父图解析；
+与端口无关的消费者准备步骤可以提前执行。
 静态边规则也可以在编译期移除整条端口连接。
 
-端口仍只表达就绪关系，不传递结果。`ResultEdge`、`inputs` 与其 `Option` 参数保持原样；
+端口仍只表达就绪关系，不传递结果。action 的 `ResultEdge`、`wire(inputs=...)` 与其 `Option` 参数保持原样；
 这次没有引入 `.input()`／`.output()` 或 `.argument()` 端点 API。
 
 ## 两种需求

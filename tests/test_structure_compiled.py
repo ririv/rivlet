@@ -12,7 +12,6 @@ from rivlet import (
     GraphInterface,
     LeafAction,
     ResultEdge,
-    RuntimeCondition,
     StaticCondition,
     StaticConditions,
     Step,
@@ -69,18 +68,16 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
         raise AssertionError("runtime predicate must not run")
 
     first, second = Step(forbidden), Step(forbidden)
-    shared = RuntimeCondition(when=forbidden)
+    shared = forbidden
     # 同一 predicate 可作为不同声明对象，也可复用于同一节点的多个具体位置。
-    other = RuntimeCondition(when=forbidden)
+    other = forbidden
     action = LeafAction(forbidden)
-    target = Step(action, condition=shared)
+    target = Step(action, condition=(shared, first))
     graph = Graph(
         steps=(first, second, target),
         edges=(
-            Edge(first, target, condition=shared),
-            Edge(second, target, condition=other),
-            ResultEdge(first, target, 0, shared),
-            ResultEdge(second, target, 0, other),
+            Edge(first, target, condition=(shared, first)),
+            Edge(second, target, condition=(other, second)),
             ResultEdge(second, target, 0, action),
         ),
     )
@@ -91,14 +88,12 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
     assert edges[0]["kind"] == edges[1]["kind"] == "conditional"
     assert edges[0]["condition"] == "condition:1"
     assert edges[1]["condition"] == "condition:2"
-    assert edges[2]["kind"] == "result" and edges[2]["receiver"] == {
-        "kind": "condition",
-        "conditions": ["condition:0", "condition:1"],
-    }
-    assert edges[3]["kind"] == "result" and edges[3]["receiver"] == {
-        "kind": "condition",
-        "conditions": ["condition:2"],
-    }
+    assert edges[2]["kind"] == "result" and edges[2]["receiver"] == {"kind": "action"}
+    assert [condition["inputs"] for condition in document["conditions"]] == [
+        ["0"],
+        ["0"],
+        ["1"],
+    ]
     assert document["dependencies"] == [
         {
             "kind": "conditional",

@@ -35,7 +35,6 @@ from rivlet import (
     render_graph_execution,
     render_graph_mermaid,
     render_live_graph_execution,
-    runtime_condition,
 )
 
 
@@ -102,13 +101,13 @@ def test_pruned_native_side_tables_keep_only_compiled_nodes() -> None:
     removed = Step(
         lambda: None,
         label="removed",
-        condition=runtime_condition(when=lambda: False),
+        condition=lambda: False,
     )
     kept = Step(lambda: None, label="kept")
     checked = Step(
         lambda _ctx, *_inputs: None,
         label="checked",
-        condition=(checked_condition := runtime_condition(when=lambda _ctx: True)),
+        condition=(_checked_condition := (lambda _ctx: True, kept)),
     )
     graph = Graph(
         steps=(removed, kept, checked),
@@ -116,10 +115,7 @@ def test_pruned_native_side_tables_keep_only_compiled_nodes() -> None:
             evaluator=lambda _condition: False,
             conditions={removed: _condition("disabled")},
         ),
-        edges=(
-            ResultEdge(kept, checked, 0, receiver=checked.action),
-            ResultEdge(kept, checked, 0, receiver=checked_condition),
-        ),
+        edges=(ResultEdge(kept, checked, 0, receiver=checked.action),),
     )
     native = compile_declaration(graph, "test")
     assert native.declaration_nodes() == [1, 2]
@@ -198,11 +194,7 @@ def test_graph_rejects_runtime_condition_read_cycle() -> None:
     build = Step(label="build", action=lambda: None)
     prepare = Step(
         label="prepare",
-        condition=(
-            prepare_condition := runtime_condition(
-                when=lambda _ctx: True,
-            )
-        ),
+        condition=(_prepare_condition := (lambda _ctx: True, build)),
         action=lambda _ctx, *_inputs: None,
     )
     with pytest.raises(GraphError, match="dependency cycle"):
@@ -210,7 +202,9 @@ def test_graph_rejects_runtime_condition_read_cycle() -> None:
             label="root",
             wiring=(
                 prepare.wire(
-                    inputs={prepare.action: (build,), prepare_condition: (build,)}
+                    inputs={
+                        prepare.action: (build,),
+                    }
                 ),
                 build.wire(after=(prepare,)),
             ),
@@ -460,9 +454,7 @@ def test_render_graph_execution_overlays_runtime_status() -> None:
     build = Step(
         label="build",
         condition=(
-            build_condition := runtime_condition(
-                when=lambda result: not bool(result.unwrap()),
-            )
+            _build_condition := (lambda result: not bool(result.unwrap()), probe)
         ),
         action=LeafAction(fn=lambda _ctx, *_inputs: None),
     )
@@ -471,7 +463,10 @@ def test_render_graph_execution_overlays_runtime_status() -> None:
         wiring=(
             probe.wire(),
             build.wire(
-                after=(), inputs={build.action: (probe,), build_condition: (probe,)}
+                after=(),
+                inputs={
+                    build.action: (probe,),
+                },
             ),
         ),
     )
@@ -497,9 +492,7 @@ def test_render_live_graph_execution_hides_not_reached_steps() -> None:
     build = Step(
         label="build",
         condition=(
-            build_condition := runtime_condition(
-                when=lambda result: not bool(result.unwrap()),
-            )
+            _build_condition := (lambda result: not bool(result.unwrap()), probe)
         ),
         action=LeafAction(fn=lambda _ctx, *_inputs: None),
     )
@@ -509,7 +502,10 @@ def test_render_live_graph_execution_hides_not_reached_steps() -> None:
         wiring=(
             probe.wire(),
             build.wire(
-                after=(), inputs={build.action: (probe,), build_condition: (probe,)}
+                after=(),
+                inputs={
+                    build.action: (probe,),
+                },
             ),
             package.wire(after=(build,)),
         ),
@@ -581,17 +577,24 @@ def test_compile_graph_removes_static_condition_edge_when_false() -> None:
 def test_compile_graph_preserves_runtime_condition_edge() -> None:
     probe = Step(label="probe", action=lambda: "miss")
     configure = Step(label="configure", action=lambda: None)
-    condition = runtime_condition(
-        when=lambda result: result.unwrap() == "miss",
-    )
+
+    def condition(result):
+        return result.unwrap() == "miss"
+
     build = Step(label="build", action=lambda _ctx, *_inputs: None)
     graph = Graph.from_wiring(
         (
             probe.wire(),
             configure.wire(),
             build.wire(
-                after=(ConditionalPrerequisite(step=configure, condition=condition),),
-                inputs={build.action: (probe,), condition: (probe,)},
+                after=(
+                    ConditionalPrerequisite(
+                        step=configure, condition=(condition, probe)
+                    ),
+                ),
+                inputs={
+                    build.action: (probe,),
+                },
             ),
         ),
         label="root",
@@ -605,7 +608,7 @@ def test_compile_graph_preserves_runtime_condition_edge() -> None:
             node=CompiledStepRef(StepId((1,))),
             condition=CompiledRuntimeCondition(
                 inputs=(CompiledStepRef(StepId((0,))),),
-                when=condition.when,
+                when=condition,
             ),
         ),
     )
@@ -700,13 +703,16 @@ def test_compile_graph_preserves_conditional_dependency_without_gate_step() -> N
                     ConditionalPrerequisite(
                         step=configure,
                         condition=(
-                            edge_condition_687 := runtime_condition(
-                                when=lambda result: result.unwrap() == "miss"
+                            _edge_condition_687 := (
+                                lambda result: result.unwrap() == "miss",
+                                probe,
                             )
                         ),
                     ),
                 ),
-                inputs={build.action: (probe,), edge_condition_687: (probe,)},
+                inputs={
+                    build.action: (probe,),
+                },
             ),
         ),
     )
@@ -742,14 +748,17 @@ def test_graph_execution_compile_supports_static_and_runtime_conditions() -> Non
                     ConditionalPrerequisite(
                         step=configure,
                         condition=(
-                            edge_condition_727 := runtime_condition(
-                                when=lambda result: result.unwrap() == "miss"
+                            _edge_condition_727 := (
+                                lambda result: result.unwrap() == "miss",
+                                probe,
                             )
                         ),
                     ),
                     android_shim,
                 ),
-                inputs={build.action: (probe,), edge_condition_727: (probe,)},
+                inputs={
+                    build.action: (probe,),
+                },
             ),
         ),
         static=StaticConditions(
@@ -786,13 +795,16 @@ def test_render_graph_compiled_shows_conditional_dependency() -> None:
                     ConditionalPrerequisite(
                         step=configure,
                         condition=(
-                            edge_condition_769 := runtime_condition(
-                                when=lambda result: result.unwrap() == "miss"
+                            _edge_condition_769 := (
+                                lambda result: result.unwrap() == "miss",
+                                probe,
                             )
                         ),
                     ),
                 ),
-                inputs={build.action: (probe,), edge_condition_769: (probe,)},
+                inputs={
+                    build.action: (probe,),
+                },
             ),
         ),
     )
@@ -834,9 +846,7 @@ def test_compile_graph_preserves_runtime_when_on_leaf_step() -> None:
         label="write_cache",
         action=LeafAction(fn=lambda _ctx, *_inputs: None),
         condition=(
-            write_cache_condition := runtime_condition(
-                when=lambda result: bool(result.unwrap()),
-            )
+            _write_cache_condition := (lambda result: bool(result.unwrap()), probe)
         ),
     )
     graph = Graph.from_wiring(
@@ -844,7 +854,9 @@ def test_compile_graph_preserves_runtime_when_on_leaf_step() -> None:
         wiring=(
             probe.wire(),
             write_cache.wire(
-                inputs={write_cache.action: (probe,), write_cache_condition: (probe,)}
+                inputs={
+                    write_cache.action: (probe,),
+                }
             ),
         ),
     )
@@ -860,11 +872,7 @@ def test_compile_graph_flattens_runtime_conditioned_composite() -> None:
     configure = Step(label="configure", action=LeafAction(fn=lambda: None))
     stage = Step(
         label="stage",
-        condition=(
-            stage_condition := runtime_condition(
-                when=lambda result: bool(result.unwrap()),
-            )
-        ),
+        condition=(_stage_condition := (lambda result: bool(result.unwrap()), probe)),
         action=Graph.from_wiring(
             label="stage",
             wiring=(configure.wire(),),
@@ -874,7 +882,9 @@ def test_compile_graph_flattens_runtime_conditioned_composite() -> None:
         label="root",
         wiring=(
             probe.wire(),
-            stage.wire(after=(), inputs={stage_condition: (probe,)}),
+            stage.wire(
+                after=(),
+            ),
         ),
     )
 
@@ -904,7 +914,7 @@ def test_compile_graph_flattens_child_with_conditional_dependency() -> None:
                 after=(
                     ConditionalPrerequisite(
                         step=source,
-                        condition=runtime_condition(when=lambda: False),
+                        condition=lambda: False,
                     ),
                 )
             ),

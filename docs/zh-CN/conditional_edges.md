@@ -21,7 +21,8 @@ target.wire(
 ## 两类条件
 
 静态条件通过绑定 evaluator 的 StaticConditions 声明；Edge 和
-ConditionalPrerequisite 的 `condition` 参数只接收 RuntimeCondition。两者求值时机不同：
+ConditionalPrerequisite 的 `condition` 接受判断函数或扁平元组
+`(predicate, source_step, ...)`，不接受静态条件。两者求值时机不同：
 
 - 静态条件由声明编译器调用显式 evaluator 求值，保留或移除关系。
 - 运行时条件编译为带 ConditionId 的 prerequisite，交给统一 Rust session 调度。
@@ -114,14 +115,14 @@ checks 和 build 都仍然存在。组合多个 StaticConditions 时，每条规
 
 ## 运行时条件
 
-[model.py](../../src/rivlet/model.py) 中的 RuntimeCondition 包含：
+运行时条件在执行时求值，公开声明接受以下两种形式：
 
 ```python
-class RuntimeCondition:
-    when: ConditionalEdgePredicate
+condition=lambda: True
+condition=(lambda result: result.unwrap() is True, probe)
 ```
 
-predicate 按目标接线 inputs 的顺序接收各个 `Option[object]`。框架在当前挂载中读取
+predicate 按扁平元组中来源 Step 的顺序接收各个 `Option[object]`。框架在当前挂载中读取
 结果，不需要查询上下文。
 缺失与解包规则见[结果输入](./conditional_steps.md#结果输入)。
 
@@ -131,7 +132,9 @@ predicate 按目标接线 inputs 的顺序接收各个 `Option[object]`。框架
 
 ## inputs 与 after
 
-inputs 将现有声明对象绑定到各自来源，action、节点条件和每条条件边分别接收自己的参数。after 只表达执行顺序。
+条件在使用位置直接声明自己的输入。action 参数仍通过
+`wire(inputs={action: (...)})` 绑定，after 只表达执行顺序。
+节点条件和每条条件边可以读取不同来源，不再通过 receiver 查找条件对象。
 
 ```python
 permission = Step(lambda: True)
@@ -139,18 +142,19 @@ design = Step(lambda: "implement login")
 environment_check = Step(lambda: True)
 prepare = Step(lambda: print("prepare environment"))
 
-allowed = runtime_condition(
-    when=lambda result: result.is_some() and result.unwrap() is True,
-)
 prepare_dependency = ConditionalPrerequisite(
     prepare,
-    condition=runtime_condition(
-        when=lambda result: result.is_some() and result.unwrap() is True,
+    condition=(
+        lambda result: result.is_some() and result.unwrap() is True,
+        environment_check,
     ),
 )
 implementation = Step(
     lambda ctx, plan: print(plan.unwrap()),
-    condition=allowed,
+    condition=(
+        lambda result: result.is_some() and result.unwrap() is True,
+        permission,
+    ),
 )
 graph = Graph.from_wiring((
     permission.wire(),
@@ -161,8 +165,6 @@ graph = Graph.from_wiring((
         after=(prepare_dependency,),
         inputs={
             implementation.action: (design,),
-            allowed: (permission,),
-            prepare_dependency.condition: (environment_check,),
         },
     ),
 ))
@@ -170,7 +172,8 @@ graph = Graph.from_wiring((
 
 节点条件读取 permission，条件边读取 environment_check，action 读取 design。节点条件为假时跳过 implementation；条件边为假仅取消等待 prepare，不跳过 implementation，也不取消 prepare。匿名函数不需要额外手动包装成 LeafAction。
 
-绑定按对象身份区分。同一 RuntimeCondition 用于两条前置边时共享绑定，但不合并求值实例；包装相同函数的两个独立条件对象可以绑定不同来源。
+每个使用位置有独立求值实例，复用同一个函数或元组不会合并求值。
+不同元组可以把同一个判断函数绑定到不同来源。
 
 ## 编译与执行边界
 

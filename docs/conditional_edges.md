@@ -25,7 +25,8 @@ inside action side effects.
 ## Two kinds of conditions
 
 StaticConditions binds static rules to their evaluator. The `condition` argument
-of Edge and ConditionalPrerequisite accepts only RuntimeCondition. Evaluation differs:
+of Edge and ConditionalPrerequisite accepts a predicate or a flat
+`(predicate, source_step, ...)` tuple, not a static condition. Evaluation differs:
 
 - During declaration compilation, an explicit evaluator resolves static conditions.
 - Runtime conditions lower to prerequisites identified by ConditionId.
@@ -132,25 +133,27 @@ The DSL does not automatically merge repeated Step objects.
 ## Runtime conditions
 
 Runtime conditions are evaluated during execution, often from a cache probe or
-other Step result. In [model.py](../src/rivlet/model.py), they contain:
+other Step result. Their public input forms are:
 
 ```python
-class RuntimeCondition:
-    when: ConditionalEdgePredicate
+condition=lambda: True
+condition=(lambda result: result.unwrap() is True, probe)
 ```
 
-The predicate receives one `Option[object]` per target wiring input, in tuple order.
+The predicate receives one `Option[object]` per source Step, in tuple order.
 Graph resolves the results in the current mount; no context lookup is required.
 See [result inputs](./conditional_steps.md#result-inputs) for absence and unwrapping.
 
 Each compiled condition instance is evaluated at most once in its session.
 If it is true but the source prerequisite is not yet complete, subsequent scheduling
-waits without rerunning the predicate. Reusing one Python RuntimeCondition or
+waits without rerunning the predicate. Reusing one condition tuple or
 callable at several sites does not deduplicate those evaluations.
 
 ## Inputs and ordering prerequisites
 
-Inputs map existing receiver objects to their sources. Action, node condition and each conditional-edge condition have independent arguments. After only declares ordering.
+Conditions bind their inputs at the point of use. Action arguments remain in
+`wire(inputs={action: (...)})`; `after` declares execution ordering. Node conditions
+and individual edge conditions may read different sources without receiver lookup.
 
 ```python
 permission = Step(lambda: True)
@@ -158,18 +161,19 @@ design = Step(lambda: "implement login")
 environment_check = Step(lambda: True)
 prepare = Step(lambda: print("prepare environment"))
 
-allowed = runtime_condition(
-    when=lambda result: result.is_some() and result.unwrap() is True,
-)
 prepare_dependency = ConditionalPrerequisite(
     prepare,
-    condition=runtime_condition(
-        when=lambda result: result.is_some() and result.unwrap() is True,
+    condition=(
+        lambda result: result.is_some() and result.unwrap() is True,
+        environment_check,
     ),
 )
 implementation = Step(
     lambda ctx, plan: print(plan.unwrap()),
-    condition=allowed,
+    condition=(
+        lambda result: result.is_some() and result.unwrap() is True,
+        permission,
+    ),
 )
 graph = Graph.from_wiring((
     permission.wire(),
@@ -180,8 +184,6 @@ graph = Graph.from_wiring((
         after=(prepare_dependency,),
         inputs={
             implementation.action: (design,),
-            allowed: (permission,),
-            prepare_dependency.condition: (environment_check,),
         },
     ),
 ))
@@ -189,7 +191,8 @@ graph = Graph.from_wiring((
 
 The node condition reads permission, the edge condition reads environment_check, and the action reads design. False permission skips implementation; a false edge condition only stops waiting for prepare, without skipping implementation or cancelling prepare. No extra LeafAction wrapper is needed for inline lambdas.
 
-A receiver uses object identity. Reusing the same RuntimeCondition in two prerequisites shares the binding, not the evaluation instance. Separate objects wrapping the same function can bind different inputs.
+Each use has its own evaluation instance, even when its callable or tuple is
+reused. Separate tuples can bind the same predicate to different sources.
 
 ## Runtime and compilation boundary
 
