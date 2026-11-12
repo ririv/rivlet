@@ -10,7 +10,7 @@ composites, and NativeGraph composites.
 
 ## Declaration
 
-Defined in [model.py](../src/rivlet/model.py):
+Defined in [step.py](../src/rivlet/model/step.py):
 
 ```python
 Step(action=..., label=..., condition=...)

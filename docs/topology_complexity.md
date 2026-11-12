@@ -51,7 +51,7 @@ Blocking relations come exclusively from explicit edges. Conditional edges conse
 checks even if their static conditions later evaluate to false.
 Reads is an explicit data dependency, not a relation invented by topological sorting.
 
-The actual [model.py](../src/rivlet/model.py) path is:
+The actual [validation.py](../src/rivlet/model/validation.py) path is:
 
 ```text
 Validate Steps and assign local integer indexes

@@ -9,7 +9,7 @@
 
 ## 声明
 
-定义见 [model.py](../../src/rivlet/model.py)：
+定义见 [step.py](../../src/rivlet/model/step.py)：
 
 ```python
 Step(action=..., label=..., condition=...)

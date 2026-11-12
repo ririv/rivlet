@@ -14,6 +14,19 @@ GraphExecutionState
 
 声明层只表达结构，不保存某次执行的状态；内部身份只在图挂载时产生。
 
+## 模型包
+
+`rivlet.model` 仍是公开导入入口。实现按职责组织，不引入第二套声明类型：
+
+- `step.py`：Step 与挂载后的步骤身份。
+- `edge.py`：执行边、结果边和条件前置声明。
+- `graph.py`：图边界、接口、观察消息与静态声明。
+- `wiring.py`：接线输入、DSL 组合和归一化。
+- `condition.py`：轻量运行时判断及其来源绑定。
+- `action.py`：Python callable 的签名适配与调用约定。
+- `validation.py`：拓扑、结果绑定与挂载接口校验。
+- `__init__.py`：公开导出与跨模块联合类型；在真实类型加载后统一装配，避免重复定义。
+
 ## 纯拓扑层
 
 `rivlet.topology` 提供不携带执行或领域行为的基础图结构：
@@ -38,7 +51,7 @@ GraphExecutionState
 
 位置：
 
-- [src/rivlet/model.py](../../src/rivlet/model.py)
+- [src/rivlet/model/graph.py](../../src/rivlet/model/graph.py)
 
 `Graph` 是声明态执行 DAG，包含：
 

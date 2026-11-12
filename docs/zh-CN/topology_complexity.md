@@ -45,7 +45,7 @@ Python 的 `DirectedTopology` 并不是 Rust topology 的逐方法 FFI 包装。
 条件边在声明时保守参与无环校验，即使其静态条件在随后编译时为假。
 `inputs` 的遍历来自显式数据依赖，不是拓扑排序额外制造的业务关系。
 
-当前 [model.py](../../src/rivlet/model.py) 的实际链路是：
+当前 [validation.py](../../src/rivlet/model/validation.py) 的实际链路是：
 
 ```text
 验证 Step 并分配本层整数索引

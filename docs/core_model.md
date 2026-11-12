@@ -15,6 +15,21 @@ GraphExecutionState
 Declarations describe structure, not a particular run's state. Internal identities
 are assigned when nodes are mounted.
 
+## Model package
+
+`rivlet.model` remains the public import boundary. Its implementation is grouped
+by responsibility, without a second set of declaration types:
+
+- `step.py`: Steps and mounted Step identities.
+- `edge.py`: execution/result edges and conditional prerequisites.
+- `graph.py`: graph boundaries, interfaces, observation and static declarations.
+- `wiring.py`: input wiring, DSL composition and normalization.
+- `condition.py`: lightweight runtime predicates and their source bindings.
+- `action.py`: Python callable signature adaptation and invocation.
+- `validation.py`: topology, result-binding and mounted-interface validation.
+- `__init__.py`: public exports and cross-module union types, assembled once
+  after their concrete types are available.
+
 ## Pure topology
 
 `rivlet.topology` provides domain-independent Python types:
@@ -31,7 +46,7 @@ including cross-subgraph port connections. See [topology complexity](./topology_
 
 ## Graph
 
-Defined in [model.py](../src/rivlet/model.py), `Graph` contains:
+Defined in [graph.py](../src/rivlet/model/graph.py), `Graph` contains:
 
 - `label: str | None`
 - `steps: tuple[Step, ...]`
