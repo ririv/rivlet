@@ -107,6 +107,12 @@ impl NativeExecutionSession {
     }
 }
 
+/// Allocates a declaration identity from the language-independent core.
+#[pyfunction]
+fn allocate_step_id() -> u64 {
+    rivlet::StepId::allocate().value()
+}
+
 /// Validates one complete DAG projection and returns its cycle when present.
 #[pyfunction]
 fn dag_cycle(node_count: usize, arcs: Vec<(usize, usize)>) -> PyResult<Option<Vec<usize>>> {
@@ -374,6 +380,7 @@ fn node_indexes(nodes: &[NodeId]) -> Vec<usize> {
 #[pymodule]
 #[allow(clippy::unnecessary_wraps)]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(allocate_step_id, module)?)?;
     module.add_function(wrap_pyfunction!(dag_cycle, module)?)?;
     module.add_function(wrap_pyfunction!(resolve_port_connections, module)?)?;
     module.add_function(wrap_pyfunction!(declaration::compile_declaration, module)?)?;

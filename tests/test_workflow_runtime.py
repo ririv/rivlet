@@ -20,7 +20,7 @@ from rivlet import (
     Step,
     StepExecutionEvent,
     StepExecutionState,
-    StepId,
+    StepPath,
     StepRunContext,
     ThreadGraphRunOptions,
 )
@@ -101,7 +101,7 @@ def test_events_report_committed_transitions_without_reclassifying_sink_failure(
         def emit(self, event: StepExecutionEvent) -> None:
             events.append(event)
             if event.state is StepExecutionState.COMPLETED:
-                assert event.step_id in execution.execution_state.completed_steps
+                assert event.step_path in execution.execution_state.completed_steps
                 raise ValueError("sink unavailable")
 
     execution = GraphExecution(
@@ -113,7 +113,7 @@ def test_events_report_committed_transitions_without_reclassifying_sink_failure(
         StepExecutionState.STARTED,
         StepExecutionState.COMPLETED,
     ]
-    assert events[0].label_path == ("task",)
+    assert events[0].step_path.labels == ("task",)
     assert execution.execution_state.node_failures == {}
 
 
@@ -146,7 +146,7 @@ def test_events_and_failure_propagation_cross_dynamic_boundaries(asynchronous) -
             else ThreadGraphRunOptions(workers=2)
         )
     assert calls == ["independent"]
-    terminal = {event.label_path: event.state for event in events}
+    terminal = {event.step_path.labels: event.state for event in events}
     assert terminal[("parent", "failed")] is StepExecutionState.FAILED
     assert terminal[("parent", "blocked")] is StepExecutionState.BLOCKED
     assert terminal[("parent",)] is StepExecutionState.FAILED
@@ -162,11 +162,11 @@ def test_skip_event_has_a_label_without_running_the_action() -> None:
     events: list[StepExecutionEvent] = []
     execution = GraphExecution(
         Graph(steps=(Step(lambda: pytest.fail("must be skipped"), label="skip"),)),
-        execution_state=GraphExecutionState(initial_skip_requests=(StepId((0,)),)),
+        execution_state=GraphExecutionState(initial_skip_requests=(StepPath((0,)),)),
         events=Sink(),
     )
     execution.run()
-    assert [(event.label_path, event.state) for event in events] == [
+    assert [(event.step_path.labels, event.state) for event in events] == [
         (("skip",), StepExecutionState.SKIPPED),
     ]
 
@@ -257,7 +257,7 @@ def test_composite_events_are_independent_of_presentation_mode(mode) -> None:
     GraphExecution(Graph(steps=(Step(child, label="child"),)), events=Sink()).run(
         mode=mode
     )
-    assert [(event.label_path, event.state) for event in events] == [
+    assert [(event.step_path.labels, event.state) for event in events] == [
         (("child",), StepExecutionState.STARTED),
         (("child", "leaf"), StepExecutionState.STARTED),
         (("child", "leaf"), StepExecutionState.COMPLETED),

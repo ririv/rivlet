@@ -13,7 +13,7 @@ if TYPE_CHECKING:
         NativeExecutionEvent,
         NativeMixedExecutionSession,
     )
-    from ..model import StepId
+    from ..model import StepPath
 
 
 type LeafOutcome = DynamicSubgraph | None
@@ -27,7 +27,7 @@ class BatchExecutionHost(Protocol):
         self, requests: list[tuple[int, int]]
     ) -> list[tuple[int, bool | None]]: ...
     def record_failure(self, node: int, error: Exception) -> None: ...
-    def failure_step_id(self) -> StepId: ...
+    def failure_step_path(self) -> StepPath: ...
     def record_subgraph_failure(
         self, node: int, child: BatchExecutionHost, error: Exception
     ) -> None: ...

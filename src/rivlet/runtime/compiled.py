@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from .._native import NativeExecutionEvent
-    from ..model import StepId
+    from ..model import StepPath
     from ..observe import GraphObserver
     from .control import GraphExecutionControl
     from .session_tree import BatchExecutionHost, LeafInvocation
@@ -65,25 +65,28 @@ class CompiledExecutionHost:
         self.record_composites_as_steps = record_composites_as_steps
         # 初始化一次遍历 V 个 native 节点，时间/空间均为 O(V)；之后每次
         # advance 只处理尚未转发的新增请求 ΔS，不再扫描整张图。
-        self._native_index_by_step_id = {
-            node.id: index for index, node in enumerate(self.compilation._native_nodes)
+        self._native_index_by_step_path = {
+            node.path: index
+            for index, node in enumerate(self.compilation._native_nodes)
         }
-        self._forwarded_skip_step_ids: set[StepId] = set()
+        self._forwarded_skip_step_paths: set[StepPath] = set()
         self._failures: list[Exception] = []
-        self._first_failure: StepId | None = None
-        self._dynamic_failure_sources: dict[int, StepId] | None = None
+        self._first_failure: StepPath | None = None
+        self._dynamic_failure_sources: dict[int, StepPath] | None = None
         self.state._register_event_paths(
-            (node.id, node.context.label_path) for node in compilation._native_nodes
+            (node.path, node.context.step_id) for node in compilation._native_nodes
         )
 
     def skipped_nodes(self) -> list[int]:
         nodes: list[int] = []
-        for step_id in self.state.skip_request_ids() - self._forwarded_skip_step_ids:
-            index = self._native_index_by_step_id.get(step_id)
+        for step_path in (
+            self.state.skip_request_ids() - self._forwarded_skip_step_paths
+        ):
+            index = self._native_index_by_step_path.get(step_path)
             if index is None:
                 continue
-            self._forwarded_skip_step_ids.add(step_id)
-            self.state.match_skip_request(step_id)
+            self._forwarded_skip_step_paths.add(step_path)
+            self.state.match_skip_request(step_path)
             nodes.append(index)
         return nodes
 
@@ -108,12 +111,12 @@ class CompiledExecutionHost:
         return resolutions
 
     def record_failure(self, node: int, error: Exception) -> None:
-        path = "/".join(self.compilation._native_node(node).context.label_path)
+        path = "/".join(self.compilation._native_node(node).path.labels)
         error.add_note(f"Graph node: {path}")
         logger.error("Graph node failed: %s: %s", path, error)
         self._failures.append(error)
 
-    def failure_step_id(self) -> StepId:
+    def failure_step_path(self) -> StepPath:
         if self._first_failure is None:
             raise GraphError("failed child session has no failed execution node")
         return self._first_failure
@@ -124,7 +127,7 @@ class CompiledExecutionHost:
         # 子 session 返回前已转发其实际失败事件；只保存直接来源，不扫描传递闭包。
         if self._dynamic_failure_sources is None:
             self._dynamic_failure_sources = {}
-        self._dynamic_failure_sources[node] = child.failure_step_id()
+        self._dynamic_failure_sources[node] = child.failure_step_path()
         self.record_failure(node, error)
 
     def raise_failures(self) -> None:
@@ -145,30 +148,30 @@ class CompiledExecutionHost:
                 case (3, node):
                     self.complete_composite(node)
                 case (4, node):
-                    step_id = self.compilation._native_node(node).id
-                    self.state.record_skipped_step(step_id)
+                    step_path = self.compilation._native_node(node).path
+                    self.state.record_skipped_step(step_path)
                 case (5, node):
                     step = self._require_native_step(node)
-                    self.state.record_step(step.id, step.context.label_path)
+                    self.state.record_step(step.path, step.path.labels)
                 case (6, node):
                     step = self._require_native_step(node)
-                    self.state.record_result(step.id, None)
-                    self.state.complete_step(step.id)
+                    self.state.record_result(step.path, None)
+                    self.state.complete_step(step.path)
                 case (7, node):
-                    step_id = self._failure_step(node)
+                    step_path = self._failure_step(node)
                     source = (
                         None
                         if self._dynamic_failure_sources is None
                         else self._dynamic_failure_sources.pop(node, None)
                     )
                     self.state.record_failed_step(
-                        step_id,
+                        step_path,
                         ActionFailed() if source is None else SubgraphFailed(source),
                     )
                 case (8, node, source):
                     self.state.record_blocked_step(
                         self._failure_step(node),
-                        BlockedByDependency(self.compilation._native_node(source).id),
+                        BlockedByDependency(self.compilation._native_node(source).path),
                     )
                 case (9, node, condition):
                     self.state.record_blocked_step(
@@ -180,18 +183,18 @@ class CompiledExecutionHost:
                         self._failure_step(node),
                         BlockedByConditionInput(
                             NodeConditionSite(condition),
-                            self.compilation._native_node(source).id,
+                            self.compilation._native_node(source).path,
                         ),
                     )
                 case (11, node, source):
                     self.state.record_blocked_step(
                         self._failure_step(node),
-                        BlockedByParent(self.compilation._native_node(source).id),
+                        BlockedByParent(self.compilation._native_node(source).path),
                     )
                 case (12, node, source):
                     self.state.record_failed_step(
                         self._failure_step(node),
-                        SubgraphFailed(self.compilation._native_node(source).id),
+                        SubgraphFailed(self.compilation._native_node(source).path),
                     )
                 case (13, node, condition, prerequisite):
                     self.state.record_blocked_step(
@@ -199,7 +202,7 @@ class CompiledExecutionHost:
                         BlockedByCondition(
                             EdgeConditionSite(
                                 condition,
-                                self.compilation._native_node(prerequisite).id,
+                                self.compilation._native_node(prerequisite).path,
                             )
                         ),
                     )
@@ -209,19 +212,19 @@ class CompiledExecutionHost:
                         BlockedByConditionInput(
                             EdgeConditionSite(
                                 condition,
-                                self.compilation._native_node(prerequisite).id,
+                                self.compilation._native_node(prerequisite).path,
                             ),
-                            self.compilation._native_node(source).id,
+                            self.compilation._native_node(source).path,
                         ),
                     )
                 case _:
                     raise GraphError(f"unknown native execution event: {event}")
 
-    def _failure_step(self, node: int) -> StepId:
-        step_id = self.compilation._native_node(node).id
+    def _failure_step(self, node: int) -> StepPath:
+        step_path = self.compilation._native_node(node).path
         if self._first_failure is None:
-            self._first_failure = step_id
-        return step_id
+            self._first_failure = step_path
+        return step_path
 
     def evaluate_condition(self, node: int, condition: int) -> bool:
         compiled_node = self.compilation._native_node(node)
@@ -233,20 +236,20 @@ class CompiledExecutionHost:
         inputs = (
             ()
             if results is None
-            else tuple(results.get(ref.id) for ref in compiled_condition.inputs)
+            else tuple(results.get(ref.path) for ref in compiled_condition.inputs)
         )
         value = compiled_condition.when(
             *(Nothing() if result is None else result for result in inputs)
         )
         if not isinstance(value, bool):
             raise GraphError(
-                f"compiled runtime condition must return bool: {compiled_node.id}"
+                f"compiled runtime condition must return bool: {compiled_node.path}"
             )
         return value
 
     def record_condition(self, node: int, value: bool) -> None:
         self.state.record_runtime_condition(
-            self.compilation._native_node(node).id,
+            self.compilation._native_node(node).path,
             value,
         )
 
@@ -255,20 +258,20 @@ class CompiledExecutionHost:
         condition = compiled_node.condition
         if condition is None:
             raise GraphError(
-                f"disabled compiled step has no runtime condition: {compiled_node.id}"
+                f"disabled compiled step has no runtime condition: {compiled_node.path}"
             )
-        inputs = ",".join(str(ref.id.segments) for ref in condition.inputs) or "-"
+        inputs = ",".join(str(ref.path.segments) for ref in condition.inputs) or "-"
         logger.debug(
             "Condition: skip %s (inputs=%s; value=false)",
-            ".".join(compiled_node.context.label_path),
+            ".".join(compiled_node.path.labels),
             inputs,
         )
 
     def enter_composite(self, node: int) -> None:
         composite = self._require_composite(node)
         if self.record_composites_as_steps:
-            self.state.record_step(composite.id, composite.label_path)
-        self.state.enter_composite(composite.id)
+            self.state.record_step(composite.path, composite.path.labels)
+        self.state.enter_composite(composite.path)
         _emit_composite_observation(
             composite,
             state=self.state,
@@ -279,8 +282,8 @@ class CompiledExecutionHost:
     def complete_composite(self, node: int) -> None:
         composite = self._require_composite(node)
         if self.record_composites_as_steps:
-            self.state.complete_step(composite.id)
-        self.state.complete_composite(composite.id)
+            self.state.complete_step(composite.path)
+        self.state.complete_composite(composite.path)
         _emit_composite_observation(
             composite,
             state=self.state,
@@ -292,7 +295,7 @@ class CompiledExecutionHost:
         compiled_node = self.compilation._native_node(node)
         if not isinstance(compiled_node, CompiledStep):
             raise GraphError(
-                f"native scheduler submitted non-leaf node: {compiled_node.id}"
+                f"native scheduler submitted non-leaf node: {compiled_node.path}"
             )
         return self.run_leaf_callback(compiled_node)
 
@@ -316,7 +319,7 @@ class CompiledExecutionHost:
         if not isinstance(compiled_node, CompiledComposite):
             raise GraphError(
                 "native scheduler emitted composite lifecycle for leaf: "
-                f"{compiled_node.id}"
+                f"{compiled_node.path}"
             )
         return compiled_node
 
@@ -324,7 +327,7 @@ class CompiledExecutionHost:
         compiled_node = self.compilation._native_node(node)
         if not isinstance(compiled_node, CompiledNativeStep):
             raise GraphError(
-                f"native action lifecycle references non-native node: {compiled_node.id}"
+                f"native action lifecycle references non-native node: {compiled_node.path}"
             )
         return compiled_node
 
@@ -353,8 +356,8 @@ def _emit_composite_observation(
             message=message,
             source_graph=composite.source_graph,
             graph_label=composite.graph_label,
-            graph_label_path=composite.label_path,
-            graph_step_ids=composite.graph_step_ids,
+            graph_label_path=composite.path.labels,
+            graph_step_paths=composite.graph_step_paths,
             results=None if state.results is None else state.results,
         )
     )

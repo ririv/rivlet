@@ -21,13 +21,13 @@ from .graph import (
     GraphMode,
     GraphObservationMessages,
 )
+from .identity import StepId, StepPath
 from .step import (
     Step,
-    StepId,
     StepLabelPath,
     resolve_step_label,
     step,
-    step_ids_for_mount,
+    step_paths_for_mount,
 )
 from .wiring import (
     GraphWiring,
@@ -49,7 +49,8 @@ type GraphWiringInput = tuple[StepWiring, ...] | GraphWiring
 
 __all__ = [
     "StepId",
-    "step_ids_for_mount",
+    "StepPath",
+    "step_paths_for_mount",
     "StepLabelPath",
     "GraphMode",
     "GraphObservationMessages",

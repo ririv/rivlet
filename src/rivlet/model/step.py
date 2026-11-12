@@ -11,6 +11,7 @@ from ..errors import GraphError
 from .action import LeafAction
 from .condition import _normalize_condition, _RuntimeCondition
 from .graph import Graph
+from .identity import StepId, StepPath
 from .wiring import (
     GraphWiring,
     StepWiring,
@@ -31,43 +32,20 @@ if TYPE_CHECKING:
     )
 
 
-@dataclass(frozen=True, order=True, slots=True)
-class StepId:
-    """step 在一次具体图挂载中的内部身份。"""
-
-    segments: tuple[int, ...]
-
-    def __post_init__(self) -> None:
-        if not self.segments:
-            raise GraphError("step id must contain at least one segment")
-        if any(segment < 0 for segment in self.segments):
-            raise GraphError(f"step id segments must be non-negative: {self.segments}")
-
-    def child(self, index: int) -> StepId:
-        if index < 0:
-            raise GraphError(f"step child index must be non-negative: {index}")
-        return StepId((*self.segments, index))
-
-    def __str__(self) -> str:
-        return ".".join(str(segment) for segment in self.segments)
-
-    @property
-    def parent(self) -> StepId | None:
-        if len(self.segments) == 1:
-            return None
-        return StepId(self.segments[:-1])
-
-
-def step_ids_for_mount(
+def step_paths_for_mount(
     graph: Graph,
     *,
-    parent_step_id: StepId | None = None,
-) -> dict[Step, StepId]:
+    parent_step_path: StepPath | None = None,
+) -> dict[Step, StepPath]:
     """为一张图在当前挂载位置分配内部 step 身份。"""
 
     return {
         step: (
-            StepId((index,)) if parent_step_id is None else parent_step_id.child(index)
+            StepPath(
+                (index,), labels=(str(index) if step.label is None else step.label,)
+            )
+            if parent_step_path is None
+            else parent_step_path.child(index, label=step.label)
         )
         for index, step in enumerate(graph.steps)
     }
@@ -78,6 +56,7 @@ type StepLabelPath = tuple[str, ...]
 
 @dataclass(eq=False, frozen=True, slots=True, init=False)
 class Step:
+    id: StepId
     label: str | None
     action: StepAction
     # `condition` 控制的是 step 本身是否参与这次图执行，而不是依赖边是否成立。
@@ -106,6 +85,7 @@ class Step:
                 f"step '{label}' has unsupported action type: {type(action)!r}"
             )
 
+        object.__setattr__(self, "id", StepId())
         object.__setattr__(self, "label", label)
         object.__setattr__(self, "action", normalized_action)
         object.__setattr__(
@@ -131,10 +111,10 @@ class Step:
         return _parallel_wiring(self, other)
 
 
-def resolve_step_label(step: Step, step_id: StepId) -> str:
+def resolve_step_label(step: Step, step_path: StepPath) -> str:
     """解析 step 在一次具体挂载中的展示名称。"""
 
-    return str(step_id) if step.label is None else step.label
+    return str(step_path) if step.label is None else step.label
 
 
 def step(action: StepActionInput) -> Step:

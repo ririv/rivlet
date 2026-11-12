@@ -221,7 +221,7 @@ def test_graph_wiring_wraps_unlabeled_graph_operand() -> None:
     assert mounted_child.label is None
     assert mounted_child.action is child
     assert compilation.composites[0].graph_label == "1"
-    assert compilation.steps[1].context.label_path == ("1", "1.0")
+    assert compilation.steps[1].path.labels == ("1", "1.0")
 
 
 def test_graph_from_wiring_accepts_composed_wiring() -> None:
@@ -319,7 +319,7 @@ def test_unlabeled_steps_use_mounted_ids_in_compiled_and_rendered_graphs() -> No
     tree = render_graph(graph, root_label="root")
     mermaid = render_graph_mermaid(graph, root_label="root")
 
-    assert tuple(item.context.label_path[-1] for item in compilation.steps) == (
+    assert tuple(item.path.labels[-1] for item in compilation.steps) == (
         "0",
         "1",
     )

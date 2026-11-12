@@ -159,14 +159,14 @@ def test_selection_in_statically_pruned_graph_is_not_evaluated() -> None:
     assert not compile_graph(graph, root_label="root").steps
 
 
-def test_graph_can_be_mounted_twice_without_sharing_step_ids() -> None:
+def test_graph_can_be_mounted_twice_without_sharing_step_paths() -> None:
     calls: list[str] = []
     chosen = static.select(
         cases=(Case(True, Step(lambda: calls.append("chosen"))),)
     ).graph(label="choice")
     graph = (chosen | chosen).graph()
     compiled = compile_graph(graph, root_label="root")
-    assert len({step.id for step in compiled.steps}) == 2
+    assert len({step.path for step in compiled.steps}) == 2
     GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
     assert calls == ["chosen", "chosen"]
 

@@ -9,7 +9,9 @@ this model.
 
 ## Event model
 
-`StepExecutionEvent` contains `step_id`, `label_path`, and `state_detail`.
+`StepExecutionEvent` contains declaration `step_id`, mounted `step_path`, and `state_detail`.
+Display labels are available through `step_path.labels`; repeated mounts share
+their declaration ID but not their event location.
 The read-only `state` property is derived from `state_detail`, not stored as a
 second independent fact. It describes the state recorded by this event, not a
 live snapshot of the step. `StepExecutionStateDetail` is the union of lifecycle
@@ -30,8 +32,8 @@ states and typed failure/blockage causes.
 `condition` is either `NodeConditionSite(condition_index)` for the node's guard or
 `EdgeConditionSite(condition_index, prerequisite)` for an incoming edge's guard.
 The index belongs to the current execution session, not a durable predicate ID.
-The event's mounted `step_id` identifies its consumer. Every related `source` and
-`prerequisite` is also a mounted `StepId`; repeated mounts remain independent.
+The event's mounted `step_path` identifies its consumer. Every related `source` and
+`prerequisite` is also a mounted `StepPath`; repeated mounts remain independent.
 
 ```python
 from rivlet import (
@@ -50,19 +52,19 @@ class Events:
     def emit(self, event: StepExecutionEvent) -> None:
         match event.state_detail:
             case ActionFailed():
-                print(event.step_id, "action failed")
+                print(event.step_path, "action failed")
             case SubgraphFailed(source=source):
-                print(event.step_id, "child failed:", source)
+                print(event.step_path, "child failed:", source)
             case BlockedByDependency(source=source):
-                print(event.step_id, "blocked by predecessor:", source)
+                print(event.step_path, "blocked by predecessor:", source)
             case BlockedByCondition(condition=site):
-                print(event.step_id, "predicate failed:", site)
+                print(event.step_path, "predicate failed:", site)
             case BlockedByConditionInput(condition=site, source=source):
-                print(event.step_id, "predicate input failed:", site, source)
+                print(event.step_path, "predicate input failed:", site, source)
             case BlockedByParent(source=source):
-                print(event.step_id, "parent blocked:", source)
+                print(event.step_path, "parent blocked:", source)
             case _:
-                print(event.step_id, event.state)
+                print(event.step_path, event.state)
 
 
 GraphExecution(graph, events=Events()).run()

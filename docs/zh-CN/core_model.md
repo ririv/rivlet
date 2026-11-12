@@ -110,7 +110,10 @@ runtime 消费三种 action：
 - `Step` 对象引用
   - 声明期引用
   - 用于边、运行时条件读取和结果读取
-- `StepId`
+- `Step.id`
+  - 声明自身的 `StepId`，创建一次后保持不变
+  - 同一 Step 重复挂载时 ID 相同，不同声明分配不同 ID
+- `StepPath`
   - Step 在一次具体挂载中的内部结构身份
   - 由挂载位置生成，例如 `0`、`1`、`1.0`
   - 供 compiler、runtime 和结果存储使用
@@ -120,8 +123,10 @@ runtime 消费三种 action：
   - 图自身的可选展示名
 
 `Graph.label` 和 `Step.label` 都不承担身份语义。
+编译节点通过 `.id` 提供声明身份，通过 `.path` 提供挂载位置；编译引用只携带 `.path`。
+同一个声明可以对应多个挂载后的编译节点。
 
-未填写 Step label 时，编译阶段使用该挂载位置的 `StepId` 作为展示名。
+未填写 Step label 时，编译阶段使用该挂载位置的 `StepPath` 作为展示名。
 因此匿名 lambda 可以保持无 label，不需要为了显示而伪造稳定身份。
 
 ## 拓扑与接线
@@ -367,7 +372,7 @@ execution = GraphExecution(
 
 图名只在 `Graph.label` 声明。编译、渲染和执行输出统一读取 `graph.display_label`：
 有名字时使用声明值，匿名图显示为 `<unlabeled>`。这个展示值不是身份，调度和结果
-定位继续使用 `StepId`；GraphExecution 不再为图另外起名。
+定位继续使用 `StepPath`；GraphExecution 不再为图另外起名。
 
 `GraphExecutionState` 只属于当前 GraphExecution 的一次运行。`GraphExecutionControl`
 默认同样由 GraphExecution 独享；宿主若需要把多个顺序 GraphExecution 归入同一次停止控制，可以显式
@@ -398,7 +403,7 @@ state = await GraphExecution(graph=graph).arun(
 Rust 编译路径会把声明期已知子图转换为统一执行结构：
 
 - 求值静态条件并裁剪未启用节点与边
-- 为挂载节点分配 `StepId` 并解析展示 label
+- 为挂载节点分配 `StepPath` 并解析展示 label
 - 把运行期条件和 端口连接 降级为执行依赖
 
 - `CompiledStep`
@@ -419,7 +424,7 @@ Rust 编译路径会把声明期已知子图转换为统一执行结构：
 - observation
 - 整体完成状态
 
-动态和编译路径使用同一批 `StepId` 与声明作用域映射，因此结果读取语义一致。
+动态和编译路径使用同一批 `StepPath` 与声明作用域映射，因此结果读取语义一致。
 
 ## 结果与运行上下文
 
@@ -439,7 +444,7 @@ inputs 的键必须是目标现有的 LeafAction，按对象身份区分；无�
 预先声明的 Graph-valued Step 没有接收参数的 callable；条件输入仍在 condition 中声明。
 需要把运行期值带入子图时，使用接收结果参数、返回 Graph 的 Python action。
 
-GraphResultStore 按 StepId 将成功结果登记一次，包装为 Some(value)。
+GraphResultStore 按 StepPath 将成功结果登记一次，包装为 Some(value)。
 显式结果边在生产者执行前自动开启记录。
 Nothing() 表示生产者已终态但没有结果，例如被跳过；
 Some(None) 表示正常执行并返回 None。生产者失败会阻断消费者，不转换成 Nothing。
@@ -449,13 +454,24 @@ Some(None) 表示正常执行并返回 None。生产者失败会阻断消费者�
 快照复制当时的记录，但值本身不深拷贝、不冻结。发布后的值应视为不可变；
 需要共同修改的数据使用显式共享状态。
 
-StepRunContext 只提供 step_id、label_path、graph_label_path、step_log_path、
+StepRunContext 只提供 step_id、step_path、step_log_path、
 control 和 shared(Type)。不再提供结果查询、结果视图或作用域索引绕行入口。
 StepReadContext 与祖先结果引用已移除；执行外部的
 GraphExecution.require_result 仍可用于查看结果。
 
+`ctx.step_id` 等于声明的 `Step.id`。Python 与原生声明共用 Rust 的进程内计数器，
+不从标签、路径或函数哈希推导身份；不保证跨进程重启稳定，不进入缓存键。
+分配时间 O(1)，不保留全局声明对象注册表。
+
+`ctx.step_path.segments` 是完整挂载路径，例如 `(1, 0)`，字符串形式为 `1.0`。
+`ctx.step_path.labels` 是展示标签，例如 `("stage", "configure")`；
+`parent` 返回携带父级标签的路径，根图中的步骤没有父级路径，返回 None。
+独立构造数值路径时默认按各段数值显示，编译时显式绑定真实挂载标签快照。
+标签不参与相等、排序和哈希；不再提供独立的 `ctx.label_path` 或 `ctx.graph_label_path`。
+同一声明重复挂载时 step_id 相同，但 step_path、结果、执行状态和事件位置各自独立。
+
 StepControl 仅提供协作停止检查，不能跳过其他步骤；流程中的可选步骤使用节点条件声明。
-手动跳过仍由宿主通过 `execution.execution_state.request_skip(step_id)` 请求。
+手动跳过仍由宿主通过 `execution.execution_state.request_skip(step_path)` 请求。
 
 长任务应在自己的循环和外部调用之间协作检查停止状态：
 
@@ -545,7 +561,7 @@ from rivlet import GraphExecution, StepExecutionEvent
 
 class Events:
     def emit(self, event: StepExecutionEvent) -> None:
-        print(event.step_id, event.label_path, event.state)
+        print(event.step_id, event.step_path, event.step_path.labels, event.state)
 
 
 execution = GraphExecution(graph=graph, events=Events())
@@ -569,7 +585,7 @@ execution.run()
 
 `GraphExecutionState` 只服务一次执行，记录：
 
-- 已执行和已完成的 StepId
+- 已执行和已完成的 StepPath
 - 已进入和已完成的 composite
 - skip 状态
 - failed / blocked 状态与节点失败记录

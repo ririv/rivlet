@@ -29,7 +29,7 @@ from rivlet import (
     StepExecutionEvent,
     StepExecutionState,
     StepExecutionStateDetail,
-    StepId,
+    StepPath,
     SubgraphFailed,
     ThreadGraphRunOptions,
     resolve_port_requirements,
@@ -44,9 +44,9 @@ class Events:
     def emit(self, event: StepExecutionEvent) -> None:
         self.items.append(event)
 
-    def failures(self) -> dict[StepId, StepExecutionStateDetail]:
+    def failures(self) -> dict[StepPath, StepExecutionStateDetail]:
         return {
-            event.step_id: event.state_detail
+            event.step_path: event.state_detail
             for event in self.items
             if event.state in (StepExecutionState.FAILED, StepExecutionState.BLOCKED)
         }
@@ -91,11 +91,11 @@ def test_failure_events_describe_direct_causes_without_exceptions(
     events = Events()
     execution = execute(graph, events, mode)
     assert events.failures() == {
-        StepId((0,)): ActionFailed(),
-        StepId((1,)): BlockedByDependency(StepId((0,))),
-        StepId((2,)): BlockedByDependency(StepId((1,))),
+        StepPath((0,)): ActionFailed(),
+        StepPath((1,)): BlockedByDependency(StepPath((0,))),
+        StepPath((2,)): BlockedByDependency(StepPath((1,))),
     }
-    assert StepId((3,)) in execution.execution_state.completed_steps
+    assert StepPath((3,)) in execution.execution_state.completed_steps
     assert "secret-should-not-enter-events" not in repr(events.items)
 
 
@@ -112,18 +112,18 @@ def test_predicate_failure_is_not_an_action_or_dependency_failure(
     events = Events()
     execute(graph, events, mode)
     causes = events.failures()
-    assert set(causes) == {StepId((1,))}
-    cause = causes[StepId((1,))]
+    assert set(causes) == {StepPath((1,))}
+    cause = causes[StepPath((1,))]
     assert isinstance(cause, BlockedByCondition)
     site = cause.condition
     assert site.condition_index >= 0
     if edge:
         assert isinstance(site, EdgeConditionSite)
-        assert site.prerequisite == StepId((0,))
+        assert site.prerequisite == StepPath((0,))
     else:
         assert isinstance(site, NodeConditionSite)
     assert not any(
-        event.step_id == StepId((1,)) and event.state is StepExecutionState.STARTED
+        event.step_path == StepPath((1,)) and event.state is StepExecutionState.STARTED
         for event in events.items
     )
 
@@ -155,12 +155,12 @@ def test_failed_condition_input_does_not_claim_the_predicate_ran(
     )
     events = Events()
     execute(graph, events, mode)
-    cause = events.failures()[StepId((2,))]
+    cause = events.failures()[StepPath((2,))]
     assert isinstance(cause, BlockedByConditionInput)
-    assert cause.source == StepId((0,))
+    assert cause.source == StepPath((0,))
     if edge:
         assert isinstance(cause.condition, EdgeConditionSite)
-        assert cause.condition.prerequisite == StepId((1,))
+        assert cause.condition.prerequisite == StepPath((1,))
     else:
         assert isinstance(cause.condition, NodeConditionSite)
 
@@ -183,8 +183,8 @@ def test_false_edge_does_not_report_a_failed_but_unused_predecessor(
     )
     events = Events()
     execution = execute(graph, events, mode)
-    assert events.failures() == {StepId((0,)): ActionFailed()}
-    assert StepId((1,)) in execution.execution_state.completed_steps
+    assert events.failures() == {StepPath((0,)): ActionFailed()}
+    assert StepPath((1,)) in execution.execution_state.completed_steps
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -197,10 +197,10 @@ def test_unentered_subgraph_children_reference_their_blocked_parent(
     events = Events()
     execute((source >> container).graph(), events, mode)
     assert events.failures() == {
-        StepId((0,)): ActionFailed(),
-        StepId((1,)): BlockedByDependency(StepId((0,))),
-        StepId((1, 0)): BlockedByParent(StepId((1,))),
-        StepId((1, 0, 0)): BlockedByParent(StepId((1, 0))),
+        StepPath((0,)): ActionFailed(),
+        StepPath((1,)): BlockedByDependency(StepPath((0,))),
+        StepPath((1, 0)): BlockedByParent(StepPath((1,))),
+        StepPath((1, 0, 0)): BlockedByParent(StepPath((1, 0))),
     }
 
 
@@ -215,10 +215,10 @@ def test_repeated_subgraphs_keep_failure_sources_in_their_own_mount(
     events = Events()
     execute((left | right).graph(), events, mode)
     assert events.failures() == {
-        StepId((0, 0)): ActionFailed(),
-        StepId((0,)): SubgraphFailed(StepId((0, 0))),
-        StepId((1, 0)): ActionFailed(),
-        StepId((1,)): SubgraphFailed(StepId((1, 0))),
+        StepPath((0, 0)): ActionFailed(),
+        StepPath((0,)): SubgraphFailed(StepPath((0, 0))),
+        StepPath((1, 0)): ActionFailed(),
+        StepPath((1,)): SubgraphFailed(StepPath((1, 0))),
     }
 
 
@@ -231,9 +231,9 @@ def test_dynamic_failure_chain_preserves_each_session_boundary(
     events = Events()
     execute(Graph(steps=(Step(lambda: child),)), events, mode)
     assert events.failures() == {
-        StepId((0, 0, 0)): ActionFailed(),
-        StepId((0, 0)): SubgraphFailed(StepId((0, 0, 0))),
-        StepId((0,)): SubgraphFailed(StepId((0, 0))),
+        StepPath((0, 0, 0)): ActionFailed(),
+        StepPath((0, 0)): SubgraphFailed(StepPath((0, 0, 0))),
+        StepPath((0,)): SubgraphFailed(StepPath((0, 0))),
     }
 
 
@@ -256,7 +256,7 @@ def test_port_failure_points_to_the_actual_provider_step(
     )
     events = Events()
     execute(Graph(steps=(provider, consumer), edges=bindings), events, mode)
-    assert events.failures()[StepId((1, 0))] == BlockedByDependency(StepId((0, 0)))
+    assert events.failures()[StepPath((1, 0))] == BlockedByDependency(StepPath((0, 0)))
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -280,10 +280,10 @@ def test_provider_failure_after_ready_does_not_retroactively_block_consumer(
     events = Events()
     execution = execute(Graph(steps=(provider, consumer), edges=bindings), events, mode)
     assert events.failures() == {
-        StepId((0, 1)): ActionFailed(),
-        StepId((0,)): SubgraphFailed(StepId((0, 1))),
+        StepPath((0, 1)): ActionFailed(),
+        StepPath((0,)): SubgraphFailed(StepPath((0, 1))),
     }
-    assert StepId((1, 0)) in execution.execution_state.completed_steps
+    assert StepPath((1, 0)) in execution.execution_state.completed_steps
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -298,6 +298,6 @@ def test_native_action_failure_uses_the_same_causal_model(
     events = Events()
     execute(Graph(steps=(Step(native),)), events, mode)
     assert events.failures() == {
-        StepId((0, 0)): ActionFailed(),
-        StepId((0,)): SubgraphFailed(StepId((0, 0))),
+        StepPath((0, 0)): ActionFailed(),
+        StepPath((0,)): SubgraphFailed(StepPath((0, 0))),
     }

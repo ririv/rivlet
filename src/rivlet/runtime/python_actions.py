@@ -86,11 +86,11 @@ class PythonActionRuntime:
     def _run_step(self, run: CompiledGraphRun, step: CompiledStep) -> LeafInvocation:
         self.control.require_running()
         context = step.context
-        self.state.record_step(step.id, context.label_path)
+        self.state.record_step(step.path, step.path.labels)
         runtime_step = RuntimeStep(
             step,
-            context.label_path,
-            context.graph_step_ids,
+            step.path.labels,
+            context.graph_step_paths,
             context.ancestor_graph_scopes,
         )
         ctx = run.make_run_context(
@@ -107,7 +107,7 @@ class PythonActionRuntime:
                 ()
                 if results is None
                 else tuple(
-                    Nothing() if (result := results.get(ref.id)) is None else result
+                    Nothing() if (result := results.get(ref.path)) is None else result
                     for ref in step.inputs
                 )
             )
@@ -142,12 +142,12 @@ class PythonActionRuntime:
         if isinstance(value, Graph):
             compilation = compile_graph(
                 value,
-                root_label=step.context.label_path[-1],
-                parent_step_id=step.id,
-                root_label_path=step.context.label_path,
+                root_label=step.path.labels[-1],
+                parent_step_path=step.path,
+                root_label_path=step.path.labels,
                 ancestor_graph_scopes=(
                     run.child_graph_scope(
-                        step, graph_step_ids=step.context.graph_step_ids
+                        step, graph_step_paths=step.context.graph_step_paths
                     ),
                     *step.context.ancestor_graph_scopes,
                 ),
@@ -156,12 +156,12 @@ class PythonActionRuntime:
 
             def complete() -> None:
                 self.after_success(compilation, ctx.step_log_path)
-                self.state.record_result(step.id, None)
-                self.state.complete_step(step.id)
+                self.state.record_result(step.path, None)
+                self.state.complete_step(step.path)
 
             return DynamicSubgraph(definition, complete)
-        self.state.record_result(step.id, value)
-        self.state.complete_step(step.id)
+        self.state.record_result(step.path, value)
+        self.state.complete_step(step.path)
         return None
 
     def _log_exception(self, ctx: StepRunContext) -> None:

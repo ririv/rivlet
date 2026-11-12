@@ -7,7 +7,8 @@ Python 动作、原生动作、端口边、静态子图和动作返回的动态�
 
 ## 事件模型
 
-`StepExecutionEvent` 包含 `step_id`、`label_path` 和 `state_detail`。只读属性
+`StepExecutionEvent` 包含声明 `step_id`、挂载 `step_path` 和 `state_detail`。
+展示标签通过 `step_path.labels` 读取；重复挂载共享声明 ID，但不共享事件位置。只读属性
 `state` 从 `state_detail` 派生，不与原因各保存一份可能矛盾的事实。它表示这次事件
 记录的状态，不是步骤的实时状态快照。`StepExecutionStateDetail` 是生命周期状态
 与具体失败／阻断原因组成的和类型。
@@ -26,8 +27,8 @@ Python 动作、原生动作、端口边、静态子图和动作返回的动态�
 
 `condition` 是和类型：`NodeConditionSite(condition_index)` 表示节点自身条件，
 `EdgeConditionSite(condition_index, prerequisite)` 表示一条入边的条件。索引只属于
-当前执行 session，不是跨运行的持久条件 ID。消费者位置由事件的完整挂载 `step_id`
-给出；`source`、`prerequisite` 同样是完整挂载 `StepId`，重复挂载不会串用另一份实例。
+当前执行 session，不是跨运行的持久条件 ID。消费者位置由事件的完整挂载 `step_path`
+给出；`source`、`prerequisite` 同样是完整挂载 `StepPath`，重复挂载不会串用另一份实例。
 
 ```python
 from rivlet import (
@@ -46,19 +47,19 @@ class Events:
     def emit(self, event: StepExecutionEvent) -> None:
         match event.state_detail:
             case ActionFailed():
-                print(event.step_id, "action failed")
+                print(event.step_path, "action failed")
             case SubgraphFailed(source=source):
-                print(event.step_id, "child failed:", source)
+                print(event.step_path, "child failed:", source)
             case BlockedByDependency(source=source):
-                print(event.step_id, "blocked by predecessor:", source)
+                print(event.step_path, "blocked by predecessor:", source)
             case BlockedByCondition(condition=site):
-                print(event.step_id, "predicate failed:", site)
+                print(event.step_path, "predicate failed:", site)
             case BlockedByConditionInput(condition=site, source=source):
-                print(event.step_id, "predicate input failed:", site, source)
+                print(event.step_path, "predicate input failed:", site, source)
             case BlockedByParent(source=source):
-                print(event.step_id, "parent blocked:", source)
+                print(event.step_path, "parent blocked:", source)
             case _:
-                print(event.step_id, event.state)
+                print(event.step_path, event.state)
 
 
 GraphExecution(graph, events=Events()).run()

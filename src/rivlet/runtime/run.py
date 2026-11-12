@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    from ..model import Graph, GraphObservationMessages, Step, StepId, StepLabelPath
+    from ..model import Graph, GraphObservationMessages, Step, StepLabelPath, StepPath
     from ..observe import GraphObserver
     from .control import GraphExecutionControl
     from .state import GraphExecutionState
@@ -51,7 +51,7 @@ class RuntimeStep:
 
     step: CompiledStep
     label_path: StepLabelPath
-    graph_step_ids: Mapping[Step, StepId]
+    graph_step_paths: Mapping[Step, StepPath]
     ancestor_graph_scopes: tuple[GraphScope, ...]
 
 
@@ -83,8 +83,8 @@ class CompiledGraphRun:
         return self.compilation.steps
 
     @property
-    def observation_step_ids(self) -> Mapping[Step, StepId]:
-        return self.compilation.root_graph_step_ids
+    def observation_step_paths(self) -> Mapping[Step, StepPath]:
+        return self.compilation.root_graph_step_paths
 
     def make_run_context(
         self,
@@ -98,8 +98,8 @@ class CompiledGraphRun:
         context = step.context
         step_log_path = self.step_log_path_for(state, step)
         return StepRunContext(
-            step_id=step.id,
-            label_path=context.label_path,
+            step_id=context.step_id,
+            step_path=step.path,
             control=StepControl(
                 _execution_control=execution_control,
             ),
@@ -115,7 +115,7 @@ class CompiledGraphRun:
         """Resolve a step's explicit or inherited log path without creating a run context."""
 
         context = step.context
-        step_log_path = state.get_step_log_path(step.id)
+        step_log_path = state.get_step_log_path(step.path)
         if step_log_path is not None:
             return step_log_path
         step_log_path = self.step_log_path
@@ -149,9 +149,9 @@ class CompiledGraphRun:
         self,
         step: CompiledStep,
         *,
-        graph_step_ids: Mapping[Step, StepId],
+        graph_step_paths: Mapping[Step, StepPath],
     ) -> GraphScope:
-        del graph_step_ids
+        del graph_step_paths
         return GraphScope(
-            step_ids=step.context.graph_step_ids,
+            step_paths=step.context.graph_step_paths,
         )

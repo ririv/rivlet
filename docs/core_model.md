@@ -99,11 +99,15 @@ steps outside their graph; cross-subgraph synchronization uses interface ports.
 ## Identity and presentation
 
 - Step references identify declarations for ordering and result wiring.
-- `StepId` identifies one mounted position, such as `0`, `1`, or `1.0`.
+- `Step.id` is a `StepId` allocated once per declaration. Reusing a Step keeps
+  that identity; creating another Step allocates another identity.
+- `StepPath` identifies one mounted position, such as `0`, `1`, or `1.0`.
   Compilation, scheduling, and result storage use this identity.
+- Compiled nodes expose declaration `.id` and mounted `.path`; compiled references
+  carry only `.path`. The same declaration can have more than one compiled node.
 - Step and Graph labels are only presentation.
 
-An unlabeled Step uses its mounted StepId as its compiled display name. Lambdas
+An unlabeled Step uses its mounted StepPath as its compiled display name. Lambdas
 therefore need no fabricated stable label.
 
 ## Edges and wiring
@@ -301,7 +305,7 @@ and `require_result(step)`.
 The graph's name is declared only through `Graph.label`. Compilation, rendering,
 and execution output all use `graph.display_label`: the declared name, or
 `<unlabeled>` for an anonymous graph. This display value is not an identity;
-scheduling and result lookup use `StepId`. GraphExecution does not rename the graph.
+scheduling and result lookup use `StepPath`. GraphExecution does not rename the graph.
 
 State is single-use. Control is independent by default; a host can explicitly
 share one control between sequential executions to share cancellation, not results.
@@ -361,7 +365,7 @@ A predeclared Graph-valued Step has no callable to receive action parameters;
 its condition declares sources independently. Use a Python action returning a Graph to pass
 runtime values into a newly declared child graph.
 
-`GraphResultStore` records each successful StepId once as `Some(value)`.
+`GraphResultStore` records each successful StepPath once as `Some(value)`.
 Explicit result edges enable recording before producers run. `Nothing()` means
 a terminal producer has no result, for example because it was skipped;
 `Some(None)` means it successfully returned None. Producer failure blocks the
@@ -373,14 +377,28 @@ not record. Snapshots copy the records. Values themselves are not deep-copied or
 frozen. Treat published values as immutable; use explicit shared state for
 intentional mutation.
 
-StepRunContext exposes step_id, label_path, graph_label_path, step_log_path,
+StepRunContext exposes step_id, step_path, step_log_path,
 control and shared(Type). It has no result lookup methods, result view or
 scope-index escape hatch. StepReadContext and ancestor result references are
 removed. External result inspection through GraphExecution.require_result remains.
 
+`ctx.step_id` equals the declaration's `Step.id`. It is allocated by a shared
+Rust process-local counter for Python and native declarations, not from labels,
+paths, or a callable hash. It is not a durable ID across process restarts and does
+not enter cache keys. Allocation is O(1), without retaining a global object registry.
+
+`ctx.step_path.segments` identifies the full mount path, such as `(1, 0)`;
+`str(ctx.step_path)` renders `1.0`. `ctx.step_path.labels` contains the display
+labels, such as `("stage", "configure")`; `parent` preserves the parent labels
+and returns None for a root-level step. Paths constructed independently default
+to numeric segment labels. Compilation explicitly binds the actual mount labels.
+Labels are excluded from equality, ordering, and hashing. There is no separate
+`ctx.label_path` or `ctx.graph_label_path`. A repeated declaration shares its
+step_id but has distinct step_paths, results, execution states, and event locations.
+
 StepControl only exposes cooperative stop checks. It cannot skip other steps;
 declare optional workflow participation through node conditions. Explicit skip
-requests remain a host operation through `execution.execution_state.request_skip(step_id)`.
+requests remain a host operation through `execution.execution_state.request_skip(step_path)`.
 
 Long-running actions can call `ctx.control.stop_requested()` or
 `ctx.control.require_running()` between iterations and external calls:
@@ -475,7 +493,7 @@ from rivlet import GraphExecution, StepExecutionEvent
 
 class Events:
     def emit(self, event: StepExecutionEvent) -> None:
-        print(event.step_id, event.label_path, event.state)
+        print(event.step_id, event.step_path, event.step_path.labels, event.state)
 
 
 execution = GraphExecution(graph=graph, events=Events())

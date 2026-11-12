@@ -6,9 +6,9 @@ from ..model import (
     Graph,
     GraphMode,
     Step,
-    StepId,
+    StepPath,
     resolve_step_label,
-    step_ids_for_mount,
+    step_paths_for_mount,
 )
 from .formatting import (
     ensure_compilation,
@@ -47,14 +47,14 @@ def render_graph(
 
 def render_graph_structure(graph: Graph, *, root_label: str) -> str:
     lines = [root_label]
-    step_ids = step_ids_for_mount(graph)
+    step_paths = step_paths_for_mount(graph)
     for index, step in enumerate(graph.steps):
         append_tree_step(
             lines,
             graph,
             step,
-            step_id=step_ids[step],
-            step_ids=step_ids,
+            step_path=step_paths[step],
+            step_paths=step_paths,
             is_last=index == len(graph.steps) - 1,
             prefix="",
         )
@@ -67,7 +67,7 @@ def render_graph_compilation(
     root_label: str,
 ) -> str:
     node_labels = {
-        node.id: render_step_path(node.context.label_path)
+        node.path: render_step_path(node.path.labels)
         for node in (*compilation.steps, *compilation.composites)
     }
     lines = [
@@ -75,23 +75,23 @@ def render_graph_compilation(
         "compiled_steps",
     ]
     for step in compilation.steps:
-        label = render_compiled_step_label(step, step.context.label_path)
+        label = render_compiled_step_label(step, step.path.labels)
         lines.append(
             f"- {label}{render_condition_suffix(step)}"
             f"{render_after_suffix(step, step_labels=node_labels)}"
         )
     if compilation.composites:
         node_paths = {
-            node.id: node.context.label_path
+            node.path: node.path.labels
             for node in (*compilation.steps, *compilation.composites)
         }
         lines.append("compiled_composites")
         for composite in compilation.composites:
             children = ", ".join(
-                render_step_path(node_paths[child.id]) for child in composite.children
+                render_step_path(node_paths[child.path]) for child in composite.children
             )
             lines.append(
-                f"- {render_step_path(composite.label_path)}"
+                f"- {render_step_path(composite.path.labels)}"
                 f" [children: {children or '-'}]"
                 f"{render_condition_suffix(composite)}"
                 f"{render_after_suffix(composite, step_labels=node_labels)}"
@@ -104,36 +104,36 @@ def append_tree_step(
     graph: Graph,
     step: Step,
     *,
-    step_id: StepId,
-    step_ids: dict[Step, StepId],
+    step_path: StepPath,
+    step_paths: dict[Step, StepPath],
     is_last: bool,
     prefix: str,
 ) -> None:
     branch = "└─ " if is_last else "├─ "
     child_prefix = prefix + ("   " if is_last else "│  ")
     action = step.action
-    step_label = resolve_step_label(step, step_id)
+    step_label = resolve_step_label(step, step_path)
     if isinstance(action, Graph):
         lines.append(
             f"{prefix}{branch}{step_label} [graph]{render_static_suffix(graph, step)}{render_condition_suffix(step)}"
-            f"{render_graph_after_suffix(graph, step, step_ids=step_ids)}"
+            f"{render_graph_after_suffix(graph, step, step_paths=step_paths)}"
             f"{render_graph_port_suffix(graph, step)}"
         )
-        child_step_ids = step_ids_for_mount(action, parent_step_id=step_id)
+        child_step_paths = step_paths_for_mount(action, parent_step_path=step_path)
         for index, child_step in enumerate(action.steps):
             append_tree_step(
                 lines,
                 action,
                 child_step,
-                step_id=child_step_ids[child_step],
-                step_ids=child_step_ids,
+                step_path=child_step_paths[child_step],
+                step_paths=child_step_paths,
                 is_last=index == len(action.steps) - 1,
                 prefix=child_prefix,
             )
         return
     lines.append(
-        f"{prefix}{branch}{render_step_label(step, step_id=step_id)}"
+        f"{prefix}{branch}{render_step_label(step, step_path=step_path)}"
         f"{render_static_suffix(graph, step)}"
         f"{render_condition_suffix(step)}"
-        f"{render_graph_after_suffix(graph, step, step_ids=step_ids)}"
+        f"{render_graph_after_suffix(graph, step, step_paths=step_paths)}"
     )

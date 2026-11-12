@@ -12,7 +12,7 @@ from rivlet import (
     GraphResultView,
     Option,
     Step,
-    StepId,
+    StepPath,
     StepRunContext,
     ThreadGraphRunOptions,
 )
@@ -21,28 +21,28 @@ from rivlet import (
 def test_result_view_is_live_and_preserves_none_results() -> None:
     store = GraphResultStore()
     view = store.view
-    step_id = StepId((0,))
-    assert not view.has(step_id)
-    assert view.get(step_id) is None
+    step_path = StepPath((0,))
+    assert not view.has(step_path)
+    assert view.get(step_path) is None
 
-    store.record(step_id, None)
+    store.record(step_path, None)
     assert view is store.view
-    assert view.has(step_id)
-    assert view.require(step_id).value is None
+    assert view.has(step_path)
+    assert view.require(step_path).value is None
 
 
 def test_record_rejects_overwriting_an_existing_result() -> None:
     store = GraphResultStore()
-    step_id = StepId((0,))
-    store.record(step_id, "first")
+    step_path = StepPath((0,))
+    store.record(step_path, "first")
     with pytest.raises(RuntimeError, match="step result already recorded"):
-        store.record(step_id, "second")
-    assert store.view.require(step_id).value == "first"
+        store.record(step_path, "second")
+    assert store.view.require(step_path).value == "first"
 
 
 def test_state_snapshot_keeps_its_result_records() -> None:
     state = GraphExecutionState(results=GraphResultStore())
-    first, second = StepId((0,)), StepId((1,))
+    first, second = StepPath((0,)), StepPath((1,))
     state.record_step(first, ("first",))
     state.record_result(first, "first")
     snapshot = state.snapshot()

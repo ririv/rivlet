@@ -15,7 +15,7 @@ from rivlet import (
     StaticCondition,
     StaticConditions,
     Step,
-    StepId,
+    StepPath,
     compile_graph,
     export_graph,
     static,
@@ -141,14 +141,14 @@ def test_lowered_port_dependencies_do_not_wait_for_entire_provider() -> None:
     assert edge["consumer_nodes"] == ["1.1"]
 
 
-@pytest.mark.parametrize("parent", [None, StepId((5, 7))])
+@pytest.mark.parametrize("parent", [None, StepPath((5, 7))])
 def test_mount_identity_matches_compilation_and_events(parent) -> None:
     child = Graph(steps=(Step(lambda: None, label="duplicate"),))
     graph = Graph(steps=(child.step(), child.step()))
-    compiled = compile_graph(graph, root_label="root", parent_step_id=parent)
+    compiled = compile_graph(graph, root_label="root", parent_step_path=parent)
     document = export_graph(compiled)
     assert {node["id"] for node in document["nodes"]} == {
-        str(node.id) for node in (*compiled.steps, *compiled.composites)
+        str(node.path) for node in (*compiled.steps, *compiled.composites)
     }
     if parent is not None:
         assert all(node["id"].startswith("5.7.") for node in document["nodes"])
@@ -176,7 +176,7 @@ def test_mounted_export_keeps_static_edge_provenance_in_parent_namespace() -> No
             conditions={(first, second): StaticCondition(object(), "condition")},
         ),
     )
-    compiled = compile_graph(graph, root_label="child", parent_step_id=StepId((9,)))
+    compiled = compile_graph(graph, root_label="child", parent_step_path=StepPath((9,)))
     document = export_graph(compiled)
     assert document["root"] == "graph:9"
     assert document["excluded_edges"] == ["graph:9/edge:0"]

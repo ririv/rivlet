@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from .events import StepEventSink
-    from .model import Graph, GraphMode, Step, StepId
+    from .model import Graph, GraphMode, Step, StepPath
     from .option import Some
 
 
@@ -85,11 +85,11 @@ class GraphExecution:
             if events is not None:
                 self.execution_state._initialize_execution_inputs({}, events)
             return
-        mounted_step_ids = self._index_mounted_step_ids()
+        mounted_step_paths = self._index_mounted_step_paths()
         # 先完整校验再写入状态，避免某个引用无效时只绑定了一部分日志。
         resolved = {
-            self._require_unique_mounted_step_id(
-                step, mounted_step_ids=mounted_step_ids
+            self._require_unique_mounted_step_path(
+                step, mounted_step_paths=mounted_step_paths
             ): path
             for step, path in step_log_paths.items()
         }
@@ -116,17 +116,17 @@ class GraphExecution:
         results = self.execution_state.results
         if results is None:
             raise RuntimeError("graph execution did not enable graph results")
-        return results.require(self._require_unique_mounted_step_id(step))
+        return results.require(self._require_unique_mounted_step_path(step))
 
-    def _require_unique_mounted_step_id(
+    def _require_unique_mounted_step_path(
         self,
         step: Step,
         *,
-        mounted_step_ids: Mapping[Step, tuple[StepId, ...]] | None = None,
-    ) -> StepId:
-        if mounted_step_ids is None:
-            mounted_step_ids = self._index_mounted_step_ids()
-        matches = mounted_step_ids.get(step)
+        mounted_step_paths: Mapping[Step, tuple[StepPath, ...]] | None = None,
+    ) -> StepPath:
+        if mounted_step_paths is None:
+            mounted_step_paths = self._index_mounted_step_paths()
+        matches = mounted_step_paths.get(step)
         if not matches:
             raise RuntimeError(f"step '{step.label}' is not mounted in graph execution")
         if len(matches) > 1:
@@ -135,17 +135,17 @@ class GraphExecution:
             )
         return next(iter(matches))
 
-    def _index_mounted_step_ids(self) -> dict[Step, tuple[StepId, ...]]:
-        from .model import Graph, step_ids_for_mount
+    def _index_mounted_step_paths(self) -> dict[Step, tuple[StepPath, ...]]:
+        from .model import Graph, step_paths_for_mount
 
-        mounted_step_ids: dict[Step, list[StepId]] = {}
+        mounted_step_paths: dict[Step, list[StepPath]] = {}
 
-        def _collect(graph: Graph, parent_step_id: StepId | None) -> None:
-            for candidate, candidate_id in step_ids_for_mount(
+        def _collect(graph: Graph, parent_step_path: StepPath | None) -> None:
+            for candidate, candidate_id in step_paths_for_mount(
                 graph,
-                parent_step_id=parent_step_id,
+                parent_step_path=parent_step_path,
             ).items():
-                mounted_step_ids.setdefault(candidate, []).append(candidate_id)
+                mounted_step_paths.setdefault(candidate, []).append(candidate_id)
                 if isinstance(candidate.action, Graph):
                     _collect(candidate.action, candidate_id)
 
@@ -153,8 +153,8 @@ class GraphExecution:
         # 随后的 K 次查找均为 O(1)，总复杂度为 O(V + K)，避免退化为 O(K * V)。
         _collect(self.graph, None)
         return {
-            candidate: tuple(step_ids)
-            for candidate, step_ids in mounted_step_ids.items()
+            candidate: tuple(step_paths)
+            for candidate, step_paths in mounted_step_paths.items()
         }
 
     def _write_execution_output(

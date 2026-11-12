@@ -11,6 +11,7 @@ def test_model_and_root_exports_identify_the_same_declarations():
         "Graph",
         "Step",
         "StepId",
+        "StepPath",
         "Edge",
         "ResultEdge",
         "GraphWiring",

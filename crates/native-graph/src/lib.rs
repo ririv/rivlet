@@ -6,12 +6,13 @@ use std::fmt::{self, Display, Formatter};
 use action::NativeActionHandle;
 use rivlet::{
     Arc, DeclarationNode, DeclarationPrerequisite, DeclaredGraph, DeclaredNodeKind,
-    GraphCompilation, GraphDeclaration, GraphId, NodeActivation, NodeId,
+    GraphCompilation, GraphDeclaration, GraphId, NodeActivation, NodeId, StepId,
 };
 
 /// One Rust-owned executable step in a [`NativeGraph`].
 #[derive(Clone, Debug)]
 pub struct NativeStep {
+    id: StepId,
     label: String,
     action: NativeActionHandle,
 }
@@ -29,7 +30,16 @@ impl NativeStep {
         if label.is_empty() {
             return Err(NativeGraphError::EmptyStepLabel);
         }
-        Ok(Self { label, action })
+        Ok(Self {
+            id: StepId::allocate(),
+            label,
+            action,
+        })
+    }
+
+    #[must_use]
+    pub const fn id(&self) -> StepId {
+        self.id
     }
 
     #[must_use]

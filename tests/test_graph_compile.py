@@ -23,7 +23,7 @@ from rivlet import (
     StaticConditionEvaluator,
     StaticConditions,
     Step,
-    StepId,
+    StepPath,
     ThreadGraphRunOptions,
     all_,
     any_,
@@ -58,32 +58,34 @@ def test_compile_graph_flattens_nested_graph_and_preserves_structure() -> None:
 
     assert isinstance(compilation, GraphCompilation)
     assert compilation.label == "root"
-    assert [step.id for step in compilation.steps] == [
-        StepId((0,)),
-        StepId((1, 0)),
-        StepId((1, 1)),
-        StepId((2,)),
+    assert [step.path for step in compilation.steps] == [
+        StepPath((0,)),
+        StepPath((1, 0)),
+        StepPath((1, 1)),
+        StepPath((2,)),
     ]
     assert compilation.steps[0].after == ()
     assert compilation.steps[1].after == ()
-    assert compilation.steps[2].after == (CompiledStepRef(StepId((1, 0))),)
-    assert compilation.steps[3].after == (CompiledCompositeRef(StepId((1,))),)
+    assert compilation.steps[2].after == (CompiledStepRef(StepPath((1, 0))),)
+    assert compilation.steps[3].after == (CompiledCompositeRef(StepPath((1,))),)
     assert len(compilation.composites) == 1
     stage = compilation.composites[0]
-    assert stage.label_path == ("stage",)
-    assert stage.after == (CompiledStepRef(StepId((0,))),)
+    assert stage.path.labels == ("stage",)
+    assert stage.after == (CompiledStepRef(StepPath((0,))),)
     assert stage.children == (
-        CompiledStepRef(StepId((1, 0))),
-        CompiledStepRef(StepId((1, 1))),
+        CompiledStepRef(StepPath((1, 0))),
+        CompiledStepRef(StepPath((1, 1))),
     )
-    assert compilation.steps[1].context.label_path == (
+    assert compilation.steps[1].path.labels == (
         "stage",
         "configure",
     )
-    assert compilation.steps[1].context.graph_label_path == ("stage",)
-    assert compilation.steps[1].context.graph_step_ids == {
-        stage_graph.steps[0]: StepId((1, 0)),
-        stage_graph.steps[1]: StepId((1, 1)),
+    parent_path = compilation.steps[1].path.parent
+    assert parent_path is not None
+    assert parent_path.labels == ("stage",)
+    assert compilation.steps[1].context.graph_step_paths == {
+        stage_graph.steps[0]: StepPath((1, 0)),
+        stage_graph.steps[1]: StepPath((1, 1)),
     }
     assert (
         compilation.steps[1].context.ancestor_graph_scopes
@@ -119,13 +121,13 @@ def test_pruned_native_side_tables_keep_only_compiled_nodes() -> None:
     )
     native = compile_declaration(graph, "test")
     assert native.declaration_nodes() == [1, 2]
-    assert native.node_step_ids() == [[1], [2]]
+    assert native.node_step_paths() == [[1], [2]]
     assert native.node_labels() == ["kept", "checked"]
     assert native.source_steps() == [kept, checked]
     assert len(native.actions()) == 2
     assert native.condition_reads() == [[1]]
     compiled = compile_graph(graph, root_label="test")
-    assert [step.id for step in compiled.steps] == [StepId((1,)), StepId((2,))]
+    assert [step.path for step in compiled.steps] == [StepPath((1,)), StepPath((2,))]
     assert compiled.steps[1].condition is not None
     assert compiled.steps[1].condition.inputs == (compiled.steps[0].ref,)
 
@@ -138,7 +140,7 @@ def test_graph_compilation_rejects_unknown_prerequisite() -> None:
     compilation = GraphExecution(graph=source_graph).compile()
     invalid_step = replace(
         compilation.steps[0],
-        after=(CompiledStepRef(StepId((99,))),),
+        after=(CompiledStepRef(StepPath((99,))),),
     )
 
     with pytest.raises(GraphError, match="unknown node"):
@@ -256,20 +258,20 @@ def test_run_compiled_matches_dynamic_run_and_preserves_local_step_lookup() -> N
     compiled_plan.run(options=ThreadGraphRunOptions(workers=1), mode="compiled")
 
     assert dynamic_state.executed_steps == [
-        StepId((0,)),
-        StepId((1,)),
-        StepId((1, 0)),
-        StepId((1, 1)),
-        StepId((2,)),
+        StepPath((0,)),
+        StepPath((1,)),
+        StepPath((1, 0)),
+        StepPath((1, 1)),
+        StepPath((2,)),
     ]
     assert compiled_state.executed_steps == [
-        StepId((0,)),
-        StepId((1, 0)),
-        StepId((1, 1)),
-        StepId((2,)),
+        StepPath((0,)),
+        StepPath((1, 0)),
+        StepPath((1, 1)),
+        StepPath((2,)),
     ]
-    assert compiled_state.entered_composites == {StepId((1,))}
-    assert compiled_state.completed_composites == {StepId((1,))}
+    assert compiled_state.entered_composites == {StepPath((1,))}
+    assert compiled_state.completed_composites == {StepPath((1,))}
     assert "stage [graph] [completed]" in render_graph_execution(
         _make_value_graph(),
         compiled_state,
@@ -278,27 +280,27 @@ def test_run_compiled_matches_dynamic_run_and_preserves_local_step_lookup() -> N
     )
     assert dynamic_state.results is not None
     assert compiled_state.results is not None
-    assert dynamic_state.results.require(StepId((1, 1))).value == "seed:configured"
-    assert compiled_state.results.require(StepId((1, 1))).value == "seed:configured"
-    assert dynamic_state.results.require(StepId((2,))).value == "packaged"
-    assert compiled_state.results.require(StepId((2,))).value == "packaged"
+    assert dynamic_state.results.require(StepPath((1, 1))).value == "seed:configured"
+    assert compiled_state.results.require(StepPath((1, 1))).value == "seed:configured"
+    assert dynamic_state.results.require(StepPath((2,))).value == "packaged"
+    assert compiled_state.results.require(StepPath((2,))).value == "packaged"
 
 
 def test_run_compiled_skips_composite_step_by_prefix() -> None:
     state = GraphExecutionState(
-        initial_skip_requests={StepId((1,))},
+        initial_skip_requests={StepPath((1,))},
         results=GraphResultStore(),
     )
     plan = GraphExecution(graph=_make_value_graph(), execution_state=state)
 
     plan.run(options=ThreadGraphRunOptions(workers=1), mode="compiled")
 
-    assert state.executed_steps == [StepId((0,)), StepId((2,))]
+    assert state.executed_steps == [StepPath((0,)), StepPath((2,))]
     assert state.results is not None
-    assert state.results.require(StepId((0,))).value == "seed"
-    assert state.results.require(StepId((2,))).value == "packaged"
-    assert not state.results.has(StepId((1, 0)))
-    assert not state.results.has(StepId((1, 1)))
+    assert state.results.require(StepPath((0,))).value == "seed"
+    assert state.results.require(StepPath((2,))).value == "packaged"
+    assert not state.results.has(StepPath((1, 0)))
+    assert not state.results.has(StepPath((1, 1)))
 
 
 def test_render_graph_renders_terminal_tree() -> None:
@@ -542,8 +544,8 @@ def test_compile_graph_resolves_static_conditions() -> None:
     compilation = compile_graph(graph, root_label="root")
 
     assert compilation.steps[2].after == (
-        CompiledStepRef(StepId((0,))),
-        CompiledStepRef(StepId((1,))),
+        CompiledStepRef(StepPath((0,))),
+        CompiledStepRef(StepPath((1,))),
     )
 
 
@@ -571,7 +573,7 @@ def test_compile_graph_removes_static_condition_edge_when_false() -> None:
 
     compilation = compile_graph(graph, root_label="root")
 
-    assert compilation.steps[2].after == (CompiledStepRef(StepId((0,))),)
+    assert compilation.steps[2].after == (CompiledStepRef(StepPath((0,))),)
 
 
 def test_compile_graph_preserves_runtime_condition_edge() -> None:
@@ -603,11 +605,11 @@ def test_compile_graph_preserves_runtime_condition_edge() -> None:
     compilation = compile_graph(graph, root_label="root")
 
     assert compilation.steps[2].after == (
-        CompiledStepRef(StepId((0,))),
+        CompiledStepRef(StepPath((0,))),
         CompiledConditionalDependency(
-            node=CompiledStepRef(StepId((1,))),
+            node=CompiledStepRef(StepPath((1,))),
             condition=CompiledRuntimeCondition(
-                inputs=(CompiledStepRef(StepId((0,))),),
+                inputs=(CompiledStepRef(StepPath((0,))),),
                 when=condition,
             ),
         ),
@@ -641,8 +643,8 @@ def test_compile_graph_accepts_static_condition_eval_function() -> None:
     compilation = compile_graph(graph, root_label="root")
 
     assert compilation.steps[2].after == (
-        CompiledStepRef(StepId((0,))),
-        CompiledStepRef(StepId((1,))),
+        CompiledStepRef(StepPath((0,))),
+        CompiledStepRef(StepPath((1,))),
     )
 
 
@@ -683,9 +685,9 @@ def test_compile_graph_handles_builtin_static_condition_combinators() -> None:
     compilation = compile_graph(graph, root_label="root")
 
     assert compilation.steps[3].after == (
-        CompiledStepRef(StepId((0,))),
-        CompiledStepRef(StepId((1,))),
-        CompiledStepRef(StepId((2,))),
+        CompiledStepRef(StepPath((0,))),
+        CompiledStepRef(StepPath((1,))),
+        CompiledStepRef(StepPath((2,))),
     )
 
 
@@ -719,17 +721,17 @@ def test_compile_graph_preserves_conditional_dependency_without_gate_step() -> N
 
     compilation = GraphExecution(graph=graph).compile()
 
-    assert [step.id for step in compilation.steps] == [
-        StepId((0,)),
-        StepId((1,)),
-        StepId((2,)),
+    assert [step.path for step in compilation.steps] == [
+        StepPath((0,)),
+        StepPath((1,)),
+        StepPath((2,)),
     ]
     build_step = compilation.steps[2]
-    assert build_step.after[0] == CompiledStepRef(StepId((0,)))
+    assert build_step.after[0] == CompiledStepRef(StepPath((0,)))
     conditional = build_step.after[1]
     assert isinstance(conditional, CompiledConditionalDependency)
-    assert conditional.node == CompiledStepRef(StepId((1,)))
-    assert conditional.condition.inputs == (CompiledStepRef(StepId((0,))),)
+    assert conditional.node == CompiledStepRef(StepPath((1,)))
+    assert conditional.condition.inputs == (CompiledStepRef(StepPath((0,))),)
 
 
 def test_graph_execution_compile_supports_static_and_runtime_conditions() -> None:
@@ -769,16 +771,16 @@ def test_graph_execution_compile_supports_static_and_runtime_conditions() -> Non
 
     compilation = GraphExecution(graph=graph).compile()
 
-    assert [step.id for step in compilation.steps] == [
-        StepId((0,)),
-        StepId((1,)),
-        StepId((2,)),
-        StepId((3,)),
+    assert [step.path for step in compilation.steps] == [
+        StepPath((0,)),
+        StepPath((1,)),
+        StepPath((2,)),
+        StepPath((3,)),
     ]
     build_after = compilation.steps[3].after
-    assert build_after[0] == CompiledStepRef(StepId((0,)))
+    assert build_after[0] == CompiledStepRef(StepPath((0,)))
     assert isinstance(build_after[1], CompiledConditionalDependency)
-    assert build_after[2] == CompiledStepRef(StepId((2,)))
+    assert build_after[2] == CompiledStepRef(StepPath((2,)))
 
 
 def test_render_graph_compiled_shows_conditional_dependency() -> None:
@@ -836,8 +838,8 @@ def test_compile_graph_removes_static_disabled_step_and_dependency() -> None:
 
     compilation = compile_graph(graph, root_label="root")
 
-    assert [step.id for step in compilation.steps] == [StepId((0,)), StepId((2,))]
-    assert compilation.steps[1].after == (CompiledStepRef(StepId((0,))),)
+    assert [step.path for step in compilation.steps] == [StepPath((0,)), StepPath((2,))]
+    assert compilation.steps[1].after == (CompiledStepRef(StepPath((0,))),)
 
 
 def test_compile_graph_preserves_runtime_when_on_leaf_step() -> None:
@@ -863,7 +865,7 @@ def test_compile_graph_preserves_runtime_when_on_leaf_step() -> None:
 
     compilation = GraphExecution(graph=graph).compile()
 
-    assert compilation.steps[1].id == StepId((1,))
+    assert compilation.steps[1].path == StepPath((1,))
     assert compilation.steps[1].condition is not None
 
 
@@ -890,17 +892,17 @@ def test_compile_graph_flattens_runtime_conditioned_composite() -> None:
 
     compilation = GraphExecution(graph=graph).compile()
 
-    assert [step.id for step in compilation.steps] == [
-        StepId((0,)),
-        StepId((1, 0)),
+    assert [step.path for step in compilation.steps] == [
+        StepPath((0,)),
+        StepPath((1, 0)),
     ]
     assert len(compilation.composites) == 1
     stage = compilation.composites[0]
-    assert stage.label_path == ("stage",)
+    assert stage.path.labels == ("stage",)
     assert stage.after == ()
     assert stage.condition is not None
-    assert stage.condition.inputs == (CompiledStepRef(StepId((0,))),)
-    assert stage.children == (CompiledStepRef(StepId((1, 0))),)
+    assert stage.condition.inputs == (CompiledStepRef(StepPath((0,))),)
+    assert stage.children == (CompiledStepRef(StepPath((1, 0))),)
 
 
 def test_compile_graph_flattens_child_with_conditional_dependency() -> None:
@@ -932,18 +934,18 @@ def test_compile_graph_flattens_child_with_conditional_dependency() -> None:
 
     compilation = GraphExecution(graph=graph).compile()
 
-    assert [step.id for step in compilation.steps] == [
-        StepId((0, 0)),
-        StepId((0, 1)),
-        StepId((1,)),
+    assert [step.path for step in compilation.steps] == [
+        StepPath((0, 0)),
+        StepPath((0, 1)),
+        StepPath((1,)),
     ]
     conditional = compilation.steps[1].after[0]
     assert isinstance(conditional, CompiledConditionalDependency)
-    assert conditional.node == CompiledStepRef(StepId((0, 0)))
-    assert compilation.steps[2].after == (CompiledCompositeRef(StepId((0,))),)
+    assert conditional.node == CompiledStepRef(StepPath((0, 0)))
+    assert compilation.steps[2].after == (CompiledCompositeRef(StepPath((0,))),)
     assert compilation.composites[0].children == (
-        CompiledStepRef(StepId((0, 0))),
-        CompiledStepRef(StepId((0, 1))),
+        CompiledStepRef(StepPath((0, 0))),
+        CompiledStepRef(StepPath((0, 1))),
     )
     rendered = render_graph(compilation, root_label="root", mode="compiled")
     assert "- child.target [after: child.source (条件边:" in rendered

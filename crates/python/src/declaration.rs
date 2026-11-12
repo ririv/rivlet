@@ -48,11 +48,12 @@ struct GraphRecord {
 }
 
 struct NodeRecord {
+    identity: u64,
     source_step: Option<Py<PyAny>>,
     action: NodeAction,
     graph: usize,
     child_graph: Option<usize>,
-    step_id: Vec<usize>,
+    step_path: Vec<usize>,
     label: String,
     inputs: Vec<usize>,
 }
@@ -213,11 +214,11 @@ impl<'py> Collector<'py> {
                 .insert(object_key(step), node_index);
             self.graphs[graph_index].local_step_order.push(node_index);
 
-            let mut step_id = id_prefix.to_owned();
-            step_id.push(local_index);
+            let mut step_path = id_prefix.to_owned();
+            step_path.push(local_index);
             let label_object = step.getattr("label")?;
             let step_label = if label_object.is_none() {
-                step_id
+                step_path
                     .iter()
                     .map(usize::to_string)
                     .collect::<Vec<_>>()
@@ -231,10 +232,11 @@ impl<'py> Collector<'py> {
             let action = step.getattr("action")?;
             self.nodes.push(NodeRecord {
                 source_step: Some(step.clone().unbind()),
+                identity: step.getattr("id")?.getattr("value")?.extract()?,
                 action: NodeAction::Python(action.clone().unbind()),
                 graph: graph_index,
                 child_graph: None,
-                step_id: step_id.clone(),
+                step_path: step_path.clone(),
                 label: step_label.clone(),
                 inputs: Vec::new(),
             });
@@ -257,7 +259,7 @@ impl<'py> Collector<'py> {
                 &action,
                 graph_index,
                 node_index,
-                &step_id,
+                &step_path,
                 &step_label,
                 active,
             )?;
@@ -274,7 +276,7 @@ impl<'py> Collector<'py> {
         action: &Bound<'py, PyAny>,
         graph_index: usize,
         node_index: usize,
-        step_id: &[usize],
+        step_path: &[usize],
         step_label: &str,
         active: bool,
     ) -> PyResult<()> {
@@ -286,7 +288,7 @@ impl<'py> Collector<'py> {
                 step_label,
                 child_label_path,
                 Some(node_index),
-                step_id,
+                step_path,
                 active,
             )?)
         } else if let Ok(native_graph) = action.extract::<PyRef<'_, NativeGraph>>() {
@@ -295,7 +297,7 @@ impl<'py> Collector<'py> {
                 native_graph.graph(),
                 child_label_path,
                 Some(node_index),
-                step_id,
+                step_path,
                 active,
             ))
         } else {
@@ -335,15 +337,16 @@ impl<'py> Collector<'py> {
         let first_node = self.nodes.len();
         for (local_index, native_step) in native_graph.steps().iter().enumerate() {
             let node_index = self.nodes.len();
-            let mut step_id = id_prefix.to_owned();
-            step_id.push(local_index);
+            let mut step_path = id_prefix.to_owned();
+            step_path.push(local_index);
             self.graphs[graph_index].local_step_order.push(node_index);
             self.nodes.push(NodeRecord {
                 source_step: None,
+                identity: native_step.id().value(),
                 action: NodeAction::Native(native_step.action().clone()),
                 graph: graph_index,
                 child_graph: None,
-                step_id,
+                step_path,
                 label: native_step.label().to_owned(),
                 inputs: Vec::new(),
             });
@@ -603,15 +606,15 @@ impl<'py> Collector<'py> {
         component: usize,
         step: &Bound<'py, PyAny>,
     ) -> PyResult<usize> {
-        let prefix = &self.nodes[component].step_id;
+        let prefix = &self.nodes[component].step_path;
         let matches = self
             .nodes
             .iter()
             .enumerate()
             .filter_map(|(index, node)| {
                 let source_step = node.source_step.as_ref()?;
-                (node.step_id.starts_with(prefix)
-                    && node.step_id.len() > prefix.len()
+                (node.step_path.starts_with(prefix)
+                    && node.step_path.len() > prefix.len()
                     && object_key(source_step.bind(self.py)) == object_key(step))
                 .then_some(index)
             })
@@ -744,7 +747,7 @@ impl NativeDeclarationCompilation {
                     (
                         self.graphs[graph]
                             .owner
-                            .map(|node| self.nodes[node].step_id.clone()),
+                            .map(|node| self.nodes[node].step_path.clone()),
                         edge,
                     )
                 })
@@ -754,7 +757,7 @@ impl NativeDeclarationCompilation {
                 .map(|&condition| {
                     let condition = &self.conditions[condition];
                     (
-                        self.nodes[condition.target].step_id.clone(),
+                        self.nodes[condition.target].step_path.clone(),
                         condition.edge_index,
                     )
                 })
@@ -775,9 +778,13 @@ impl NativeDeclarationCompilation {
         self.declaration_conditions.clone()
     }
 
-    fn node_step_ids(&self) -> Vec<Vec<usize>> {
+    fn node_step_ids(&self) -> Vec<u64> {
+        self.active_nodes().map(|node| node.identity).collect()
+    }
+
+    fn node_step_paths(&self) -> Vec<Vec<usize>> {
         self.active_nodes()
-            .map(|node| node.step_id.clone())
+            .map(|node| node.step_path.clone())
             .collect()
     }
 

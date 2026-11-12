@@ -11,7 +11,7 @@ from ..topology import Arc
 from .action import LeafAction
 from .edge import Edge, ResultEdge, _condition_uses
 from .graph import Graph
-from .step import Step, StepId, resolve_step_label
+from .step import Step, StepPath, resolve_step_label
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -163,7 +163,7 @@ def _validate_graph_topology(
         raise GraphError(str(exc)) from exc
     if cycle_indexes is not None:
         cycle = " -> ".join(
-            resolve_step_label(steps[index], StepId((index,)))
+            resolve_step_label(steps[index], StepPath((index,)))
             for index in cycle_indexes
         )
         raise GraphError(f"graph '{graph_label}' has dependency cycle: {cycle}")
@@ -228,7 +228,7 @@ def _validated_steps(
         if step in known_steps:
             raise GraphError(
                 f"graph '{graph_label}' contains the same step more than once: "
-                f"{resolve_step_label(step, StepId((index,)))}"
+                f"{resolve_step_label(step, StepPath((index,)))}"
             )
         known_steps.add(step)
     return known_steps

@@ -29,6 +29,14 @@ impl NativeGraph {
         self.graph.label()
     }
 
+    fn step_ids(&self) -> Vec<u64> {
+        self.graph
+            .steps()
+            .iter()
+            .map(|step| step.id().value())
+            .collect()
+    }
+
     /// Returns only labels and topology, never action commands or environments.
     fn structure(&self) -> (Vec<String>, Vec<(usize, usize)>) {
         (

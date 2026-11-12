@@ -57,6 +57,7 @@ type EdgeDocument = (
 class StepDocument(TypedDict):
     kind: Literal["step"]
     id: str
+    step_id: int
     graph: str
     label: str
     label_path: list[str]
@@ -67,6 +68,7 @@ class StepDocument(TypedDict):
 class SubgraphDocument(TypedDict):
     kind: Literal["subgraph"]
     id: str
+    step_id: int
     graph: str
     label: str
     label_path: list[str]

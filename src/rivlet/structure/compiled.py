@@ -31,13 +31,13 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
         )
     index = index_declaration(
         compilation.source_graph,
-        parent=origins.parent_step_id,
+        parent=origins.parent_step_path,
         label=compilation.label,
         label_path=compilation.root_label_path,
     )
     declaration = index.document
     nodes = compilation._native_nodes
-    active = {str(node.id): node for node in nodes}
+    active = {str(node.path): node for node in nodes}
     condition_ids = {
         id(condition): f"condition:{i}"
         for i, condition in enumerate(compilation._native_conditions)
@@ -46,7 +46,7 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
         {
             "id": f"condition:{i}",
             "index": i,
-            "inputs": [str(ref.id) for ref in condition.inputs],
+            "inputs": [str(ref.path) for ref in condition.inputs],
         }
         for i, condition in enumerate(compilation._native_conditions)
     ]
@@ -55,7 +55,7 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
         if not isinstance(origin, NodeConditionOrigin):
             edge_conditions[(str(origin.target), origin.edge_index)] = f"condition:{i}"
     disabled = {
-        edge_id(origins.parent_step_id if owner is None else owner, edge)
+        edge_id(origins.parent_step_path if owner is None else owner, edge)
         for owner, edge in origins.disabled_edges
     }
     exported_edges: list[EdgeDocument] = []
@@ -90,7 +90,7 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
             if compiled.condition is None
             else condition_ids[id(compiled.condition)]
         )
-        node["label_path"] = list(compiled.context.label_path)
+        node["label_path"] = list(compiled.path.labels)
         exported_nodes.append(node)
     graphs: list[ScopeDocument] = []
     for scope in declaration["graphs"]:
@@ -114,8 +114,8 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
                 dependencies.append(
                     {
                         "kind": "conditional",
-                        "source": str(prerequisite.node.id),
-                        "target": str(node.id),
+                        "source": str(prerequisite.node.path),
+                        "target": str(node.path),
                         "condition": condition_ids[id(prerequisite.condition)],
                     }
                 )
@@ -123,8 +123,8 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
                 dependencies.append(
                     {
                         "kind": "required",
-                        "source": str(prerequisite.id),
-                        "target": str(node.id),
+                        "source": str(prerequisite.path),
+                        "target": str(node.path),
                     }
                 )
     retained = {edge["id"] for edge in exported_edges}

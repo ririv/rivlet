@@ -5,7 +5,7 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, Protocol, assert_never
 
 if TYPE_CHECKING:
-    from .model import StepId, StepLabelPath
+    from .model import StepId, StepPath
 
 
 class StepExecutionState(StrEnum):
@@ -25,21 +25,21 @@ class ActionFailed:
 class SubgraphFailed:
     """An actual child failure prevented this subgraph from completing."""
 
-    source: StepId
+    source: StepPath
 
 
 @dataclass(frozen=True, slots=True)
 class BlockedByDependency:
     """One required predecessor failed or was blocked."""
 
-    source: StepId
+    source: StepPath
 
 
 @dataclass(frozen=True, slots=True)
 class NodeConditionSite:
     """The runtime guard of the event's own mounted node."""
 
-    # 所属执行 session 内的条件索引；与事件的挂载 step_id 一起定位，不用于跨运行恢复。
+    # 所属执行 session 内的条件索引；与事件的挂载 step_path 一起定位，不用于跨运行恢复。
     condition_index: int
 
 
@@ -48,7 +48,7 @@ class EdgeConditionSite:
     """A runtime guard on an edge entering the event's node."""
 
     condition_index: int
-    prerequisite: StepId
+    prerequisite: StepPath
 
 
 type ConditionSite = NodeConditionSite | EdgeConditionSite
@@ -66,14 +66,14 @@ class BlockedByConditionInput:
     """A predicate could not run because one of its inputs failed."""
 
     condition: ConditionSite
-    source: StepId
+    source: StepPath
 
 
 @dataclass(frozen=True, slots=True)
 class BlockedByParent:
     """An unentered parent subgraph was blocked."""
 
-    source: StepId
+    source: StepPath
 
 
 type StepFailureCause = ActionFailed | SubgraphFailed
@@ -91,7 +91,7 @@ class StepExecutionEvent:
     """One committed step execution state with its typed details."""
 
     step_id: StepId
-    label_path: StepLabelPath
+    step_path: StepPath
     state_detail: StepExecutionStateDetail
 
     @property

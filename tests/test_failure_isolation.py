@@ -21,7 +21,7 @@ from rivlet import (
     ResultEdge,
     SerialGraphExecutor,
     Step,
-    StepId,
+    StepPath,
     ThreadGraphRunOptions,
     compile_graph,
     render_graph_execution,
@@ -70,8 +70,8 @@ def test_failure_blocks_only_downstream_and_renders_terminal_states(execute):
         execute(graph, state)
     assert calls == ["good", "later"]
     assert state.node_failures == {
-        StepId((0,)): GraphNodeFailure.FAILED,
-        StepId((1,)): GraphNodeFailure.BLOCKED,
+        StepPath((0,)): GraphNodeFailure.FAILED,
+        StepPath((1,)): GraphNodeFailure.BLOCKED,
     }
     assert state.skipped_steps == set()
     rendered = render_graph_execution(graph, state, root_label="root")
@@ -115,8 +115,8 @@ def test_condition_exception_blocks_all_users_without_stopping_other_work(execut
     assert len(caught.value.exceptions) == 2
     assert calls == ["condition", "condition", "good"]
     assert state.node_failures == {
-        StepId((0,)): GraphNodeFailure.BLOCKED,
-        StepId((1,)): GraphNodeFailure.BLOCKED,
+        StepPath((0,)): GraphNodeFailure.BLOCKED,
+        StepPath((1,)): GraphNodeFailure.BLOCKED,
     }
 
 
@@ -145,7 +145,7 @@ def test_condition_does_not_read_failed_action_result(execute):
     with pytest.raises(RuntimeError, match="action failed"):
         execute(graph, state)
     assert calls == ["good"]
-    assert state.node_failures[StepId((1,))] is GraphNodeFailure.BLOCKED
+    assert state.node_failures[StepPath((1,))] is GraphNodeFailure.BLOCKED
 
 
 def test_inactive_conditional_edge_does_not_propagate_failure(execute):
@@ -196,8 +196,10 @@ def test_port_success_survives_failure_in_another_subgraph_branch(mode):
     with pytest.raises(RuntimeError, match="action failed"):
         plan.run(ThreadGraphRunOptions(workers=1), mode=mode)
     assert calls == ["ready", "consume"]
-    assert plan.execution_state.node_failures[StepId((0,))] is GraphNodeFailure.FAILED
-    assert plan.execution_state.node_failures[StepId((2,))] is GraphNodeFailure.BLOCKED
+    assert plan.execution_state.node_failures[StepPath((0,))] is GraphNodeFailure.FAILED
+    assert (
+        plan.execution_state.node_failures[StepPath((2,))] is GraphNodeFailure.BLOCKED
+    )
 
 
 def test_blocked_composite_marks_descendants_without_entering_them(execute):
@@ -213,7 +215,7 @@ def test_blocked_composite_marks_descendants_without_entering_them(execute):
     assert calls == []
     assert state.entered_composites == set()
     assert all(
-        state.node_failures[StepId(path)] is GraphNodeFailure.BLOCKED
+        state.node_failures[StepPath(path)] is GraphNodeFailure.BLOCKED
         for path in [(1,), (1, 0), (1, 0, 0)]
     )
 
@@ -247,8 +249,8 @@ def test_failed_port_blocks_input_but_not_consumer_preparation(execute):
     with pytest.raises(RuntimeError, match="action failed"):
         execute(graph, state)
     assert calls == ["prepare"]
-    assert state.node_failures[StepId((1, 1))] is GraphNodeFailure.BLOCKED
-    assert StepId((1,)) not in state.completed_composites
+    assert state.node_failures[StepPath((1, 1))] is GraphNodeFailure.BLOCKED
+    assert StepPath((1,)) not in state.completed_composites
 
 
 def test_dynamic_returned_graph_failure_is_local_to_its_parent_action(execute):

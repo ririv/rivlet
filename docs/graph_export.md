@@ -70,15 +70,18 @@ condition tuple at several sites can produce multiple compiled instances.
 
 ## Identities and composition boundaries
 
-- Node `id` is `str(StepId)`, such as `0` or `2.1`. It identifies a mounted position,
+- Node `id` is `str(StepPath)`, such as `0` or `2.1`. It identifies a mounted position,
   not a label, function, process-global object address, or permanent business entity.
 - Reusing the same child Graph creates different mounted IDs, for example `0.0`
-  and `1.0`. Export and runtime events use the same mounted StepId namespace.
+  and `1.0`. Export and runtime events use the same mounted StepPath namespace.
+- Node `step_id` is the declaration's process-local integer identity. Repeated
+  mounts share it; recompiling the same declarations preserves it. It is not a
+  persistent identity across process restarts or a cache key.
 - Keeping the same mounting layout preserves IDs when labels change. Changing
   ordering or composition can change IDs. Pair an ID with its frozen document/run,
   not a graph produced by another source revision.
 - `label_path` follows mount labels. The root scope has ID `graph:root`; each child
-  scope has `graph:<owner StepId>`. Scope `owner` and local `nodes`, together with a
+  scope has `graph:<owner StepPath>`. Scope `owner` and local `nodes`, together with a
   subgraph node's `child_graph`, preserve composition rather than inventing no-op actions.
 - Interfaces retain their port names and exact input/output node references in `ports`.
   Port forwarding appears on the scope that explicitly exposes it.
@@ -129,7 +132,7 @@ rather than interpreting the old document as the new format.
 Events and execution snapshots remain separate. Join them with the exact frozen
 node ID; do not import arbitrary return values, shared objects, exception messages,
 log paths, command lines, environments, or function objects into this document.
-Rust-native subgraphs expose labels and topology only, never their process details.
+Rust-native subgraphs expose declaration identities, labels and topology, never their process details.
 
 Each GraphExecution binds its declaration and host references immutably. Its first
 successful `compile()`/`run()`/`arun()` fixes the root compilation; subsequent calls
@@ -142,10 +145,10 @@ still produces a fresh compilation and does not prepare another execution.
 
 Export reflects the supplied scope, not future work. A Graph returned by an action
 cannot be known before that action runs; when such a child is actually compiled,
-export that child compilation with its existing parent StepId prefix. The root
+export that child compilation with its existing parent StepPath prefix. The root
 document is not silently rewritten or presented as an all-knowing execution history.
 For such a mounted export, `parent` names the external owner and `root` is
-`graph:<parent StepId>`; that owner is outside this document's nodes. A standalone
+`graph:<parent StepPath>`; that owner is outside this document's nodes. A standalone
 root has `parent=null` and `root="graph:root"`. Scope and edge IDs therefore keep
 their mount namespace when independently exported child documents are correlated.
 

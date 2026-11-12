@@ -22,7 +22,7 @@ from ..model import (
     GraphEdge,
     ResultEdge,
     Step,
-    StepId,
+    StepPath,
     StepPrerequisite,
     _condition_uses,
     _RuntimeCondition,
@@ -49,13 +49,13 @@ def ensure_compilation(
 def render_step_label(
     step: Step | CompiledLeaf,
     *,
-    step_id: StepId | None = None,
+    step_path: StepPath | None = None,
 ) -> str:
     if isinstance(step, Step):
-        if step_id is None:
+        if step_path is None:
             raise ValueError("declaration step label requires its mounted step id")
-        return resolve_step_label(step, step_id)
-    return step.context.label_path[-1]
+        return resolve_step_label(step, step_path)
+    return step.path.labels[-1]
 
 
 def render_compiled_step_label(step: CompiledLeaf, path: tuple[str, ...]) -> str:
@@ -75,7 +75,7 @@ def render_condition_suffix(
 def render_after_suffix(
     step: CompiledLeaf | CompiledComposite,
     *,
-    step_labels: Mapping[StepId, str] | None = None,
+    step_labels: Mapping[StepPath, str] | None = None,
 ) -> str:
     if not step.after:
         return ""
@@ -89,10 +89,13 @@ def render_graph_after_suffix(
     graph: Graph,
     step: Step,
     *,
-    step_ids: Mapping[Step, StepId],
+    step_paths: Mapping[Step, StepPath],
 ) -> str:
     deps = (
-        [format_graph_edge(edge, graph=graph, step_ids=step_ids) for edge in incoming]
+        [
+            format_graph_edge(edge, graph=graph, step_paths=step_paths)
+            for edge in incoming
+        ]
         if (incoming := graph.incoming_edges(step))
         else []
     )
@@ -105,7 +108,7 @@ def render_graph_after_suffix(
             else f"edge condition {condition_name(condition)}"
         )
         deps.extend(
-            f"{resolve_step_label(source, step_ids[source])} ({receiver} input: {index})"
+            f"{resolve_step_label(source, step_paths[source])} ({receiver} input: {index})"
             for index, source in enumerate(condition.inputs)
         )
     return "" if not deps else f" [after: {', '.join(deps)}]"
@@ -155,9 +158,9 @@ def format_graph_edge(
     edge: GraphEdge,
     *,
     graph: Graph,
-    step_ids: Mapping[Step, StepId],
+    step_paths: Mapping[Step, StepPath],
 ) -> str:
-    dep_id = resolve_step_label(edge.source, step_ids[edge.source])
+    dep_id = resolve_step_label(edge.source, step_paths[edge.source])
     binding = graph._static_bindings.get((edge.source, edge.target))
     if binding is not None:
         dep_id += f" (static: {format_static_condition(binding.condition)})"
@@ -181,12 +184,12 @@ def render_step_path(path: tuple[str, ...]) -> str:
 def format_prerequisite(
     dep: StepPrerequisite | CompiledPrerequisite,
     *,
-    step_labels: Mapping[StepId, str] | None = None,
+    step_labels: Mapping[StepPath, str] | None = None,
 ) -> str:
-    def _label(step_id: StepId) -> str:
+    def _label(step_path: StepPath) -> str:
         if step_labels is None:
-            return str(step_id)
-        return step_labels[step_id]
+            return str(step_path)
+        return step_labels[step_path]
 
     match dep:
         case ConditionalPrerequisite(step=source, condition=condition):
@@ -196,16 +199,16 @@ def format_prerequisite(
                 )
             return f"{source.label} (条件边: {condition_name(condition)})"
         case CompiledConditionalDependency(node=node, condition=condition):
-            dep_id = _label(node.id)
+            dep_id = _label(node.path)
             return f"{dep_id} (条件边: {condition_name(condition)})"
-        case CompiledStepRef(id=dep_id) | CompiledCompositeRef(id=dep_id):
+        case CompiledStepRef(path=dep_id) | CompiledCompositeRef(path=dep_id):
             return _label(dep_id)
         case Step() as source:
             if source.label is None:
                 raise ValueError("declaration step label requires its mounted step id")
             return source.label
-        case StepId() as step_id:
-            return _label(step_id)
+        case StepPath() as step_path:
+            return _label(step_path)
 
 
 def prerequisite_step_label(dep: StepPrerequisite) -> str | None:
@@ -265,12 +268,12 @@ def sanitize_mermaid_token(value: str) -> str:
 
 
 def render_execution_result_suffix(
-    step_id: StepId,
+    step_path: StepPath,
     results: GraphResultView | None,
 ) -> str:
     if results is None:
         return ""
-    result = results.get(step_id)
+    result = results.get(step_path)
     if result is None:
         return ""
     value = result.value

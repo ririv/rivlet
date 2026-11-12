@@ -3,6 +3,7 @@
 pub mod declaration;
 pub mod execution;
 pub mod failure;
+pub mod identity;
 pub mod lowering;
 pub mod ports;
 pub mod session;
@@ -16,6 +17,7 @@ pub use execution::{
     PortConnection, Prerequisite, RuntimeCondition,
 };
 pub use failure::{BlockCause, ConditionSite, FailureCause};
+pub use identity::StepId;
 pub use lowering::{
     DeclaredGraph, DeclaredNode, DeclaredNodeKind, ExecutionGraphDeclaration, GraphId,
     LoweringError,

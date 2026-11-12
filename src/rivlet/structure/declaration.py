@@ -11,10 +11,10 @@ from ..model import (
     Graph,
     LeafAction,
     ResultEdge,
-    StepId,
+    StepPath,
     _RuntimeCondition,
     resolve_step_label,
-    step_ids_for_mount,
+    step_paths_for_mount,
 )
 
 if TYPE_CHECKING:
@@ -29,21 +29,21 @@ if TYPE_CHECKING:
     )
 
 
-def scope_id(owner: StepId | None) -> str:
+def scope_id(owner: StepPath | None) -> str:
     return "graph:root" if owner is None else f"graph:{owner}"
 
 
-def edge_id(owner: StepId | None, index: int) -> str:
+def edge_id(owner: StepPath | None, index: int) -> str:
     return f"{scope_id(owner)}/edge:{index}"
 
 
 @dataclass(slots=True)
 class Scope:
     graph: Graph | NativeGraph
-    owner: StepId | None
+    owner: StepPath | None
     label_path: tuple[str, ...]
-    ids: dict[Step, StepId] = field(default_factory=dict)
-    descendants: dict[Step, list[StepId]] = field(default_factory=dict)
+    ids: dict[Step, StepPath] = field(default_factory=dict)
+    descendants: dict[Step, list[StepPath]] = field(default_factory=dict)
 
     @property
     def id(self) -> str:
@@ -84,7 +84,7 @@ class DeclarationIndex:
 def index_declaration(
     graph: Graph,
     *,
-    parent: StepId | None = None,
+    parent: StepPath | None = None,
     label: str | None = None,
     label_path: tuple[str, ...] = (),
 ) -> DeclarationIndex:
@@ -107,14 +107,14 @@ def index_declaration(
     # 按挂载遍历并建立索引，时间/空间 O(V + E + P + L)；不按每条边重扫子图。
     def visit(
         current: Graph | NativeGraph,
-        owner: StepId | None,
+        owner: StepPath | None,
         path: tuple[str, ...],
         ancestors: tuple[Scope, ...],
     ) -> None:
         scope = Scope(current, owner, path)
         index.scopes[scope.id] = scope
         if isinstance(current, Graph):
-            scope.ids = step_ids_for_mount(current, parent_step_id=owner)
+            scope.ids = step_paths_for_mount(current, parent_step_path=owner)
             scope_label = (
                 (current.display_label if label is None else label)
                 if not ancestors
@@ -145,6 +145,7 @@ def index_declaration(
                 if isinstance(action, (Graph, NativeGraph)):
                     node = {
                         "kind": "subgraph",
+                        "step_id": step.id.value,
                         "id": key,
                         "graph": scope.id,
                         "label": step_label,
@@ -157,6 +158,7 @@ def index_declaration(
                 elif isinstance(action, LeafAction):
                     node = {
                         "kind": "step",
+                        "step_id": step.id.value,
                         "id": key,
                         "graph": scope.id,
                         "label": step_label,
@@ -184,7 +186,7 @@ def index_declaration(
         else:
             labels, arcs = current.structure()
             ids = [
-                owner.child(i) if owner is not None else StepId((i,))
+                owner.child(i) if owner is not None else StepPath((i,))
                 for i in range(len(labels))
             ]
             document["graphs"].append(
@@ -197,12 +199,15 @@ def index_declaration(
                     "ports": [],
                 }
             )
-            for identifier, native_label in zip(ids, labels, strict=True):
+            for identifier, native_label, identity in zip(
+                ids, labels, current.step_ids(), strict=True
+            ):
                 index.node_scopes[str(identifier)] = scope
                 document["nodes"].append(
                     {
                         "kind": "step",
                         "id": str(identifier),
+                        "step_id": identity,
                         "graph": scope.id,
                         "label": native_label,
                         "label_path": [*path, native_label],

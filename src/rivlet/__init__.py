@@ -69,6 +69,7 @@ if TYPE_CHECKING:
         StepActionInput,
         StepId,
         StepLabelPath,
+        StepPath,
         StepWiring,
         step,
     )
@@ -217,6 +218,7 @@ _EXPORT_GROUPS = (
             "LeafAction",
             "LeafActionCallable",
             "StepId",
+            "StepPath",
             "StepLabelPath",
         ),
     ),
@@ -351,6 +353,7 @@ __all__ = [
     "LeafActionCallable",
     "NativeGraph",
     "StepId",
+    "StepPath",
     "StepLabelPath",
     "CompiledStep",
     "CompiledNativeStep",

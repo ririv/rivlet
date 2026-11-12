@@ -9,7 +9,7 @@ from rivlet import (
     GraphExecutionState,
     GraphMode,
     Step,
-    StepId,
+    StepPath,
     StepRunContext,
     ThreadGraphRunOptions,
 )
@@ -46,13 +46,13 @@ def test_constructor_resolves_all_bindings_in_one_traversal(
     first = Step(lambda: None)
     second = Step(lambda: None)
     traversals: list[Graph] = []
-    original = GraphExecution._index_mounted_step_ids
+    original = GraphExecution._index_mounted_step_paths
 
-    def index(execution: GraphExecution) -> dict[Step, tuple[StepId, ...]]:
+    def index(execution: GraphExecution) -> dict[Step, tuple[StepPath, ...]]:
         traversals.append(execution.graph)
         return original(execution)
 
-    monkeypatch.setattr(GraphExecution, "_index_mounted_step_ids", index)
+    monkeypatch.setattr(GraphExecution, "_index_mounted_step_paths", index)
     graph = Graph(steps=(first, second))
     GraphExecution(graph=graph)
     assert traversals == []
@@ -79,7 +79,7 @@ def test_unmounted_binding_does_not_partially_configure_state(tmp_path: Path) ->
             },
         )
 
-    assert state.get_step_log_path(StepId((0,))) is None
+    assert state.get_step_log_path(StepPath((0,))) is None
 
 
 def test_repeated_step_requires_an_unambiguous_binding(tmp_path: Path) -> None:

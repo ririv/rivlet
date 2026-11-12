@@ -101,7 +101,7 @@ def emit_graph_observation(
             source_graph=graph.source_graph,
             graph_label=graph.label,
             graph_label_path=label_path,
-            graph_step_ids=graph.observation_step_ids,
+            graph_step_paths=graph.observation_step_paths,
             results=make_graph_observation_results(state),
         )
     )

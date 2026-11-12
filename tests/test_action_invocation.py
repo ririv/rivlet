@@ -15,7 +15,7 @@ from rivlet import (
     GraphResultStore,
     SerialGraphExecutor,
     Step,
-    StepId,
+    StepPath,
 )
 from rivlet.runtime import ParallelGraphExecutor
 
@@ -50,9 +50,9 @@ def test_sync_actions_and_returned_graph_do_not_create_event_loop(
     steps = (Step(lambda: 42), Step(lambda: None), Step(make_graph))
     results = _execute(Graph(steps=steps), workers)
     assert calls == ["declare", "nested"]
-    assert results.require(StepId((0,))).value == 42
-    assert results.require(StepId((1,))).value is None
-    assert results.require(StepId((2,))).value is None
+    assert results.require(StepPath((0,))).value == 42
+    assert results.require(StepPath((1,))).value is None
+    assert results.require(StepPath((2,))).value is None
 
 
 @pytest.mark.parametrize("workers", [0, 1, 4])
@@ -86,7 +86,7 @@ def test_awaitable_results_remain_supported(
 
     results = _execute(Graph(steps=(Step(action),)), workers)
     assert calls == ["started", "finished"]
-    assert results.require(StepId((0,))).value == 42
+    assert results.require(StepPath((0,))).value == 42
 
 
 @pytest.mark.parametrize("workers", [0, 1, 4])

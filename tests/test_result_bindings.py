@@ -115,7 +115,7 @@ def test_repeated_nested_graph_mounts_supply_their_own_results(
     seen: list[object] = []
 
     def produce(ctx: StepRunContext) -> object:
-        return ctx.step_id
+        return ctx.step_path
 
     probe = Step(produce, label="probe")
 
@@ -227,7 +227,7 @@ def test_action_only_inputs_enable_recording_and_bind_each_mount(
     backend: Backend,
 ) -> None:
     seen: list[object] = []
-    producer = Step(lambda ctx: ctx.step_id)
+    producer = Step(lambda ctx: ctx.step_path)
 
     def consume(_ctx: StepRunContext, value: Option[object]) -> None:
         seen.append(value.unwrap())
@@ -259,7 +259,7 @@ def test_each_receiver_binds_its_own_results_on_each_mount(backend: Backend) -> 
     seen: list[tuple[str, object]] = []
     permission = Step(lambda: "permission")
     check = Step(lambda: "edge")
-    design = Step(lambda ctx: ctx.step_id)
+    design = Step(lambda ctx: ctx.step_path)
     prepare = Step(lambda: seen.append(("prepare", None)))
 
     def check_value(value: Option[object]) -> bool:

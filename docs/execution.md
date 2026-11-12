@@ -13,7 +13,7 @@ Both public modes use the same Rust declaration compiler and execution session:
 
 str bindings use the same lowering in both modes. The runtime consumes
 GraphCompilation, not a second Python scheduling model. Runtime-returned graphs
-enter the same compilation pipeline with their parent StepId, label path, and
+enter the same compilation pipeline with their parent StepPath, label path, and
 ancestor result scopes.
 
 ## Compilation preparation
@@ -131,7 +131,8 @@ handlers are called before any handler failures are raised together.
 ## Step execution events
 
 Pass `events=StepEventSink` to GraphExecution to receive `StepExecutionEvent`
-values with a StepId, label path, typed `state_detail`, and a derived
+values with declaration `step_id`, mounted `step_path` (including `.labels`),
+typed `state_detail`, and a derived
 `state: StepExecutionState`:
 `STARTED`, `COMPLETED`, `FAILED`, `BLOCKED`, or `SKIPPED`.
 Static and runtime-generated subgraphs and Rust-native actions use the same

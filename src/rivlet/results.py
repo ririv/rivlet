@@ -11,12 +11,12 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    from .model import Step, StepId, StepLabelPath
+    from .model import Step, StepId, StepPath
 
 
 @dataclass(frozen=True, slots=True)
 class GraphScope:
-    step_ids: Mapping[Step, StepId]
+    step_paths: Mapping[Step, StepPath]
 
 
 @dataclass(frozen=True, slots=True)
@@ -39,25 +39,25 @@ class GraphResultView:
 
     _store: GraphResultStore = field(repr=False)
 
-    def get(self, step_id: StepId) -> Some[object] | None:
-        return self._store.get(step_id)
+    def get(self, step_path: StepPath) -> Some[object] | None:
+        return self._store.get(step_path)
 
-    def require(self, step_id: StepId) -> Some[object]:
-        return self._store.require(step_id)
+    def require(self, step_path: StepPath) -> Some[object]:
+        return self._store.require(step_path)
 
-    def has(self, step_id: StepId) -> bool:
-        return self._store.has(step_id)
+    def has(self, step_path: StepPath) -> bool:
+        return self._store.has(step_path)
 
 
 @dataclass(slots=True)
 class GraphResultStore:
-    """以本次图挂载分配的 `StepId` 保存执行结果的线程安全存储。
+    """以本次图挂载分配的 `StepPath` 保存执行结果的线程安全存储。
 
     runtime worker 与 observer/render 可能并发读写结果，因此所有访问都由
     存储自身的锁保护；调用方不应通过执行状态的锁推断这里已经同步。
     """
 
-    _results: dict[StepId, Some[object]] = field(default_factory=dict)
+    _results: dict[StepPath, Some[object]] = field(default_factory=dict)
     _lock: threading.Lock = field(
         default_factory=threading.Lock,
         init=False,
@@ -73,25 +73,25 @@ class GraphResultStore:
     def view(self) -> GraphResultView:
         return self._view
 
-    def record(self, step_id: StepId, value: object | None) -> None:
+    def record(self, step_path: StepPath, value: object | None) -> None:
         with self._lock:
-            if step_id in self._results:
-                raise RuntimeError(f"step result already recorded for id: {step_id}")
-            self._results[step_id] = Some(value=value)
+            if step_path in self._results:
+                raise RuntimeError(f"step result already recorded for id: {step_path}")
+            self._results[step_path] = Some(value=value)
 
-    def get(self, step_id: StepId) -> Some[object] | None:
+    def get(self, step_path: StepPath) -> Some[object] | None:
         with self._lock:
-            return self._results.get(step_id)
+            return self._results.get(step_path)
 
-    def require(self, step_id: StepId) -> Some[object]:
-        result = self.get(step_id)
+    def require(self, step_path: StepPath) -> Some[object]:
+        result = self.get(step_path)
         if result is None:
-            raise RuntimeError(f"missing step result for id: {step_id}")
+            raise RuntimeError(f"missing step result for path: {step_path}")
         return result
 
-    def has(self, step_id: StepId) -> bool:
+    def has(self, step_path: StepPath) -> bool:
         with self._lock:
-            return step_id in self._results
+            return step_path in self._results
 
     def copy(self) -> GraphResultStore:
         with self._lock:
@@ -103,7 +103,7 @@ class GraphResultStore:
 class StepRunContext:
     # action 的运行能力入口；步骤结果只通过图的 inputs 接线传参。
     step_id: StepId
-    label_path: StepLabelPath
+    step_path: StepPath
     control: StepControl
     step_log_path: Path | None
     _shared: object | None = field(default=None, repr=False, kw_only=True)
@@ -120,7 +120,3 @@ class StepRunContext:
                 f"got {type(self._shared).__qualname__}"
             )
         return self._shared
-
-    @property
-    def graph_label_path(self) -> StepLabelPath:
-        return self.label_path[:-1]

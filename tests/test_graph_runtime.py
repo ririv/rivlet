@@ -33,7 +33,7 @@ from rivlet import (
     StaticConditionEvaluator,
     StaticConditions,
     Step,
-    StepId,
+    StepPath,
     StepRunContext,
     ThreadGraphRunOptions,
     TreeFileExecutionOutput,
@@ -77,7 +77,7 @@ def test_compiled_host_forwards_only_new_skip_requests() -> None:
     first = Step(lambda: None, label="first")
     second = Step(lambda: None, label="second")
     compilation = compile_graph(Graph(steps=(first, second)), root_label="root")
-    state = GraphExecutionState(initial_skip_requests={StepId((0,))})
+    state = GraphExecutionState(initial_skip_requests={StepPath((0,))})
     host = CompiledExecutionHost(
         compilation,
         state,
@@ -88,7 +88,7 @@ def test_compiled_host_forwards_only_new_skip_requests() -> None:
     assert host.skipped_nodes() == [0]
     assert host.skipped_nodes() == []
 
-    state.request_skip(StepId((1,)))
+    state.request_skip(StepPath((1,)))
     assert host.skipped_nodes() == [1]
     assert host.skipped_nodes() == []
 
@@ -177,7 +177,7 @@ def test_graph_execution_executes_python_and_native_actions_in_one_graph(
 
     assert plan.require_result(verify).value == ["python", "rust"]
     assert state.completed_steps == frozenset(
-        {StepId((0,)), StepId((1,)), StepId((1, 0)), StepId((2,))}
+        {StepPath((0,)), StepPath((1,)), StepPath((1, 0)), StepPath((2,))}
     )
 
 
@@ -221,8 +221,8 @@ def test_step_log_paths_resolve_at_construction(tmp_path: Path) -> None:
         },
     )
 
-    assert plan.execution_state.get_step_log_path(StepId((0,))) == first_log
-    assert plan.execution_state.get_step_log_path(StepId((1,))) == second_log
+    assert plan.execution_state.get_step_log_path(StepPath((0,))) == first_log
+    assert plan.execution_state.get_step_log_path(StepPath((1,))) == second_log
 
 
 def test_native_action_failure_is_a_graph_action_failure(tmp_path: Path) -> None:
@@ -302,10 +302,10 @@ def test_graph_execution_run_executes_nested_graphs_in_topological_order() -> No
 
     assert calls == ["prepare", "configure", "build"]
     assert state.executed_steps == [
-        StepId((0,)),
-        StepId((1,)),
-        StepId((1, 0)),
-        StepId((1, 1)),
+        StepPath((0,)),
+        StepPath((1,)),
+        StepPath((1, 0)),
+        StepPath((1, 1)),
     ]
 
 
@@ -358,7 +358,7 @@ def test_graph_execution_run_skips_marked_steps() -> None:
     )
 
     state = GraphExecutionState(
-        initial_skip_requests={StepId((1,))},
+        initial_skip_requests={StepPath((1,))},
         results=GraphResultStore(),
     )
     GraphExecution(
@@ -367,8 +367,8 @@ def test_graph_execution_run_skips_marked_steps() -> None:
     ).run(options=ThreadGraphRunOptions(workers=1))
 
     assert calls == ["prepare"]
-    assert state.executed_steps == [StepId((0,))]
-    assert state.skipped_steps == {StepId((1,))}
+    assert state.executed_steps == [StepPath((0,))]
+    assert state.skipped_steps == {StepPath((1,))}
 
 
 def test_graph_execution_rejects_unknown_initial_skip_request() -> None:
@@ -377,17 +377,17 @@ def test_graph_execution_rejects_unknown_initial_skip_request() -> None:
     with pytest.raises(RuntimeError, match="unknown graph skip requests: 1"):
         GraphExecution(
             graph=graph,
-            execution_state=GraphExecutionState(initial_skip_requests={StepId((1,))}),
+            execution_state=GraphExecutionState(initial_skip_requests={StepPath((1,))}),
         ).run(options=ThreadGraphRunOptions(workers=1))
 
 
 def test_execution_state_rejects_skip_after_step_start() -> None:
     state = GraphExecutionState()
-    step_id = StepId((0,))
-    state.record_step(step_id, ("root", "build"))
+    step_path = StepPath((0,))
+    state.record_step(step_path, ("root", "build"))
 
     with pytest.raises(RuntimeError, match="cannot skip an already started step: 0"):
-        state.request_skip(step_id)
+        state.request_skip(step_path)
 
 
 def test_graph_execution_run_uses_provided_state() -> None:
@@ -408,7 +408,7 @@ def test_graph_execution_run_uses_provided_state() -> None:
     ).run()
 
     assert calls == ["build"]
-    assert state.executed_steps == [StepId((0,))]
+    assert state.executed_steps == [StepPath((0,))]
 
 
 def test_graph_execution_run_records_sync_step_results() -> None:
@@ -431,9 +431,9 @@ def test_graph_execution_run_records_sync_step_results() -> None:
     ).run(options=ThreadGraphRunOptions(workers=1))
 
     assert state.results is not None
-    assert state.results.get(StepId((0,))) is not None
-    assert state.results.require(StepId((0,))).value == "prepared"
-    assert state.results.require(StepId((1,))).value == "prepared:built"
+    assert state.results.get(StepPath((0,))) is not None
+    assert state.results.require(StepPath((0,))).value == "prepared"
+    assert state.results.require(StepPath((1,))).value == "prepared:built"
 
 
 def test_graph_execution_run_records_async_step_results() -> None:
@@ -456,7 +456,7 @@ def test_graph_execution_run_records_async_step_results() -> None:
     ).run(options=ThreadGraphRunOptions(workers=1))
 
     assert state.results is not None
-    assert state.results.require(StepId((0,))).value == "built"
+    assert state.results.require(StepPath((0,))).value == "built"
 
 
 def test_graph_execution_run_records_none_result() -> None:
@@ -476,8 +476,8 @@ def test_graph_execution_run_records_none_result() -> None:
     ).run()
 
     assert state.results is not None
-    assert state.results.has(StepId((0,)))
-    assert state.results.require(StepId((0,))).value is None
+    assert state.results.has(StepPath((0,)))
+    assert state.results.require(StepPath((0,))).value is None
 
 
 def test_graph_execution_run_does_not_record_results_for_skipped_steps() -> None:
@@ -491,7 +491,7 @@ def test_graph_execution_run_does_not_record_results_for_skipped_steps() -> None
         ),
     )
     state = GraphExecutionState(
-        initial_skip_requests={StepId((0,))},
+        initial_skip_requests={StepPath((0,))},
         results=GraphResultStore(),
     )
 
@@ -501,7 +501,7 @@ def test_graph_execution_run_does_not_record_results_for_skipped_steps() -> None
     ).run()
 
     assert state.results is not None
-    assert not state.results.has(StepId((0,)))
+    assert not state.results.has(StepPath((0,)))
 
 
 def test_graph_execution_run_does_not_record_results_for_failed_steps() -> None:
@@ -530,7 +530,7 @@ def test_graph_execution_run_does_not_record_results_for_failed_steps() -> None:
         raise AssertionError("expected RuntimeError")
 
     assert state.results is not None
-    assert not state.results.has(StepId((0,)))
+    assert not state.results.has(StepPath((0,)))
 
 
 def test_parallel_graph_failure_does_not_request_global_stop() -> None:
@@ -692,7 +692,7 @@ def test_reused_subgraph_mounts_have_distinct_step_instances(
 ) -> None:
     shared_step = Step(
         label="shared",
-        action=lambda run_ctx: str(run_ctx.step_id),
+        action=lambda run_ctx: str(run_ctx.step_path),
     )
     shared_graph = Graph.from_wiring(
         label="shared",
@@ -715,8 +715,8 @@ def test_reused_subgraph_mounts_have_distinct_step_instances(
     )
 
     assert state.results is not None
-    assert state.results.require(StepId((0, 0))).value == "0.0"
-    assert state.results.require(StepId((1, 0))).value == "1.0"
+    assert state.results.require(StepPath((0, 0))).value == "0.0"
+    assert state.results.require(StepPath((1, 0))).value == "1.0"
     with pytest.raises(RuntimeError, match="mounted more than once"):
         plan.require_result(shared_step)
 
@@ -746,7 +746,7 @@ def test_dynamic_subgraph_captures_explicit_result_input() -> None:
     ).run()
 
     assert state.results is not None
-    assert state.results.require(StepId((1, 0))).value == "nested:prepared"
+    assert state.results.require(StepPath((1, 0))).value == "nested:prepared"
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -792,9 +792,9 @@ def test_runtime_condition_true_waits_for_source_step(mode: GraphMode) -> None:
     ).run(options=ThreadGraphRunOptions(workers=1), mode=mode)
 
     assert state.results is not None
-    assert state.results.require(StepId((3,))).value == "miss:built"
-    assert state.executed_steps.index(StepId((2,))) < state.executed_steps.index(
-        StepId((3,))
+    assert state.results.require(StepPath((3,))).value == "miss:built"
+    assert state.executed_steps.index(StepPath((2,))) < state.executed_steps.index(
+        StepPath((3,))
     )
 
 
@@ -955,7 +955,7 @@ def test_runtime_condition_false_does_not_require_source_result(
     ).run(options=ThreadGraphRunOptions(workers=1), mode=mode)
 
     assert state.results is not None
-    assert state.results.require(StepId((3,))).value == "hit"
+    assert state.results.require(StepPath((3,))).value == "hit"
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -1164,7 +1164,7 @@ def test_compiled_skipped_composite_preserves_prerequisite_boundary() -> None:
     )
     GraphExecution(
         graph=graph,
-        execution_state=GraphExecutionState(initial_skip_requests={StepId((1,))}),
+        execution_state=GraphExecutionState(initial_skip_requests={StepPath((1,))}),
     ).run(
         options=ThreadGraphRunOptions(workers=2),
         mode="compiled",
@@ -1282,8 +1282,8 @@ def test_serial_executor_runs_compiled_composite() -> None:
     state = SerialGraphExecutor().execute(GraphExecution(graph=graph).compile())
 
     assert calls == ["run"]
-    assert state.executed_steps == [StepId((0, 0))]
-    assert state.completed_composites == {StepId((0,))}
+    assert state.executed_steps == [StepPath((0, 0))]
+    assert state.completed_composites == {StepPath((0,))}
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -1319,7 +1319,7 @@ def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
     )
 
     assert state.results is not None
-    assert state.results.require(StepId((1, 0))).value == "prepared"
+    assert state.results.require(StepPath((1, 0))).value == "prepared"
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -1543,7 +1543,7 @@ def test_run_freezes_static_conditions_before_execution(mode: GraphMode) -> None
     ).run(options=ThreadGraphRunOptions(workers=1), mode=mode)
 
     assert state.results is not None
-    assert state.results.require(StepId((2,))).value == ("prepare", "shim")
+    assert state.results.require(StepPath((2,))).value == ("prepare", "shim")
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -1581,10 +1581,10 @@ def test_step_when_false_skips_step_and_allows_downstream_continue(
         execution_state=GraphExecutionState(results=GraphResultStore()),
     ).run(options=ThreadGraphRunOptions(workers=1), mode=mode)
 
-    assert state.executed_steps == [StepId((0,)), StepId((2,))]
+    assert state.executed_steps == [StepPath((0,)), StepPath((2,))]
     assert state.results is not None
-    assert not state.results.has(StepId((1,)))
-    assert state.results.require(StepId((2,))).value == "packaged"
+    assert not state.results.has(StepPath((1,)))
+    assert state.results.require(StepPath((2,))).value == "packaged"
 
 
 def test_dynamic_step_when_false_skips_graph_step() -> None:
@@ -1620,10 +1620,10 @@ def test_dynamic_step_when_false_skips_graph_step() -> None:
     ).run(options=ThreadGraphRunOptions(workers=1))
 
     assert nested_calls == []
-    assert state.executed_steps == [StepId((0,)), StepId((2,))]
+    assert state.executed_steps == [StepPath((0,)), StepPath((2,))]
     assert state.results is not None
-    assert not state.results.has(StepId((1, 0)))
-    assert state.results.require(StepId((2,))).value == "packaged"
+    assert not state.results.has(StepPath((1, 0)))
+    assert state.results.require(StepPath((2,))).value == "packaged"
 
 
 def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
@@ -1651,10 +1651,10 @@ def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
         execution_state=GraphExecutionState(results=GraphResultStore()),
     ).run(options=ThreadGraphRunOptions(workers=1), mode="compiled")
 
-    assert state.executed_steps == [StepId((0,)), StepId((2,))]
+    assert state.executed_steps == [StepPath((0,)), StepPath((2,))]
     assert state.results is not None
-    assert not state.results.has(StepId((1, 0)))
-    assert state.results.require(StepId((2,))).value == "packaged"
+    assert not state.results.has(StepPath((1, 0)))
+    assert state.results.require(StepPath((2,))).value == "packaged"
 
 
 def test_compiled_runtime_when_true_activates_composite() -> None:
@@ -1684,13 +1684,13 @@ def test_compiled_runtime_when_true_activates_composite() -> None:
     ).run(options=ThreadGraphRunOptions(workers=1), mode="compiled")
 
     assert state.executed_steps == [
-        StepId((0,)),
-        StepId((1, 0)),
+        StepPath((0,)),
+        StepPath((1, 0)),
     ]
-    assert state.entered_composites == {StepId((1,))}
-    assert state.completed_composites == {StepId((1,))}
+    assert state.entered_composites == {StepPath((1,))}
+    assert state.completed_composites == {StepPath((1,))}
     assert state.results is not None
-    assert state.results.require(StepId((1, 0))).value == "configured"
+    assert state.results.require(StepPath((1, 0))).value == "configured"
 
 
 def test_graph_execution_run_logs_step_skip_by_condition(

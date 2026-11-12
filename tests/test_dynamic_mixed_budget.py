@@ -90,7 +90,9 @@ change(-1)
     assert state["completed"] == 12
     assert state["active"] == 0
     assert 1 <= state["peak"] <= 2
-    native_events = [event for event in events if event.label_path[-1] == "process"]
+    native_events = [
+        event for event in events if event.step_path.labels[-1] == "process"
+    ]
     assert (
         sum(event.state is StepExecutionState.STARTED for event in native_events) == 4
     )

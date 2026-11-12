@@ -24,7 +24,7 @@ from rivlet import Graph, GraphExecution, Step
 ## 设计目标
 
 - `Graph` 只表达声明结构，单次执行状态由 `GraphExecution` 持有
-- 声明期直接引用 Step 对象，挂载后才分配内部 `StepId`
+- 声明期直接引用 Step 对象，挂载后才分配内部 `StepPath`
 - 依赖、条件读取和端口绑定全部显式参与拓扑校验
 - 子图可以组合，但不会被声明 DSL 隐式展开
 - 宿主日志、终端、请求状态和领域流程通过公开端口接入
@@ -70,8 +70,8 @@ from rivlet import Graph, GraphExecution, Step
 - `GraphCompilation`
   - 正式 runtime 使用的执行结构与 composite 边界
 
-声明期身份、展示 label 与运行时 `StepId` 是三层不同语义。调度和结果定位使用
-`StepId`；label 只用于展示。
+声明期身份、展示 label 与运行时 `StepPath` 是三层不同语义。调度和结果定位使用
+`StepPath`；label 只用于展示。
 
 ## 不属于 Graph core 的内容
 

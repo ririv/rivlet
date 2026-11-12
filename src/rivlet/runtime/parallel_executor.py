@@ -26,7 +26,7 @@ def _invoke_thread_action(
 ) -> object:
     thread = threading.current_thread()
     original_name = thread.name
-    thread.name = step_thread_name(ctx.label_path)
+    thread.name = step_thread_name(ctx.step_path.labels)
     try:
         return invoke_sync_action(action, ctx, action_log, inputs)
     finally:

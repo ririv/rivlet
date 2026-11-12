@@ -15,6 +15,7 @@ from rivlet import (
     Step,
     StepControl,
     StepId,
+    StepPath,
     StepRunContext,
     ThreadGraphRunOptions,
 )
@@ -38,7 +39,7 @@ def test_shared_object_reaches_parallel_and_nested_actions(
     def record(ctx: StepRunContext) -> None:
         shared = ctx.shared(Progress)
         assert_type(shared, Progress)
-        shared.complete(str(ctx.step_id))
+        shared.complete(str(ctx.step_path))
 
     async def record_async(ctx: StepRunContext) -> None:
         record(ctx)
@@ -76,8 +77,8 @@ def test_shared_object_reaches_parallel_and_nested_actions(
 
 def test_shared_type_check_is_an_explicit_boundary() -> None:
     context = StepRunContext(
-        step_id=StepId((0,)),
-        label_path=(),
+        step_id=StepId(),
+        step_path=StepPath((0,)),
         control=StepControl(),
         step_log_path=None,
         _shared=Progress(),
@@ -89,8 +90,8 @@ def test_shared_type_check_is_an_explicit_boundary() -> None:
 
 def test_missing_shared_state_is_not_created_implicitly() -> None:
     context = StepRunContext(
-        step_id=StepId((0,)),
-        label_path=(),
+        step_id=StepId(),
+        step_path=StepPath((0,)),
         control=StepControl(),
         step_log_path=None,
     )

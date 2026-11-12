@@ -24,7 +24,7 @@ from rivlet import Graph, GraphExecution, Step
 ## Design goals
 
 `Graph` describes structure; `GraphExecution` owns one execution scope. Declarations
-refer directly to Step objects. Internal `StepId` values are assigned to mounted
+refer directly to Step objects. Internal `StepPath` values are assigned to mounted
 nodes, while labels serve presentation only.
 
 Dependencies, result edges, and port connections participate explicitly in
