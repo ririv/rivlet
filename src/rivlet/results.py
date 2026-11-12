@@ -8,11 +8,10 @@ from .option import Some
 from .runtime.control import GraphExecutionControl
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Mapping
     from pathlib import Path
 
     from .model import Step, StepId, StepLabelPath
-    from .runtime import GraphExecutionState
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,9 +21,7 @@ class GraphScope:
 
 @dataclass(frozen=True, slots=True)
 class StepControl:
-    # 运行控制接口：显式承载 skip 副作用，与只读上下文分离。
-    step_id: StepId
-    _state: GraphExecutionState
+    # action 只读取协作停止状态，不修改其他步骤的调度。
     _execution_control: GraphExecutionControl = field(
         default_factory=GraphExecutionControl, repr=False, kw_only=True
     )
@@ -34,12 +31,6 @@ class StepControl:
 
     def require_running(self) -> None:
         self._execution_control.require_running()
-
-    def skip_step(self, step_id: StepId) -> None:
-        self._state.request_skip(step_id)
-
-    def skip_steps(self, step_ids: Iterable[StepId]) -> None:
-        self._state.request_skips(step_ids)
 
 
 @dataclass(frozen=True, slots=True)

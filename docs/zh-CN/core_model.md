@@ -454,6 +454,9 @@ control 和 shared(Type)。不再提供结果查询、结果视图或作用域�
 StepReadContext 与祖先结果引用已移除；执行外部的
 GraphExecution.require_result 仍可用于查看结果。
 
+StepControl 仅提供协作停止检查，不能跳过其他步骤；流程中的可选步骤使用节点条件声明。
+手动跳过仍由宿主通过 `execution.execution_state.request_skip(step_id)` 请求。
+
 长任务应在自己的循环和外部调用之间协作检查停止状态：
 
 ```python

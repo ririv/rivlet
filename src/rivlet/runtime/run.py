@@ -101,8 +101,6 @@ class CompiledGraphRun:
             step_id=step.id,
             label_path=context.label_path,
             control=StepControl(
-                step_id=step.id,
-                _state=state,
                 _execution_control=execution_control,
             ),
             step_log_path=step_log_path,

@@ -16,7 +16,8 @@ target.wire(
 ```
 
 `Graph.from_wiring()` 将其归一化为 Edge，不创建隐藏 hook 或修改运行时拓扑。
-显式 skip 仍可使用，但属于图结构的可选依赖应直接声明，不应藏在 action 副作用里。
+宿主仍可显式请求 skip，但 StepRunContext.control 不再提供跳过操作。
+属于图结构的可选依赖应直接声明，不应藏在 action 副作用里。
 
 ## 两类条件
 

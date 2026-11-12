@@ -378,6 +378,10 @@ control and shared(Type). It has no result lookup methods, result view or
 scope-index escape hatch. StepReadContext and ancestor result references are
 removed. External result inspection through GraphExecution.require_result remains.
 
+StepControl only exposes cooperative stop checks. It cannot skip other steps;
+declare optional workflow participation through node conditions. Explicit skip
+requests remain a host operation through `execution.execution_state.request_skip(step_id)`.
+
 Long-running actions can call `ctx.control.stop_requested()` or
 `ctx.control.require_running()` between iterations and external calls:
 

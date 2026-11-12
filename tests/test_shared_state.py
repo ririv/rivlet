@@ -18,7 +18,6 @@ from rivlet import (
     StepRunContext,
     ThreadGraphRunOptions,
 )
-from rivlet.runtime import GraphExecutionState
 
 
 @dataclass
@@ -79,7 +78,7 @@ def test_shared_type_check_is_an_explicit_boundary() -> None:
     context = StepRunContext(
         step_id=StepId((0,)),
         label_path=(),
-        control=StepControl(StepId((0,)), GraphExecutionState()),
+        control=StepControl(),
         step_log_path=None,
         _shared=Progress(),
     )
@@ -92,7 +91,7 @@ def test_missing_shared_state_is_not_created_implicitly() -> None:
     context = StepRunContext(
         step_id=StepId((0,)),
         label_path=(),
-        control=StepControl(StepId((0,)), GraphExecutionState()),
+        control=StepControl(),
         step_log_path=None,
     )
     with pytest.raises(RuntimeError, match="no shared state was provided"):

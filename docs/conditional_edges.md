@@ -18,9 +18,9 @@ target.wire(
 ```
 
 Graph.from_wiring normalizes this into an Edge. No hidden hook or runtime
-topology mutation is involved. Explicit skip operations remain available, but
-structural optional dependencies should be visible in the graph rather than hidden
-inside action side effects.
+topology mutation is involved. Explicit skip requests remain available to the host,
+not through StepRunContext.control. Structural optional dependencies should be
+visible in the graph rather than hidden inside action side effects.
 
 ## Two kinds of conditions
 
