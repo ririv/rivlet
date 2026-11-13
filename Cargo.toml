@@ -2,6 +2,7 @@
 members = [
     "crates/action",
     "crates/core",
+    "crates/execution",
     "crates/graph",
     "crates/python",
     "crates/topology",

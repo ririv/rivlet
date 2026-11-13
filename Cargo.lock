@@ -7,6 +7,15 @@ name = "action"
 version = "0.3.0"
 
 [[package]]
+name = "execution"
+version = "0.3.0"
+dependencies = [
+ "action",
+ "graph",
+ "rivlet",
+]
+
+[[package]]
 name = "graph"
 version = "0.3.0"
 dependencies = [
