@@ -165,6 +165,11 @@ uses `compilation.node(id)` to locate each dispatched Rust leaf's action. Compos
 are never submitted as no-op actions. `Graph::compile()` retains the actual root;
 `GraphStructure::compile_structure()` compiles a body without inventing a root action.
 
+The workspace `execution` crate also provides a composed synchronous
+`Execution::new(compilation, options).run()` entry. It runs this exact Compilation
+without recompiling; low-level hosts may still drive session/worker APIs directly.
+See [running Rust graphs](./rust-execution.md) for complete examples and outcomes.
+
 The Python adapter imports this projection into the same compiler call as Python
 nodes. Python can inspect hierarchy/ports and explicitly forward or connect them;
 it does not obtain Rust action objects. Tree/Mermaid, structural export, logs,

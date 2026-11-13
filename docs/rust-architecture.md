@@ -15,6 +15,9 @@ integration.
 - `crates/graph` exposes actual Rust Leaf/Graph nodes, the common Node trait,
   reusable GraphStructure, typed interfaces/edges, and GraphError.
   Adapters connect complete graphs rather than exposing individual actions to Python.
+- `crates/execution` composes graph/action/core into a single-use synchronous Rust
+  Execution with typed terminal outcomes. It depends on no Python or third-party
+  runtime; declarations and the Python adapter do not depend on it.
 - `crates/topology` uses only the Rust standard library for integer nodes,
   adjacency indexes, and DAG algorithms. It knows nothing about actions or domains.
 - `crates/core` (package `rivlet`) depends on the workspace topology crate,
@@ -76,6 +79,10 @@ ports and calls the existing GraphDeclaration compiler. Python's RustGraphStruct
 wraps that opaque body, composed into a Python Graph for mixed declarations.
 Native composites have no action handle, not a synthetic no-op. See the
 [Rust declaration API](./rust-graphs.md#rust-declaration-api) for examples and limits.
+
+Pure Rust hosts can use [Execution::run](./rust-execution.md) instead of writing
+their own session/worker loop. It uses the same core session and action executor;
+the mixed-language Python driver remains independent.
 
 All production paths share the same compiler and session implementation:
 

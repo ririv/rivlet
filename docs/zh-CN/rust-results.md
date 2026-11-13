@@ -65,6 +65,10 @@ let edge = Edge::results(
 两个 Graph 共享同一 GraphStructure 时，挂载索引与结果仍然独立，不能只用声明身份
 作为结果表的 key。结果保存在各自执行 session 的编译节点索引空间内。
 
+workspace 的 `execution` crate 为纯 Rust 宿主提供这一结果表和驱动。
+[Execution::run](./rust-execution.md) 返回绑定对应 Compilation 的只读终态结果；
+定制宿主仍可自行组合低阶 API。
+
 `Edge::new` 不传值；`Edge::ports` 只等待就绪。不会根据参数名推断依赖，也没有
 藏在 context 查询里的数据依赖。
 

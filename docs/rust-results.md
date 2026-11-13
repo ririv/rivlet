@@ -71,6 +71,10 @@ and is checked independently. Two graph nodes sharing a GraphStructure retain
 separate mounted indexes and results; declaration identity alone is never a store key.
 The executor must retain results within their execution session/index namespace.
 
+The workspace `execution` crate supplies that store and driver for pure Rust
+hosts. [Execution::run](./rust-execution.md) returns immutable terminal node
+outcomes bound to their Compilation; custom hosts may still compose the lower-level APIs.
+
 `Edge::new` does not transport values. `Edge::ports` establishes readiness only.
 There is no inference from callable parameter names or hidden dependency via context.
 

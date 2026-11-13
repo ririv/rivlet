@@ -157,6 +157,10 @@ let wrapper = Graph::new("wrapper", Arc::new(GraphStructure::with_interface(
 composite 不会作为空 action 提交。`Graph::compile()` 保留真实根节点；
 `GraphStructure::compile_structure()` 编译结构体本身，不制造根 action。
 
+workspace 的 `execution` crate 还提供组合好的同步入口
+`Execution::new(compilation, options).run()`，直接执行这份 Compilation，不重新编译。
+低阶宿主仍可自行驱动 session/worker。完整示例与结果规则见[执行 Rust 图](./rust-execution.md)。
+
 Python adapter 把该投影与 Python 节点放进同一次编译。Python 可以查看结构和端口，
 显式转发或连接端口，但不能拿到 Rust action 对象。树图、Mermaid、结构导出、日志、
 事件、跳过和局部失败传播均保留原生子图边界。私有进程/组合导入函数只是 adapter

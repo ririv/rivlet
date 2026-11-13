@@ -17,6 +17,9 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
 - `crates/graph`
   - 提供真实 Rust `Leaf/Graph`、共同 `Node` trait、`GraphStructure`、端口/边与错误
   - 原生 adapter 以整图为边界接入，不向 Python 暴露单个 action
+- `crates/execution`
+  - 组合 graph/action/core，提供单次使用的同步 Rust Execution 和类型化节点终态
+  - 不依赖 Python 或第三方 runtime；图声明和 Python adapter 不依赖它
 - `crates/topology`
   - 只依赖 Rust 标准库，持有整数节点、邻接索引和 DAG 算法
   - 不认识 action、条件或宿主领域
@@ -84,6 +87,9 @@ Rust graph::GraphStructure 持有封闭的 NodeKind（Leaf/Graph）联合。Grap
 GraphDeclaration 编译器。Python 的 RustGraphStructure 只是该不透明结构的适配包装，
 混合语言时由 Python Graph 节点组合。原生 composite 没有 action handle，不使用空动作
 占位。写法与限制见 [Rust 声明 API](./rust-graphs.md#rust-声明-api)。
+
+纯 Rust 宿主可以使用 [Execution::run](./rust-execution.md)，无需自己写 session/worker
+循环。它复用同一 core session 和 action executor，Python 混合语言 driver 保持独立。
 
 所有正式执行路径共享同一套 Rust 声明编译器和 execution session 实现：
 
