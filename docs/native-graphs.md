@@ -9,13 +9,15 @@ Python actions.
 
 ```text
 Python Graph / Leaf
-    ├── Python Leaf ──────────┐
-    └── Graph(NativeGraphStructure)           │
-          └── Rust Leaf / Arc      │
-                                   ▼
-                      Rust CompiledExecutionGraph
-                          ├── Python leaf → Python driver
-                          └── Rust leaf   → Rust worker
+    ├── Python Leaf
+    └── Graph(NativeGraphStructure)
+          ├── Rust Leaf
+          └── Rust Graph → Rust Leaf / Graph
+                │
+                ▼
+    Rust CompiledExecutionGraph
+        ├── Python leaf → Python driver
+        └── Rust leaf   → Rust worker
 ```
 
 Python holds an opaque NativeGraphStructure, not individually callable Rust Leaf or
@@ -78,7 +80,7 @@ not object fields or implicit serialization.
 ## Rust crates
 
 - action: native action trait, execution context, errors, and workers.
-- graph: Rust Leaf, graph-owned arcs, GraphStructure, and GraphError.
+- graph: Rust Leaf/Graph nodes, Node trait, GraphStructure, typed ports, and GraphError.
 - topology: integer nodes and pure graph algorithms.
 - core: language-independent declaration compilation and execution sessions.
 - python: integration of Python Graph and complete NativeGraphStructure declarations.
@@ -90,8 +92,86 @@ once. This preserves package boundaries without routing each action through Pyth
 
 ## Rust declaration API
 
-The graph crate currently exposes flat Leaf/GraphStructure declarations and
-compile_structure(), not a second scheduler. GraphStructure is the Rust type;
-NativeGraphStructure is the Python-visible opaque wrapper. The Native prefix is
-not part of the Rust graph API. Hierarchical Graph nodes and named interfaces in
-this Rust declaration layer remain a separate extension, not a feature of this rename.
+The `graph` crate exposes actual `Leaf` and `Graph` nodes. Both compose common
+identity/label metadata and implement `Node`; `NodeKind` is the closed
+`Leaf | Graph` enum. The trait does not introduce implementation inheritance or
+arbitrary executable node kinds. Only `Graph` has an interface.
+
+```rust
+use std::sync::Arc;
+use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
+use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf};
+
+struct Work;
+impl NativeAction for Work {
+    fn execute(&self, _: &NativeActionContext) -> Result<(), NativeActionError> {
+        println!("work");
+        Ok(())
+    }
+}
+
+fn workflow() -> Result<graph::Compilation, graph::GraphError> {
+    let task = Leaf::new("task", NativeActionHandle::new(Work))?;
+    let body = Arc::new(GraphStructure::with_interface(
+        [task.clone().into()], [],
+        GraphInterface::default()
+            .input("apply", [&task])?
+            .output("ready", &task)?,
+    )?);
+    let left = Graph::new("left", Arc::clone(&body))?;
+    let right = Graph::new("right", body)?;
+    let edge = Edge::ports(
+        left.interface().output("ready")?,
+        right.interface().input("apply")?,
+    );
+    Graph::new("root", Arc::new(GraphStructure::new(
+        [left.into(), right.into()], [edge],
+    )?))?.compile()
+}
+```
+
+`Work` is any Rust implementation of the existing action trait, not restricted to
+processes. `Edge::new(&a, &b)` waits for complete nodes; `Edge::ports(output, input)`
+waits for the specific exported provider and constrains all exported consumers.
+An input can fan out. A consumer can therefore start before the provider's entire
+graph finishes. Interleaved graph dependencies are checked after resolving actual
+endpoints, rather than approximated as component-level cycles.
+
+Forward a child's ports explicitly when constructing an enclosing structure:
+
+```rust,ignore
+let interface = GraphInterface::default()
+    .input("apply", [child.interface().input("apply")?])?
+    .output("ready", child.interface().output("ready")?)?;
+let wrapper = Graph::new("wrapper", Arc::new(GraphStructure::with_interface(
+    [child.into()], [], interface,
+)?))?;
+```
+
+Local references must belong directly to that structure; use child ports for
+descendants. Port handles retain their graph identity and direction. Missing or
+ambiguous membership is an error, never guessed. Cloning a node preserves its
+declaration identity; constructing two `Graph` nodes sharing an `Arc<GraphStructure>`
+creates distinct mounts. Repeated inner identities are disambiguated by mounted
+paths. Repeating the same node twice in one structure is rejected.
+
+`Projection` collects mounted scopes, resolved ports, metadata, and action handles;
+it calls the existing core `GraphDeclaration` compiler. `Compilation` holds that
+exact compiled graph and its side table. The host drives `ExecutionSession` and
+uses `compilation.node(id)` to locate each dispatched Rust leaf's action. Composites
+are never submitted as no-op actions. `Graph::compile()` retains the actual root;
+`GraphStructure::compile_structure()` compiles a body without inventing a root action.
+
+The Python adapter imports this projection into the same compiler call as Python
+nodes. Python can inspect hierarchy/ports and explicitly forward or connect them;
+it does not obtain Rust action objects. Tree/Mermaid, structural export, logs,
+events, skips, and failure isolation preserve real native graph boundaries. The
+private process/composition importer functions are adapter boundaries, not a second
+public Python declaration API.
+
+Rust result-value transport and Rust predicate execution are **not** implemented
+by this declaration layer. Readiness ports are not typed value channels. A Python
+result edge can observe a successful native leaf as `Some(None)`; sending Python
+result arguments to a native leaf is rejected. An outer Python Graph may still
+have its usual runtime/static conditions. No opaque closure or implicit
+serialization is added to core.

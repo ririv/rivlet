@@ -8,15 +8,15 @@ Rust `CompiledExecutionGraph`，共享依赖、层级、失败传播和并发预
 
 ```text
 Python Graph / Leaf
-        │
-        ├── Python Leaf ───────────────┐
-        │                                    │
-        └── Graph(NativeGraphStructure)                │
-                └── Rust Leaf / Arc          │
-                                             ▼
-                               Rust CompiledExecutionGraph
-                                  ├── Python leaf → Python driver
-                                  └── Rust leaf   → Rust worker
+    ├── Python Leaf
+    └── Graph(NativeGraphStructure)
+          ├── Rust Leaf
+          └── Rust Graph → Rust Leaf / Graph
+                │
+                ▼
+    Rust CompiledExecutionGraph
+        ├── Python leaf → Python driver
+        └── Rust leaf   → Rust worker
 ```
 
 Python 只看见一个不透明的 `NativeGraphStructure`。它不能取得并逐个调用其中的 Rust `Leaf`
@@ -79,7 +79,7 @@ graph = (prepare >> compile >> install).graph()
 原生端口按职责拆分：
 
 - `crates/action`：Rust action trait、执行上下文、错误和 worker。
-- `crates/graph`：Rust `Leaf`、graph-owned arcs、`GraphStructure` 与 `GraphError`。
+- `crates/graph`：Rust `Leaf/Graph` 节点、`Node` trait、`GraphStructure`、有方向的端口与错误。
 - `crates/topology`：整数节点与纯拓扑算法。
 - `crates/core`：语言无关的声明编译和 execution session。
 - `crates/python`：把 Python `Graph` 和整体 `NativeGraphStructure` 接入同一编译过程。
@@ -90,7 +90,76 @@ adapter 应输出一份批量、稳定的原生图规格，再由 graph extensio
 
 ## Rust 声明 API
 
-graph crate 当前提供扁平 Leaf/GraphStructure 声明和 compile_structure()，不是第二套
-调度器。GraphStructure 是 Rust 类型，NativeGraphStructure 是 Python 不透明包装；
-Rust 图 API 不再加 Native 前缀。高层 Rust Graph 节点和具名接口属于后续扩展，不是
-这次重命名已经实现的功能。
+`graph` crate 提供真实的 `Leaf` 和 `Graph` 节点，二者内部组合共同身份和 label，
+实现 `Node` trait；`NodeKind` 是封闭的 `Leaf | Graph` 枚举。协议不引入实现继承，
+也不意味着可以任意扩展可执行节点类型。只有 `Graph` 可以获取接口。
+
+```rust
+use std::sync::Arc;
+use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
+use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf};
+
+struct Work;
+impl NativeAction for Work {
+    fn execute(&self, _: &NativeActionContext) -> Result<(), NativeActionError> {
+        println!("work");
+        Ok(())
+    }
+}
+
+fn workflow() -> Result<graph::Compilation, graph::GraphError> {
+    let task = Leaf::new("task", NativeActionHandle::new(Work))?;
+    let body = Arc::new(GraphStructure::with_interface(
+        [task.clone().into()], [],
+        GraphInterface::default()
+            .input("apply", [&task])?
+            .output("ready", &task)?,
+    )?);
+    let left = Graph::new("left", Arc::clone(&body))?;
+    let right = Graph::new("right", body)?;
+    let edge = Edge::ports(
+        left.interface().output("ready")?,
+        right.interface().input("apply")?,
+    );
+    Graph::new("root", Arc::new(GraphStructure::new(
+        [left.into(), right.into()], [edge],
+    )?))?.compile()
+}
+```
+
+`Work` 可以是现有 action trait 的任意 Rust 实现，不限于进程。
+`Edge::new(&a, &b)` 等待完整节点；`Edge::ports(output, input)` 只等待公开的具体
+提供方，并约束该输入的所有消费节点。输入可以 fan-out，消费方不必等提供方整个
+子图结束。图间交错接线按真实端点校验，不把组件级环直接当作执行图环。
+
+外层显式转发子图端口：
+
+```rust,ignore
+let interface = GraphInterface::default()
+    .input("apply", [child.interface().input("apply")?])?
+    .output("ready", child.interface().output("ready")?)?;
+let wrapper = Graph::new("wrapper", Arc::new(GraphStructure::with_interface(
+    [child.into()], [], interface,
+)?))?;
+```
+
+局部节点引用必须直接属于当前结构；更深层的节点通过子图端口引用。端口引用保留
+具体图身份和输入/输出方向，找不到或归属不明确就报错，不猜测。clone 节点保留声明
+身份；两次 `Graph::new` 共享同一 `Arc<GraphStructure>` 会创建不同挂载。内层重复的
+声明身份由挂载路径区分；同一结构重复放入同一节点则被拒绝。
+
+`Projection` 收集挂载作用域、已解析端口、元信息和 action handle，再调用现有 core
+`GraphDeclaration` 编译器。`Compilation` 保留这一份编译图及其对应侧表。宿主驱动
+`ExecutionSession`，通过 `compilation.node(id)` 找到被调度叶子的 Rust action。
+composite 不会作为空 action 提交。`Graph::compile()` 保留真实根节点；
+`GraphStructure::compile_structure()` 编译结构体本身，不制造根 action。
+
+Python adapter 把该投影与 Python 节点放进同一次编译。Python 可以查看结构和端口，
+显式转发或连接端口，但不能拿到 Rust action 对象。树图、Mermaid、结构导出、日志、
+事件、跳过和局部失败传播均保留原生子图边界。私有进程/组合导入函数只是 adapter
+边界，不是第二套公开 Python 声明 API。
+
+本轮**没有实现** Rust 结果值传输和 Rust predicate 执行。就绪端口不是类型化的值通道；
+Python 结果边可以把原生叶子的成功观察为 `Some(None)`，但不能向原生叶子传 Python
+结果参数，此类接线会被拒绝。外层 Python Graph 仍可使用既有运行时/静态条件，
+不会向 core 添加不透明闭包或隐式序列化。

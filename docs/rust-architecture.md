@@ -2,7 +2,7 @@
 
 English | [简体中文](./zh-CN/rust-architecture.md)
 
-The public declaration API is Python. Production execution uses a Rust declaration
+Declaration APIs are available in Python and Rust. Production execution uses a Rust declaration
 compiler and scheduling state machine. Rust owns the compiled graph, scheduling
 indexes, and session state; Python retains arbitrary callables, results, and host
 integration.
@@ -11,7 +11,8 @@ integration.
 
 - `crates/action` defines NativeAction, stable errors, and process actions without
   Python callbacks. It does not depend on PyO3, Tokio, or Graph core.
-- `crates/graph` exposes Rust Leaf, graph-owned arcs, GraphStructure, and GraphError.
+- `crates/graph` exposes actual Rust Leaf/Graph nodes, the common Node trait,
+  reusable GraphStructure, typed interfaces/edges, and GraphError.
   Adapters connect complete graphs rather than exposing individual actions to Python.
 - `crates/topology` uses only the Rust standard library for integer nodes,
   adjacency indexes, and DAG algorithms. It knows nothing about actions or domains.
@@ -50,10 +51,13 @@ Python Leaf/Graph are concrete nodes; Node is their protocol, not a wrapper.
 GraphStructure holds the reusable body. PyO3 collects these nodes directly into
 existing Rust leaf/composite variants, without a second scheduler or implementation
 inheritance. Rust NodeIdentity is the process-local declaration identity; indexed
-NodeId is the compiler/topology reference. Rust graph::GraphStructure holds graph::Leaf
-actions. Python's NativeGraphStructure wraps that opaque body, composed into a
-Python Graph node for mixed-language declarations. The Rust declaration API is
-currently flat; a high-level Rust Graph node and named interfaces are not yet exposed.
+NodeId is the compiler/topology reference. Rust graph::GraphStructure holds a closed
+NodeKind union of Leaf/Graph. A Graph has its own identity and typed interface,
+while its body can be shared with Arc. Projection resolves mounted scopes and
+ports and calls the existing GraphDeclaration compiler. Python's NativeGraphStructure
+wraps that opaque body, composed into a Python Graph for mixed declarations.
+Native composites have no action handle, not a synthetic no-op. See the
+[Rust declaration API](./native-graphs.md#rust-declaration-api) for examples and limits.
 
 All production paths share the same compiler and session implementation:
 
@@ -119,7 +123,7 @@ roots, and children declarations:
 - Every node belongs to one GraphId.
 
 Rust validates parent/child graph consistency, derives owners from membership, and
-derives roots and composite children from owners. str bindings are separate
+derives roots and composite children from owners. Port connections are separate
 inputs lowered into ordinary prerequisites. Python presentation recovers final
 prerequisites rather than implementing another rewrite rule.
 

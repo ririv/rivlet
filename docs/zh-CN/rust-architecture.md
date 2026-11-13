@@ -2,7 +2,7 @@
 
 [English](../rust-architecture.md) | 简体中文
 
-`rivlet` 保留 Python 声明 API，正式执行使用 Rust 声明编译器和调度状态机。
+`rivlet` 提供 Python 与 Rust 声明 API，正式执行共享 Rust 声明编译器和调度状态机。
 Rust 持有完整的编译图、调度索引和单次执行状态；Python 保留任意 callable、
 结果对象与宿主集成。
 
@@ -15,7 +15,7 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 提供不回调 Python 的进程 action
   - 不依赖 PyO3、Tokio 或 Graph core
 - `crates/graph`
-  - 提供 Rust `Leaf`、graph-owned arcs、`GraphStructure` 与 `GraphError`
+  - 提供真实 Rust `Leaf/Graph`、共同 `Node` trait、`GraphStructure`、端口/边与错误
   - 原生 adapter 以整图为边界接入，不向 Python 暴露单个 action
 - `crates/topology`
   - 只依赖 Rust 标准库，持有整数节点、邻接索引和 DAG 算法
@@ -62,9 +62,11 @@ executor adapter crate
 Leaf/Graph 是真实节点，Node 只是协议，不是包装；GraphStructure 保存复用结构。
 PyO3 直接收集节点并 lower 到现有 Rust leaf/composite 和类型，不增加第二套调度器
 或实现继承。Rust NodeIdentity 是进程内声明身份，整数 NodeId 是编译/拓扑索引。
-Rust graph::GraphStructure 持有 graph::Leaf 动作；Python 的 NativeGraphStructure
-只是该不透明结构的适配包装，混合语言时由 Python Graph 节点组合。Rust 声明 API
-目前仍是扁平结构，尚未提供高层 Rust Graph 节点与具名接口。
+Rust graph::GraphStructure 持有封闭的 NodeKind（Leaf/Graph）联合。Graph 拥有独立身份
+和有方向的接口，结构通过 Arc 复用；Projection 解析挂载作用域与端口后，调用现有
+GraphDeclaration 编译器。Python 的 NativeGraphStructure 只是该不透明结构的适配包装，
+混合语言时由 Python Graph 节点组合。原生 composite 没有 action handle，不使用空动作
+占位。写法与限制见 [Rust 声明 API](./native-graphs.md#rust-声明-api)。
 
 所有正式执行路径共享同一套 Rust 声明编译器和 execution session 实现：
 
