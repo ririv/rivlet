@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 
 from ..compile import (
     CompiledComposite,
-    CompiledNativeLeaf,
     CompiledPythonLeaf,
+    CompiledRustLeaf,
     GraphCompilation,
 )
 from ..errors import GraphError
@@ -28,7 +28,7 @@ from .control import ExecutionStopped
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from .._native import NativeExecutionEvent, _NativeResult
+    from .._native import EncodedExecutionEvent, _RustResult
     from ..model import NodePath
     from ..observe import GraphObserver
     from .control import ExecutionControl
@@ -53,14 +53,14 @@ class CompiledExecutionHost:
     ) -> None:
         self.compilation = compilation
         self.state = state
-        self._native_import_sources = frozenset(
-            compilation._native_actions.python_sources()
+        self._rust_import_sources = frozenset(
+            compilation._rust_actions.python_sources()
         )
         # inputs 是显式的数据依赖；执行生产者前即开启记录，无需调用方另配 store。
         # 最多检查 C 个条件和 V 个步骤，O(C + V) 时间、O(1) 额外空间。
         if (
-            self._native_import_sources
-            or any(condition.inputs for condition in compilation._native_conditions)
+            self._rust_import_sources
+            or any(condition.inputs for condition in compilation._execution_conditions)
             or any(
                 isinstance(step, CompiledPythonLeaf) and step.inputs
                 for step in compilation.steps
@@ -73,16 +73,16 @@ class CompiledExecutionHost:
         self.record_composites_as_steps = record_composites_as_steps
         # 初始化一次遍历 V 个 native 节点，时间/空间均为 O(V)；之后每次
         # advance 只处理尚未转发的新增请求 ΔS，不再扫描整张图。
-        self._native_index_by_step_path = {
+        self._execution_index_by_node_path = {
             node.path: index
-            for index, node in enumerate(self.compilation._native_nodes)
+            for index, node in enumerate(self.compilation._execution_nodes)
         }
         self._forwarded_skip_step_paths: set[NodePath] = set()
         self._failures: list[Exception] = []
         self._first_failure: NodePath | None = None
         self._dynamic_failure_sources: dict[int, NodePath] | None = None
         self.state._register_event_paths(
-            (node.path, node.context.node_id) for node in compilation._native_nodes
+            (node.path, node.context.node_id) for node in compilation._execution_nodes
         )
 
     def skipped_nodes(self) -> list[int]:
@@ -90,7 +90,7 @@ class CompiledExecutionHost:
         for node_path in (
             self.state.skip_request_ids() - self._forwarded_skip_step_paths
         ):
-            index = self._native_index_by_step_path.get(node_path)
+            index = self._execution_index_by_node_path.get(node_path)
             if index is None:
                 continue
             self._forwarded_skip_step_paths.add(node_path)
@@ -119,7 +119,7 @@ class CompiledExecutionHost:
         return resolutions
 
     def record_failure(self, node: int, error: Exception) -> None:
-        path = "/".join(self.compilation._native_node(node).path.labels)
+        path = "/".join(self.compilation._execution_node(node).path.labels)
         error.add_note(f"GraphStructure node: {path}")
         logger.error("GraphStructure node failed: %s: %s", path, error)
         self._failures.append(error)
@@ -144,30 +144,30 @@ class CompiledExecutionHost:
         if self._failures:
             raise ExceptionGroup("GraphStructure execution failed", self._failures)
 
-    def native_values(
+    def rust_input_values(
         self, completed: list[tuple[int, bool]]
     ) -> list[tuple[int, object]]:
-        if not self._native_import_sources:
+        if not self._rust_import_sources:
             return []
         results = self.state.results
         if results is None:
             raise GraphError("native inputs require an enabled result store")
         return [
-            (node, results.require(self.compilation._native_node(node).path).value)
+            (node, results.require(self.compilation._execution_node(node).path).value)
             for node, success in completed
-            if success and node in self._native_import_sources
+            if success and node in self._rust_import_sources
         ]
 
-    def retains_native_results(self) -> bool:
+    def retains_rust_results(self) -> bool:
         return self.state.results is not None
 
     def apply_events(
         self,
-        events: list[NativeExecutionEvent],
-        native_results: Sequence[tuple[int, _NativeResult]] = (),
+        events: list[EncodedExecutionEvent],
+        rust_results: Sequence[tuple[int, _RustResult]] = (),
     ) -> None:
-        for node, value in native_results:
-            self.state.record_result(self._require_native_step(node).path, value)
+        for node, value in rust_results:
+            self.state.record_result(self._require_rust_leaf(node).path, value)
         for event in events:
             match event:
                 case (0, node, value):
@@ -179,13 +179,13 @@ class CompiledExecutionHost:
                 case (3, node):
                     self.complete_composite(node)
                 case (4, node):
-                    node_path = self.compilation._native_node(node).path
+                    node_path = self.compilation._execution_node(node).path
                     self.state.record_skipped_step(node_path)
                 case (5, node):
-                    step = self._require_native_step(node)
+                    step = self._require_rust_leaf(node)
                     self.state.record_step(step.path, step.path.labels)
                 case (6, node):
-                    step = self._require_native_step(node)
+                    step = self._require_rust_leaf(node)
                     self.state.complete_step(step.path)
                 case (7, node):
                     node_path = self._failure_step(node)
@@ -201,7 +201,9 @@ class CompiledExecutionHost:
                 case (8, node, source):
                     self.state.record_blocked_step(
                         self._failure_step(node),
-                        BlockedByDependency(self.compilation._native_node(source).path),
+                        BlockedByDependency(
+                            self.compilation._execution_node(source).path
+                        ),
                     )
                 case (9, node, condition):
                     self.state.record_blocked_step(
@@ -213,18 +215,18 @@ class CompiledExecutionHost:
                         self._failure_step(node),
                         BlockedByConditionInput(
                             NodeConditionSite(condition),
-                            self.compilation._native_node(source).path,
+                            self.compilation._execution_node(source).path,
                         ),
                     )
                 case (11, node, source):
                     self.state.record_blocked_step(
                         self._failure_step(node),
-                        BlockedByParent(self.compilation._native_node(source).path),
+                        BlockedByParent(self.compilation._execution_node(source).path),
                     )
                 case (12, node, source):
                     self.state.record_failed_step(
                         self._failure_step(node),
-                        SubgraphFailed(self.compilation._native_node(source).path),
+                        SubgraphFailed(self.compilation._execution_node(source).path),
                     )
                 case (13, node, condition, prerequisite):
                     self.state.record_blocked_step(
@@ -232,7 +234,7 @@ class CompiledExecutionHost:
                         BlockedByCondition(
                             EdgeConditionSite(
                                 condition,
-                                self.compilation._native_node(prerequisite).path,
+                                self.compilation._execution_node(prerequisite).path,
                             )
                         ),
                     )
@@ -242,23 +244,23 @@ class CompiledExecutionHost:
                         BlockedByConditionInput(
                             EdgeConditionSite(
                                 condition,
-                                self.compilation._native_node(prerequisite).path,
+                                self.compilation._execution_node(prerequisite).path,
                             ),
-                            self.compilation._native_node(source).path,
+                            self.compilation._execution_node(source).path,
                         ),
                     )
                 case _:
                     raise GraphError(f"unknown native execution event: {event}")
 
     def _failure_step(self, node: int) -> NodePath:
-        node_path = self.compilation._native_node(node).path
+        node_path = self.compilation._execution_node(node).path
         if self._first_failure is None:
             self._first_failure = node_path
         return node_path
 
     def evaluate_condition(self, node: int, condition: int) -> bool:
-        compiled_node = self.compilation._native_node(node)
-        compiled_condition = self.compilation._native_condition(condition)
+        compiled_node = self.compilation._execution_node(node)
+        compiled_condition = self.compilation._execution_condition(condition)
         # 编译引用已经绑定到具体挂载；每个输入只查询一次，不创建条件上下文。
         results = self.state.results
         if compiled_condition.inputs and results is None:
@@ -279,12 +281,12 @@ class CompiledExecutionHost:
 
     def record_condition(self, node: int, value: bool) -> None:
         self.state.record_runtime_condition(
-            self.compilation._native_node(node).path,
+            self.compilation._execution_node(node).path,
             value,
         )
 
     def record_condition_skip(self, node: int) -> None:
-        compiled_node = self.compilation._native_node(node)
+        compiled_node = self.compilation._execution_node(node)
         condition = compiled_node.condition
         if condition is None:
             raise GraphError(
@@ -322,7 +324,7 @@ class CompiledExecutionHost:
         )
 
     def run_leaf(self, node: int) -> LeafInvocation:
-        compiled_node = self.compilation._native_node(node)
+        compiled_node = self.compilation._execution_node(node)
         if not isinstance(compiled_node, CompiledPythonLeaf):
             raise GraphError(
                 f"native scheduler submitted non-leaf node: {compiled_node.path}"
@@ -345,7 +347,7 @@ class CompiledExecutionHost:
             self.execution_control.require_running()
 
     def _require_composite(self, node: int) -> CompiledComposite:
-        compiled_node = self.compilation._native_node(node)
+        compiled_node = self.compilation._execution_node(node)
         if not isinstance(compiled_node, CompiledComposite):
             raise GraphError(
                 "native scheduler emitted composite lifecycle for leaf: "
@@ -353,9 +355,9 @@ class CompiledExecutionHost:
             )
         return compiled_node
 
-    def _require_native_step(self, node: int) -> CompiledNativeLeaf:
-        compiled_node = self.compilation._native_node(node)
-        if not isinstance(compiled_node, CompiledNativeLeaf):
+    def _require_rust_leaf(self, node: int) -> CompiledRustLeaf:
+        compiled_node = self.compilation._execution_node(node)
+        if not isinstance(compiled_node, CompiledRustLeaf):
             raise GraphError(
                 f"native action lifecycle references non-native node: {compiled_node.path}"
             )

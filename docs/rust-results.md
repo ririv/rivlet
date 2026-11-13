@@ -1,6 +1,6 @@
-# Native result values
+# Rust result values
 
-English | [简体中文](./zh-CN/native-results.md)
+English | [简体中文](./zh-CN/rust-results.md)
 
 Result edges both wait for a source and bind its result to a positional action
 argument. Payloads belong to the executor, not the language-independent scheduler.
@@ -10,34 +10,34 @@ There is no implicit JSON conversion and no result lookup added to action contex
 
 ```rust
 use std::sync::Arc;
-use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
+use action::{Action, ActionContext, ActionError, ActionHandle};
 use graph::{Edge, GraphStructure, Leaf};
 
 struct Plan { count: i64 }
 struct Design;
-impl NativeAction for Design {
+impl Action for Design {
     type Inputs = ();
     type Output = Plan;
-    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<Plan, NativeActionError> {
+    fn execute(&self, _: &ActionContext, (): ()) -> Result<Plan, ActionError> {
         Ok(Plan { count: 21 })
     }
 }
 
 struct Apply;
-impl NativeAction for Apply {
+impl Action for Apply {
     type Inputs = (Option<Arc<Plan>>,);
     type Output = i64;
-    fn execute(&self, _: &NativeActionContext, (plan,): Self::Inputs)
-        -> Result<i64, NativeActionError>
+    fn execute(&self, _: &ActionContext, (plan,): Self::Inputs)
+        -> Result<i64, ActionError>
     {
-        let plan = plan.ok_or_else(|| NativeActionError::new("plan was skipped"))?;
+        let plan = plan.ok_or_else(|| ActionError::new("plan was skipped"))?;
         Ok(plan.count * 2)
     }
 }
 
 fn workflow() -> Result<graph::Compilation, graph::GraphError> {
-    let design = Leaf::new("design", NativeActionHandle::new(Design))?;
-    let apply = Leaf::new("apply", NativeActionHandle::new(Apply))?;
+    let design = Leaf::new("design", ActionHandle::new(Design))?;
+    let apply = Leaf::new("apply", ActionHandle::new(Apply))?;
     let results = Edge::results([&design], &apply)?;
     GraphStructure::new([design.into(), apply.into()], [results])?.compile_structure()
 }
@@ -47,7 +47,7 @@ fn workflow() -> Result<graph::Compilation, graph::GraphError> {
 or a serialization trait. The executor owns it through a shared native value.
 Inputs receive `Option<Arc<T>>`; fan-out clones Arc references, not T. Internal
 type erasure is checked against exact Rust type identities. Built-in tuple input
-implementations cover one through twelve slots; custom `NativeInputs` implementations
+implementations cover one through twelve slots; custom `ActionInputs` implementations
 can declare other complete input groups, so graph fan-in is not capped at twelve.
 
 Compilation validates arity, ordered source types, one complete result group per
@@ -121,7 +121,7 @@ unrelated Python objects remain Python objects and are not serialized. Native-on
 graphs with no Python result retention do not create Python result wrappers.
 Retaining Python results stores an opaque native reference; the concrete Python
 value is constructed only when read. Python result inputs use the existing Option
-and unwrap API, not a new public NativeResult API.
+and unwrap API, not a new public RustResult API.
 
 Custom conversion is an explicit PyO3 adapter responsibility. Internally, `ValueCodecs`
 composes paired Rust export/import functions for a concrete type. A type's converter

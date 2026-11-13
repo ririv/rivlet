@@ -1,8 +1,10 @@
+//! Opaque Rust graph declarations and whole-graph adapter entry points.
+
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use action::{NativeActionHandle, ProcessAction};
+use action::{ActionHandle, ProcessAction};
 use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf, Node, NodeKind, Projection};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
@@ -11,7 +13,7 @@ use rivlet::GraphId;
 use crate::result_values::ValueCodecs;
 
 type ProcessDeclaration = (String, String, Vec<String>, String, HashMap<String, String>);
-type NodeMetadata = (u64, String, Option<NativeGraphStructure>);
+type NodeMetadata = (u64, String, Option<RustGraphStructure>);
 type InputDeclaration = (String, Vec<(usize, String)>);
 type OutputDeclaration = (String, usize, String);
 
@@ -29,13 +31,13 @@ fn invalid(error: impl std::fmt::Display) -> PyErr {
 /// Opaque ownership of a complete Rust declaration, or a shared nested view.
 #[pyclass(frozen, module = "rivlet._native", skip_from_py_object)]
 #[derive(Clone)]
-pub(crate) struct NativeGraphStructure {
+pub(crate) struct RustGraphStructure {
     projection: Arc<Projection>,
     scope: GraphId,
     codecs: Arc<ValueCodecs>,
 }
 
-impl NativeGraphStructure {
+impl RustGraphStructure {
     fn new(structure: GraphStructure) -> PyResult<Self> {
         Self::with_codecs(structure, Arc::new(ValueCodecs::default()))
     }
@@ -91,7 +93,7 @@ impl NativeGraphStructure {
 }
 
 #[pymethods]
-impl NativeGraphStructure {
+impl RustGraphStructure {
     fn node_ids(&self) -> Vec<u64> {
         self.graph()
             .nodes()
@@ -226,19 +228,19 @@ impl NativeGraphStructure {
 }
 
 /// Whole-graph importer boundary; no Python wrapper for individual Rust actions.
-#[pyfunction(name = "_native_process_graph", signature = (processes, arcs, inputs=Vec::new(), outputs=Vec::new()))]
-pub(crate) fn native_process_graph(
+#[pyfunction(name = "_rust_process_graph", signature = (processes, arcs, inputs=Vec::new(), outputs=Vec::new()))]
+pub(crate) fn rust_process_graph(
     processes: Vec<ProcessDeclaration>,
     arcs: Vec<(usize, usize)>,
     inputs: Vec<(String, Vec<usize>)>,
     outputs: Vec<(String, usize)>,
-) -> PyResult<NativeGraphStructure> {
+) -> PyResult<RustGraphStructure> {
     let nodes = processes
         .into_iter()
         .map(|(label, program, arguments, cwd, environment)| {
             Leaf::new(
                 label,
-                NativeActionHandle::new(ProcessAction::new(
+                ActionHandle::new(ProcessAction::new(
                     program,
                     arguments,
                     PathBuf::from(cwd),
@@ -268,20 +270,20 @@ pub(crate) fn native_process_graph(
     for (name, index) in outputs {
         interface = interface.output(name, require(index)?).map_err(invalid)?;
     }
-    NativeGraphStructure::new(
+    RustGraphStructure::new(
         GraphStructure::with_interface(nodes.into_iter().map(NodeKind::from), edges, interface)
             .map_err(invalid)?,
     )
 }
 
 /// Composes complete Rust graph bodies and their explicitly named interfaces.
-#[pyfunction(name = "_native_compose_graph")]
-pub(crate) fn native_compose_graph(
-    components: Vec<(String, PyRef<'_, NativeGraphStructure>)>,
+#[pyfunction(name = "_compose_rust_graph")]
+pub(crate) fn compose_rust_graph(
+    components: Vec<(String, PyRef<'_, RustGraphStructure>)>,
     edges: Vec<EdgeDeclaration>,
     inputs: Vec<InputDeclaration>,
     outputs: Vec<OutputDeclaration>,
-) -> PyResult<NativeGraphStructure> {
+) -> PyResult<RustGraphStructure> {
     let mut codecs = ValueCodecs::default();
     for (_, body) in &components {
         codecs.combine(body.codecs())?;
@@ -343,7 +345,7 @@ pub(crate) fn native_compose_graph(
             )
             .map_err(invalid)?;
     }
-    NativeGraphStructure::with_codecs(
+    RustGraphStructure::with_codecs(
         GraphStructure::with_interface(nodes.into_iter().map(NodeKind::from), edges, interface)
             .map_err(invalid)?,
         Arc::new(codecs),

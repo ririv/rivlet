@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from .._native import NativeGraphStructure
+from .._native import RustGraphStructure
 from ..errors import GraphError
 from ..interface import InputEndpoint, InputPort, OutputEndpoint, OutputPort
 from ..model import (
@@ -42,7 +42,7 @@ def edge_id(owner: NodePath | None, index: int) -> str:
 
 @dataclass(slots=True)
 class Scope:
-    graph: GraphStructure | NativeGraphStructure
+    graph: GraphStructure | RustGraphStructure
     owner: NodePath | None
     label_path: tuple[str, ...]
     ids: dict[Node, NodePath] = field(default_factory=dict)
@@ -83,7 +83,7 @@ class DeclarationIndex:
         return scope.require_descendant(endpoint)
 
     def output_port_node(self, scope: Scope, name: str) -> str:
-        if isinstance(scope.graph, NativeGraphStructure):
+        if isinstance(scope.graph, RustGraphStructure):
             return scope.mounted_path(scope.graph.output_path(name))
         return self.output_node(scope, scope.graph.interface.outputs[name])
 
@@ -97,7 +97,7 @@ class DeclarationIndex:
         return [scope.require_descendant(endpoint)]
 
     def input_port_nodes(self, scope: Scope, name: str) -> list[str]:
-        if isinstance(scope.graph, NativeGraphStructure):
+        if isinstance(scope.graph, RustGraphStructure):
             return [scope.mounted_path(path) for path in scope.graph.input_paths(name)]
         return [
             value
@@ -145,7 +145,7 @@ def index_declaration(
     # V/E/P 为节点、边和端口引用数，L 为全部身份/标签路径长度。
     # 按挂载遍历并建立索引，时间/空间 O(V + E + P + L)；不按每条边重扫子图。
     def visit(
-        current: GraphStructure | NativeGraphStructure,
+        current: GraphStructure | RustGraphStructure,
         owner: NodePath | None,
         path: tuple[str, ...],
         ancestors: tuple[Scope, ...],
@@ -181,7 +181,7 @@ def index_declaration(
                 )
                 action = step.structure if isinstance(step, GraphNode) else step
                 node: NodeDocument
-                if isinstance(action, (GraphStructure, NativeGraphStructure)):
+                if isinstance(action, (GraphStructure, RustGraphStructure)):
                     node = {
                         "kind": "subgraph",
                         "node_id": step.id.value,
@@ -227,10 +227,10 @@ def index_declaration(
                 }
                 scope_document["ports"].append(output)
         else:
-            native_nodes = current.nodes()
+            rust_nodes = current.nodes()
             ids = [
                 owner.child(i) if owner is not None else NodePath((i,))
-                for i in range(len(native_nodes))
+                for i in range(len(rust_nodes))
             ]
             scope_document = {
                 "id": scope.id,
@@ -241,8 +241,8 @@ def index_declaration(
                 "ports": [],
             }
             document["graphs"].append(scope_document)
-            for identifier, (identity, native_label, child) in zip(
-                ids, native_nodes, strict=True
+            for identifier, (identity, rust_label, child) in zip(
+                ids, rust_nodes, strict=True
             ):
                 key = str(identifier)
                 index.node_scopes[key] = scope
@@ -253,8 +253,8 @@ def index_declaration(
                             "id": key,
                             "node_id": identity,
                             "graph": scope.id,
-                            "label": native_label,
-                            "label_path": [*path, native_label],
+                            "label": rust_label,
+                            "label_path": [*path, rust_label],
                             "action_kind": "native",
                             "condition": None,
                         }
@@ -266,13 +266,13 @@ def index_declaration(
                             "id": key,
                             "node_id": identity,
                             "graph": scope.id,
-                            "label": native_label,
-                            "label_path": [*path, native_label],
+                            "label": rust_label,
+                            "label_path": [*path, rust_label],
                             "child_graph": scope_id(identifier),
                             "condition": None,
                         }
                     )
-                    visit(child, identifier, (*path, native_label), (*ancestors, scope))
+                    visit(child, identifier, (*path, rust_label), (*ancestors, scope))
             for name in current.input_ports():
                 scope_document["ports"].append(
                     {
@@ -289,8 +289,8 @@ def index_declaration(
                         "node": index.output_port_node(scope, name),
                     }
                 )
-            for i, native_edge in enumerate(current.edges()):
-                source, target = native_edge[:2]
+            for i, rust_edge in enumerate(current.edges()):
+                source, target = rust_edge[:2]
                 item: EdgeDocument = {
                     "kind": "order",
                     "id": edge_id(owner, i),
@@ -298,8 +298,8 @@ def index_declaration(
                     "source": str(ids[source]),
                     "target": str(ids[target]),
                 }
-                if len(native_edge) == 4:
-                    output_name, input_name = native_edge[2:]
+                if len(rust_edge) == 4:
+                    output_name, input_name = rust_edge[2:]
                     provider = index.scopes[scope_id(ids[source])]
                     consumer = index.scopes[scope_id(ids[target])]
                     item = {
@@ -314,8 +314,8 @@ def index_declaration(
                         "consumer_nodes": index.input_port_nodes(consumer, input_name),
                         "condition": None,
                     }
-                elif len(native_edge) == 5:
-                    _, _, argument, output_name, input_name = native_edge
+                elif len(rust_edge) == 5:
+                    _, _, argument, output_name, input_name = rust_edge
                     item = {
                         "kind": "result",
                         "id": edge_id(owner, i),

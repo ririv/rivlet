@@ -369,7 +369,7 @@ explicit selections without executing actions or providing failover.
 Explicit bindings enter declaration compilation and lowering. Final DAG validation
 and scheduling live in Rust; Python does not maintain a second provider solver.
 
-Ports reference Python-declared nodes, not Rust leaves inside an opaque NativeGraphStructure.
+Ports reference Python-declared nodes, not Rust leaves inside an opaque RustGraphStructure.
 To publish completion of a native structure, compose it in a Graph and
 use that Graph node as an output. A dynamically returned graph cannot expose unknown
 internal ports before it exists.

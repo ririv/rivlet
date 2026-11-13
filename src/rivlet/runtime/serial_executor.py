@@ -46,8 +46,8 @@ class SerialGraphExecutor:
         run_serial_session(
             definition.graph,
             definition.host,
-            definition.native_actions,
-            definition.native_contexts,
+            definition.rust_actions,
+            definition.rust_contexts,
         )
         self.state.require_skip_requests_resolved()
         self._runtime.after_success(graph)

@@ -1,46 +1,46 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use action::{NativeActionContext, NativeActionExecutor, NativeActionHandle, NativeValue};
+use action::{ActionContext, ActionExecutor, ActionHandle, Value};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use rivlet::{
-    ConditionId, ConditionResolution, ExecutionBatch, ExecutionEvent, ExecutionSession,
-    ExecutionUpdate, NodeId, NodeState, SessionStatus,
+    ConditionId, ConditionResolution, ExecutionBatch as CoreExecutionBatch, ExecutionEvent,
+    ExecutionSession, ExecutionUpdate, NodeId, NodeState, SessionStatus,
 };
 
-use crate::result_values::{NativeResult, ValueCodecs};
-use crate::{NativeExecutionBatch, events::EncodedEvent};
+use crate::result_values::{RustResult, ValueCodecs};
+use crate::{ExecutionBatch, events::EncodedEvent};
 
-const NATIVE_ACTION_STARTED: u8 = 5;
-const NATIVE_ACTION_COMPLETED: u8 = 6;
+const RUST_ACTION_STARTED: u8 = 5;
+const RUST_ACTION_COMPLETED: u8 = 6;
 type ActionOutcome = (NodeId, Result<(), ()>);
-type NativeFailure = (usize, String);
+type RustFailure = (usize, String);
 
 #[derive(Clone)]
-pub(crate) struct NativeActionDeclaration {
-    pub(crate) action: NativeActionHandle,
+pub(crate) struct RustActionDeclaration {
+    pub(crate) action: ActionHandle,
     pub(crate) codecs: Arc<ValueCodecs>,
     pub(crate) inputs: Vec<usize>,
 }
 
 #[derive(Clone)]
-pub(crate) struct NativeActionBinding {
-    declaration: NativeActionDeclaration,
-    context: NativeActionContext,
+pub(crate) struct RustActionBinding {
+    declaration: RustActionDeclaration,
+    context: ActionContext,
 }
 
 /// Rust action ownership and result references aligned with compiled indexes.
 #[pyclass(frozen, module = "rivlet._native", skip_from_py_object)]
 #[derive(Clone)]
-pub(crate) struct NativeActionBindings {
-    actions: Vec<Option<NativeActionDeclaration>>,
+pub(crate) struct RustActionBindings {
+    actions: Vec<Option<RustActionDeclaration>>,
     python_sources: Vec<usize>,
 }
 
-impl NativeActionBindings {
+impl RustActionBindings {
     pub(crate) fn new(
-        actions: Vec<Option<NativeActionDeclaration>>,
+        actions: Vec<Option<RustActionDeclaration>>,
         python_sources: Vec<usize>,
     ) -> Self {
         Self {
@@ -51,7 +51,7 @@ impl NativeActionBindings {
 }
 
 #[pymethods]
-impl NativeActionBindings {
+impl RustActionBindings {
     #[new]
     fn empty(node_count: usize) -> Self {
         Self::new(vec![None; node_count], Vec::new())
@@ -63,41 +63,41 @@ impl NativeActionBindings {
 
 struct MixedExecutionState {
     session: ExecutionSession,
-    native_running: usize,
-    values: HashMap<usize, NativeValue>,
+    rust_running: usize,
+    values: HashMap<usize, Value>,
     python_values: HashMap<usize, Py<PyAny>>,
 }
 
-enum NativeDispatch {
+enum ActionDispatch {
     PythonOnly,
     Mixed {
-        executor: NativeActionExecutor,
-        bindings: Vec<Option<NativeActionBinding>>,
+        executor: ActionExecutor,
+        bindings: Vec<Option<RustActionBinding>>,
         result_sources: HashSet<usize>,
     },
 }
 
 /// Rust-owned session that dispatches Rust actions without a Python callback.
 #[pyclass(frozen, module = "rivlet._native")]
-pub(crate) struct NativeMixedExecutionSession {
+pub(crate) struct MixedExecutionSession {
     state: Mutex<MixedExecutionState>,
-    actions: NativeDispatch,
+    actions: ActionDispatch,
     retain_results: bool,
 }
 
 #[pyclass(frozen, module = "rivlet._native")]
-pub(crate) struct NativeMixedExecutionBatch {
+pub(crate) struct MixedExecutionBatch {
     actions: Vec<usize>,
     conditions: Vec<(usize, usize)>,
     events: Vec<EncodedEvent>,
     finished: bool,
-    native_running: usize,
-    failures: Vec<NativeFailure>,
-    results: Vec<(usize, Py<NativeResult>)>,
+    rust_running: usize,
+    failures: Vec<RustFailure>,
+    results: Vec<(usize, Py<RustResult>)>,
 }
 
 #[pymethods]
-impl NativeMixedExecutionBatch {
+impl MixedExecutionBatch {
     #[allow(clippy::type_complexity)]
     fn parts(
         &self,
@@ -108,15 +108,15 @@ impl NativeMixedExecutionBatch {
         Vec<EncodedEvent>,
         bool,
         usize,
-        Vec<NativeFailure>,
-        Vec<(usize, Py<NativeResult>)>,
+        Vec<RustFailure>,
+        Vec<(usize, Py<RustResult>)>,
     ) {
         (
             self.actions.clone(),
             self.conditions.clone(),
             self.events.clone(),
             self.finished,
-            self.native_running,
+            self.rust_running,
             self.failures.clone(),
             self.results
                 .iter()
@@ -126,10 +126,10 @@ impl NativeMixedExecutionBatch {
     }
 }
 
-impl NativeMixedExecutionSession {
+impl MixedExecutionSession {
     pub(crate) fn new(
         session: ExecutionSession,
-        bindings: Vec<Option<NativeActionBinding>>,
+        bindings: Vec<Option<RustActionBinding>>,
         workers: usize,
         retain_results: bool,
     ) -> PyResult<Self> {
@@ -138,18 +138,18 @@ impl NativeMixedExecutionSession {
                 "native action workers must be greater than zero",
             ));
         }
-        let native_count = bindings.iter().filter(|binding| binding.is_some()).count();
+        let rust_action_count = bindings.iter().filter(|binding| binding.is_some()).count();
         // 纯 Python session 不启动 Rust worker，也不构造原生值包装。
-        let actions = if native_count == 0 {
-            NativeDispatch::PythonOnly
+        let actions = if rust_action_count == 0 {
+            ActionDispatch::PythonOnly
         } else {
             let result_sources = bindings
                 .iter()
                 .flatten()
                 .flat_map(|binding| binding.declaration.inputs.iter().copied())
                 .collect();
-            NativeDispatch::Mixed {
-                executor: NativeActionExecutor::new(workers.min(native_count))
+            ActionDispatch::Mixed {
+                executor: ActionExecutor::new(workers.min(rust_action_count))
                     .map_err(|error| PyValueError::new_err(error.to_string()))?,
                 bindings,
                 result_sources,
@@ -158,7 +158,7 @@ impl NativeMixedExecutionSession {
         Ok(Self {
             state: Mutex::new(MixedExecutionState {
                 session,
-                native_running: 0,
+                rust_running: 0,
                 values: HashMap::new(),
                 python_values: HashMap::new(),
             }),
@@ -169,9 +169,9 @@ impl NativeMixedExecutionSession {
 
     pub(crate) fn bindings(
         node_count: usize,
-        declarations: &NativeActionBindings,
+        declarations: &RustActionBindings,
         contexts: Vec<(usize, Option<String>)>,
-    ) -> PyResult<Vec<Option<NativeActionBinding>>> {
+    ) -> PyResult<Vec<Option<RustActionBinding>>> {
         if declarations.actions.len() != node_count {
             return Err(PyValueError::new_err(
                 "native action table does not match execution graph",
@@ -194,9 +194,9 @@ impl NativeMixedExecutionSession {
                     "native action context references Python execution node",
                 ));
             };
-            *slot = Some(NativeActionBinding {
+            *slot = Some(RustActionBinding {
                 declaration: declaration.clone(),
-                context: NativeActionContext::new(log_path.map(Into::into)),
+                context: ActionContext::new(log_path.map(Into::into)),
             });
         }
         Ok(bindings)
@@ -205,8 +205,8 @@ impl NativeMixedExecutionSession {
     fn inputs(
         py: Python<'_>,
         state: &MixedExecutionState,
-        binding: &NativeActionBinding,
-    ) -> Result<Vec<Option<NativeValue>>, String> {
+        binding: &RustActionBinding,
+    ) -> Result<Vec<Option<Value>>, String> {
         // O(I) 个槽位查询；Rust 值只克隆 Arc。跨语言转换的载荷成本由 codec 决定。
         binding
             .declaration
@@ -243,14 +243,14 @@ impl NativeMixedExecutionSession {
         &self,
         py: Python<'_>,
         state: &mut MixedExecutionState,
-        mut batch: ExecutionBatch,
-    ) -> PyResult<NativeMixedExecutionBatch> {
-        let mut result = NativeMixedExecutionBatch {
+        mut batch: CoreExecutionBatch,
+    ) -> PyResult<MixedExecutionBatch> {
+        let mut result = MixedExecutionBatch {
             actions: Vec::new(),
             conditions: Vec::new(),
             events: Vec::new(),
             finished: false,
-            native_running: 0,
+            rust_running: 0,
             failures: Vec::new(),
             results: Vec::new(),
         };
@@ -258,12 +258,12 @@ impl NativeMixedExecutionSession {
             for event in batch.events() {
                 if let (
                     ExecutionEvent::CompositeCompleted(node),
-                    NativeDispatch::Mixed { result_sources, .. },
+                    ActionDispatch::Mixed { result_sources, .. },
                 ) = (event, &self.actions)
                 {
                     // 子图完成的结果是 ()；不是用空值掩盖缺失的叶子结果。
                     if result_sources.contains(&node.index()) {
-                        state.values.insert(node.index(), NativeValue::new(()));
+                        state.values.insert(node.index(), Value::new(()));
                     }
                 }
                 result.events.push(super::encode_event(event));
@@ -271,8 +271,8 @@ impl NativeMixedExecutionSession {
             let mut failed = Vec::new();
             for node in batch.actions() {
                 let binding = match &self.actions {
-                    NativeDispatch::PythonOnly => None,
-                    NativeDispatch::Mixed {
+                    ActionDispatch::PythonOnly => None,
+                    ActionDispatch::Mixed {
                         executor, bindings, ..
                     } => bindings[node.index()]
                         .as_ref()
@@ -281,7 +281,7 @@ impl NativeMixedExecutionSession {
                 if let Some((executor, binding)) = binding {
                     result
                         .events
-                        .push(EncodedEvent::Lifecycle(NATIVE_ACTION_STARTED, node.index()));
+                        .push(EncodedEvent::Lifecycle(RUST_ACTION_STARTED, node.index()));
                     match Self::inputs(py, state, binding) {
                         Ok(inputs) => {
                             executor
@@ -292,7 +292,7 @@ impl NativeMixedExecutionSession {
                                     inputs,
                                 )
                                 .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-                            state.native_running += 1;
+                            state.rust_running += 1;
                         }
                         Err(error) => {
                             // 转换错误属于接收节点失败，不取消无关分支。
@@ -320,22 +320,22 @@ impl NativeMixedExecutionSession {
                 .map_err(|error| PyValueError::new_err(error.to_string()))?;
         }
         result.finished = batch.status() != SessionStatus::Running;
-        result.native_running = state.native_running;
+        result.rust_running = state.rust_running;
         Ok(result)
     }
 
     #[allow(clippy::type_complexity)]
-    fn drain_native_completions(
+    fn drain_rust_completions(
         &self,
         py: Python<'_>,
         state: &mut MixedExecutionState,
     ) -> PyResult<(
         Vec<ActionOutcome>,
         Vec<EncodedEvent>,
-        Vec<NativeFailure>,
-        Vec<(usize, Py<NativeResult>)>,
+        Vec<RustFailure>,
+        Vec<(usize, Py<RustResult>)>,
     )> {
-        let NativeDispatch::Mixed {
+        let ActionDispatch::Mixed {
             executor,
             bindings,
             result_sources,
@@ -350,8 +350,8 @@ impl NativeMixedExecutionSession {
         let mut failures = Vec::new();
         let mut exports = Vec::new();
         for completion in completions {
-            state.native_running = state
-                .native_running
+            state.rust_running = state
+                .rust_running
                 .checked_sub(1)
                 .expect("native completion count exceeds submitted action count");
             let node = completion.node();
@@ -366,7 +366,7 @@ impl NativeMixedExecutionSession {
                             node,
                             Py::new(
                                 py,
-                                NativeResult::new(
+                                RustResult::new(
                                     value.clone(),
                                     Arc::clone(&binding.declaration.codecs),
                                 ),
@@ -377,7 +377,7 @@ impl NativeMixedExecutionSession {
                         state.values.insert(node, value);
                     }
                     completed.push((NodeId::new(node), Ok(())));
-                    events.push(EncodedEvent::Lifecycle(NATIVE_ACTION_COMPLETED, node));
+                    events.push(EncodedEvent::Lifecycle(RUST_ACTION_COMPLETED, node));
                 }
                 Err(error) => {
                     completed.push((NodeId::new(node), Err(())));
@@ -390,8 +390,8 @@ impl NativeMixedExecutionSession {
 }
 
 #[pymethods]
-impl NativeMixedExecutionSession {
-    fn start(&self, py: Python<'_>, capacity: usize) -> PyResult<NativeMixedExecutionBatch> {
+impl MixedExecutionSession {
+    fn start(&self, py: Python<'_>, capacity: usize) -> PyResult<MixedExecutionBatch> {
         let mut state = self
             .state
             .lock()
@@ -412,7 +412,7 @@ impl NativeMixedExecutionSession {
         skipped: Vec<usize>,
         available: usize,
         values: Vec<(usize, Py<PyAny>)>,
-    ) -> PyResult<NativeMixedExecutionBatch> {
+    ) -> PyResult<MixedExecutionBatch> {
         let mut state = self
             .state
             .lock()
@@ -429,9 +429,9 @@ impl NativeMixedExecutionSession {
             }
             state.python_values.insert(node, value);
         }
-        let (native_completed, mut native_events, mut failures, results) =
-            self.drain_native_completions(py, &mut state)?;
-        let newly_available = native_completed.len();
+        let (rust_completed, mut rust_events, mut failures, results) =
+            self.drain_rust_completions(py, &mut state)?;
+        let newly_available = rust_completed.len();
         let batch = state
             .session
             .advance(
@@ -441,7 +441,7 @@ impl NativeMixedExecutionSession {
                         .map(|(node, success)| {
                             (NodeId::new(node), if success { Ok(()) } else { Err(()) })
                         })
-                        .chain(native_completed),
+                        .chain(rust_completed),
                     conditions
                         .into_iter()
                         .map(|(condition, value)| match value {
@@ -456,8 +456,8 @@ impl NativeMixedExecutionSession {
             )
             .map_err(|error| PyValueError::new_err(error.to_string()))?;
         let mut result = self.dispatch(py, &mut state, batch)?;
-        native_events.append(&mut result.events);
-        result.events = native_events;
+        rust_events.append(&mut result.events);
+        result.events = rust_events;
         failures.append(&mut result.failures);
         result.failures = failures;
         result.results = results;
@@ -465,22 +465,22 @@ impl NativeMixedExecutionSession {
     }
 
     /// Waits for actual Rust completion without retaining the Python interpreter.
-    fn wait_native(&self, py: Python<'_>) -> PyResult<()> {
+    fn wait_rust(&self, py: Python<'_>) -> PyResult<()> {
         let wait = {
             let state = self
                 .state
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state.native_running == 0 {
+            if state.rust_running == 0 {
                 return Ok(());
             }
             match &self.actions {
-                NativeDispatch::PythonOnly => {
+                ActionDispatch::PythonOnly => {
                     return Err(PyRuntimeError::new_err(
                         "Python-only session contains native work",
                     ));
                 }
-                NativeDispatch::Mixed { executor, .. } => executor.prepare_wait(),
+                ActionDispatch::Mixed { executor, .. } => executor.prepare_wait(),
             }
         };
         py.detach(move || wait.wait());
@@ -488,14 +488,14 @@ impl NativeMixedExecutionSession {
     }
 }
 
-impl From<NativeExecutionBatch> for NativeMixedExecutionBatch {
-    fn from(batch: NativeExecutionBatch) -> Self {
+impl From<ExecutionBatch> for MixedExecutionBatch {
+    fn from(batch: ExecutionBatch) -> Self {
         Self {
             actions: batch.actions,
             conditions: batch.conditions,
             events: batch.events,
             finished: batch.finished,
-            native_running: 0,
+            rust_running: 0,
             failures: Vec::new(),
             results: Vec::new(),
         }

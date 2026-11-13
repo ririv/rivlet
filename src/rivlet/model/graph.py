@@ -10,7 +10,7 @@ from .graph_structure import GraphMode, GraphObservationMessages, GraphStructure
 from .metadata import _NodeMeta
 
 if TYPE_CHECKING:
-    from .._native import NativeGraphStructure
+    from .._native import RustGraphStructure
     from ..interface import GraphInterfaceInput
     from ..static import StaticSelection
     from ..static_conditions import StaticConditionsInput
@@ -24,12 +24,12 @@ if TYPE_CHECKING:
 class Graph:
     """One graph node; metadata and exposed ports belong to this declaration."""
 
-    structure: GraphStructure | NativeGraphStructure = field(repr=False)
+    structure: GraphStructure | RustGraphStructure = field(repr=False)
     _meta: _NodeMeta
 
     def __init__(
         self,
-        structure: GraphStructure | NativeGraphStructure,
+        structure: GraphStructure | RustGraphStructure,
         *,
         label: str | None = None,
         condition: ConditionInput | None = None,

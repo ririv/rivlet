@@ -3,14 +3,14 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
+use action::{Action, ActionContext, ActionError, ActionHandle};
 use graph::{GraphInterface, GraphStructure, Leaf};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use crate::native_graph::NativeGraphStructure;
 use crate::result_values::ValueCodecs;
+use crate::rust_graph::RustGraphStructure;
 
 // 这些仅供 FFI 集成测试构造整图，不向 rivlet 根包公开单个 Rust action。
 #[pyclass(
@@ -35,38 +35,30 @@ pub(crate) enum ResultFixtureKind {
 }
 
 struct Constant<T>(T);
-impl<T: Clone + Send + Sync + 'static> NativeAction for Constant<T> {
+impl<T: Clone + Send + Sync + 'static> Action for Constant<T> {
     type Inputs = ();
     type Output = T;
-    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<T, NativeActionError> {
+    fn execute(&self, _: &ActionContext, (): ()) -> Result<T, ActionError> {
         Ok(self.0.clone())
     }
 }
 
 struct Echo<T>(PhantomData<T>);
-impl<T: Clone + Send + Sync + 'static> NativeAction for Echo<T> {
+impl<T: Clone + Send + Sync + 'static> Action for Echo<T> {
     type Inputs = (Option<Arc<T>>,);
     type Output = T;
-    fn execute(
-        &self,
-        _: &NativeActionContext,
-        (value,): Self::Inputs,
-    ) -> Result<T, NativeActionError> {
+    fn execute(&self, _: &ActionContext, (value,): Self::Inputs) -> Result<T, ActionError> {
         value
             .map(|value| value.as_ref().clone())
-            .ok_or_else(|| NativeActionError::new("fixture requires a present input"))
+            .ok_or_else(|| ActionError::new("fixture requires a present input"))
     }
 }
 
 struct Present;
-impl NativeAction for Present {
+impl Action for Present {
     type Inputs = (Option<Arc<()>>,);
     type Output = bool;
-    fn execute(
-        &self,
-        _: &NativeActionContext,
-        (value,): Self::Inputs,
-    ) -> Result<bool, NativeActionError> {
+    fn execute(&self, _: &ActionContext, (value,): Self::Inputs) -> Result<bool, ActionError> {
         Ok(value.is_some())
     }
 }
@@ -99,10 +91,9 @@ fn import_plan(value: &Bound<'_, PyAny>) -> PyResult<Plan> {
 fn pair<T: Clone + Send + Sync + 'static>(
     value: T,
     codecs: ValueCodecs,
-) -> PyResult<(NativeGraphStructure, NativeGraphStructure)> {
-    let seed = Leaf::new("seed", NativeActionHandle::new(Constant(value))).map_err(invalid)?;
-    let echo =
-        Leaf::new("echo", NativeActionHandle::new(Echo::<T>(PhantomData))).map_err(invalid)?;
+) -> PyResult<(RustGraphStructure, RustGraphStructure)> {
+    let seed = Leaf::new("seed", ActionHandle::new(Constant(value))).map_err(invalid)?;
+    let echo = Leaf::new("echo", ActionHandle::new(Echo::<T>(PhantomData))).map_err(invalid)?;
     bodies(seed, echo, codecs)
 }
 
@@ -114,7 +105,7 @@ fn bodies(
     seed: Leaf,
     echo: Leaf,
     codecs: ValueCodecs,
-) -> PyResult<(NativeGraphStructure, NativeGraphStructure)> {
+) -> PyResult<(RustGraphStructure, RustGraphStructure)> {
     let output = GraphInterface::default()
         .output("value", &seed)
         .map_err(invalid)?;
@@ -125,21 +116,21 @@ fn bodies(
         .map_err(invalid)?;
     let codecs = Arc::new(codecs);
     Ok((
-        NativeGraphStructure::with_codecs(
+        RustGraphStructure::with_codecs(
             GraphStructure::with_interface([seed.into()], [], output).map_err(invalid)?,
             Arc::clone(&codecs),
         )?,
-        NativeGraphStructure::with_codecs(
+        RustGraphStructure::with_codecs(
             GraphStructure::with_interface([echo.into()], [], interface).map_err(invalid)?,
             codecs,
         )?,
     ))
 }
 
-#[pyfunction(name = "_native_result_fixture")]
-pub(crate) fn native_result_fixture(
+#[pyfunction(name = "_rust_result_fixture")]
+pub(crate) fn rust_result_fixture(
     kind: ResultFixtureKind,
-) -> PyResult<(NativeGraphStructure, NativeGraphStructure)> {
+) -> PyResult<(RustGraphStructure, RustGraphStructure)> {
     let codecs = ValueCodecs::default();
     match kind {
         ResultFixtureKind::I64 => pair(42_i64, codecs),
@@ -153,8 +144,8 @@ pub(crate) fn native_result_fixture(
         }
         ResultFixtureKind::Opaque => pair(Plan { value: 42 }, codecs),
         ResultFixtureKind::Unit => bodies(
-            Leaf::new("unit", NativeActionHandle::new(Constant(()))).map_err(invalid)?,
-            Leaf::new("presence", NativeActionHandle::new(Present)).map_err(invalid)?,
+            Leaf::new("unit", ActionHandle::new(Constant(()))).map_err(invalid)?,
+            Leaf::new("presence", ActionHandle::new(Present)).map_err(invalid)?,
             codecs,
         ),
     }

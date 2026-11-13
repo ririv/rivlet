@@ -9,7 +9,7 @@ integration.
 
 ## Crate boundaries
 
-- `crates/action` defines typed NativeAction inputs/outputs, Rust-owned values,
+- `crates/action` defines typed Action inputs/outputs, Rust-owned values,
   stable errors, and process actions without
   Python callbacks. It does not depend on PyO3, Tokio, or Graph core.
 - `crates/graph` exposes actual Rust Leaf/Graph nodes, the common Node trait,
@@ -28,6 +28,23 @@ integration.
   project's CallbackHost interface.
 
 PyO3 and third-party runtime types do not appear in core's public data model.
+
+## Naming at language boundaries
+
+Rust public types describe their role, not their implementation language:
+`action::Action`, `ActionContext`, `ActionHandle`, `ActionError`, `ActionExecutor`,
+`Value`, and `ValueType`. The ordered input protocol is `ActionInputs`, distinct
+from an action's `Inputs` associated type.
+
+Python types that distinguish ownership use an explicit Rust qualifier:
+`RustGraphStructure`, `CompiledRustLeaf`, and `RustActionBindings`. Private
+compiler/session bindings instead use their role: `CompiledExecutionGraph`,
+`DeclarationCompilation`, `ExecutionSession`, and `MixedExecutionSession`.
+The lazy Rust result view is private `_RustResult`, not a second recipe API.
+
+The binary extension module remains `rivlet._native`. This naming migration does
+not change the structural export schema, its `action_kind="native"` wire tag, or
+numeric event encoding. Old type/function names are not retained as aliases.
 
 ## External-library boundary
 
@@ -55,10 +72,10 @@ inheritance. Rust NodeIdentity is the process-local declaration identity; indexe
 NodeId is the compiler/topology reference. Rust graph::GraphStructure holds a closed
 NodeKind union of Leaf/Graph. A Graph has its own identity and typed interface,
 while its body can be shared with Arc. Projection resolves mounted scopes and
-ports and calls the existing GraphDeclaration compiler. Python's NativeGraphStructure
+ports and calls the existing GraphDeclaration compiler. Python's RustGraphStructure
 wraps that opaque body, composed into a Python Graph for mixed declarations.
 Native composites have no action handle, not a synthetic no-op. See the
-[Rust declaration API](./native-graphs.md#rust-declaration-api) for examples and limits.
+[Rust declaration API](./rust-graphs.md#rust-declaration-api) for examples and limits.
 
 All production paths share the same compiler and session implementation:
 
@@ -97,7 +114,7 @@ batches when state changes:
 - Native completions are collected in batches and advance the same session.
 - Rust results are stored before advancing completion. Native consumers share
   those values directly; language converters and lazy Python views belong to the
-  Python adapter, not core. See [native result values](./native-results.md).
+  Python adapter, not core. See [native result values](./rust-results.md).
 - There is no timer-based polling loop; idle drivers wait for actual work completion.
 
 Known subgraphs compile as composites and leaves without losing their boundaries.
@@ -155,7 +172,7 @@ Python retains host-facing objects:
 - Compilation side tables for actions, predicates, observations, paths, and scopes.
 - Execution state snapshots, explicit skips, and results.
 
-Native actions form a separate branch owned by NativeGraphStructure. Their typed
+Native actions form a separate branch owned by RustGraphStructure. Their typed
 results stay native on Rust edges. Only the Python adapter converts values when
 crossing the language boundary; process-action unit maps to Python None.
 

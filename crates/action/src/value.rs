@@ -2,16 +2,16 @@ use std::any::{Any, TypeId, type_name};
 use std::fmt::{self, Debug, Formatter};
 use std::sync::Arc;
 
-use crate::NativeActionError;
+use crate::ActionError;
 
 /// An exact Rust type identity, independent of language conversion policies.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct NativeValueType {
+pub struct ValueType {
     id: TypeId,
     name: &'static str,
 }
 
-impl NativeValueType {
+impl ValueType {
     #[must_use]
     pub fn of<T: Send + Sync + 'static>() -> Self {
         Self {
@@ -35,7 +35,7 @@ impl NativeValueType {
 
 /// Shared immutable ownership of a typed Rust result, never serialized implicitly.
 #[derive(Clone)]
-pub struct NativeValue(StoredValue);
+pub struct Value(StoredValue);
 
 #[derive(Clone)]
 enum StoredValue {
@@ -43,7 +43,7 @@ enum StoredValue {
     Shared(Arc<dyn Any + Send + Sync>),
 }
 
-impl NativeValue {
+impl Value {
     #[must_use]
     pub fn new<T: Send + Sync + 'static>(value: T) -> Self {
         // 常见 ProcessAction 的 () 不分配结果载荷，保留无值动作的轻量路径。
@@ -58,14 +58,14 @@ impl NativeValue {
     ///
     /// # Errors
     /// Returns an error when the requested concrete type differs.
-    pub fn downcast<T: Send + Sync + 'static>(&self) -> Result<Arc<T>, NativeActionError> {
+    pub fn downcast<T: Send + Sync + 'static>(&self) -> Result<Arc<T>, ActionError> {
         // Any 只承担内部类型擦除；公开 action 使用确定的关联类型，不能任意强转。
         let value: Arc<dyn Any + Send + Sync> = match &self.0 {
             StoredValue::Unit => Arc::new(()),
             StoredValue::Shared(value) => Arc::clone(value),
         };
         value.downcast::<T>().map_err(|_| {
-            NativeActionError::new(format!(
+            ActionError::new(format!(
                 "native result type mismatch: expected {}",
                 type_name::<T>()
             ))
@@ -80,39 +80,39 @@ impl NativeValue {
     }
 }
 
-impl Debug for NativeValue {
+impl Debug for Value {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str("NativeValue(..)")
+        formatter.write_str("Value(..)")
     }
 }
 
 /// A typed ordered action input group; absent slots represent skipped sources.
-pub trait NativeInputs: Send + 'static {
-    fn types() -> Vec<NativeValueType>;
+pub trait ActionInputs: Send + 'static {
+    fn types() -> Vec<ValueType>;
     /// Decodes one complete group after the caller validates its length.
     ///
     /// # Errors
     /// Returns an error for a concrete value type mismatch.
-    fn decode(values: &[Option<NativeValue>]) -> Result<Self, NativeActionError>
+    fn decode(values: &[Option<Value>]) -> Result<Self, ActionError>
     where
         Self: Sized;
 }
 
-impl NativeInputs for () {
-    fn types() -> Vec<NativeValueType> {
+impl ActionInputs for () {
+    fn types() -> Vec<ValueType> {
         Vec::new()
     }
-    fn decode(_: &[Option<NativeValue>]) -> Result<Self, NativeActionError> {
+    fn decode(_: &[Option<Value>]) -> Result<Self, ActionError> {
         Ok(())
     }
 }
 
 macro_rules! input_tuple {
     ($($name:ident:$index:tt),+) => {
-        impl<$($name: Send + Sync + 'static),+> NativeInputs for ($(Option<Arc<$name>>,)+) {
-            fn types() -> Vec<NativeValueType> { vec![$(NativeValueType::of::<$name>()),+] }
-            fn decode(values: &[Option<NativeValue>]) -> Result<Self, NativeActionError> {
-                Ok(($(values[$index].as_ref().map(NativeValue::downcast::<$name>).transpose()?,)+))
+        impl<$($name: Send + Sync + 'static),+> ActionInputs for ($(Option<Arc<$name>>,)+) {
+            fn types() -> Vec<ValueType> { vec![$(ValueType::of::<$name>()),+] }
+            fn decode(values: &[Option<Value>]) -> Result<Self, ActionError> {
+                Ok(($(values[$index].as_ref().map(Value::downcast::<$name>).transpose()?,)+))
             }
         }
     };

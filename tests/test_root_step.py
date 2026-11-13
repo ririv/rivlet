@@ -210,10 +210,10 @@ def test_runtime_graph_returned_by_leaf_root_keeps_the_same_root_identity() -> N
 def test_native_graph_root_uses_the_outer_steps_condition_and_label(
     tmp_path: Path, enabled: bool
 ) -> None:
-    from rivlet._native import _native_process_graph
+    from rivlet._native import _rust_process_graph
 
     output = tmp_path / "result"
-    native = _native_process_graph(
+    native = _rust_process_graph(
         [
             (
                 "native leaf",

@@ -3,23 +3,23 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 
-use crate::{NativeActionContext, NativeActionError, NativeActionHandle, NativeValue};
+use crate::{ActionContext, ActionError, ActionHandle, Value};
 
-struct NativeActionJob {
+struct ActionJob {
     node: usize,
-    action: NativeActionHandle,
-    context: NativeActionContext,
-    inputs: Vec<Option<NativeValue>>,
+    action: ActionHandle,
+    context: ActionContext,
+    inputs: Vec<Option<Value>>,
 }
 
 /// One native action completion retained until its graph session consumes it.
 #[derive(Debug)]
-pub struct NativeActionCompletion {
+pub struct ActionCompletion {
     node: usize,
-    result: Result<NativeValue, NativeActionError>,
+    result: Result<Value, ActionError>,
 }
 
-impl NativeActionCompletion {
+impl ActionCompletion {
     #[must_use]
     pub const fn node(&self) -> usize {
         self.node
@@ -29,14 +29,14 @@ impl NativeActionCompletion {
     ///
     /// # Errors
     /// Returns the error produced by the native action.
-    pub fn into_result(self) -> Result<NativeValue, NativeActionError> {
+    pub fn into_result(self) -> Result<Value, ActionError> {
         self.result
     }
 }
 
 #[derive(Default)]
 struct CompletionState {
-    values: VecDeque<NativeActionCompletion>,
+    values: VecDeque<ActionCompletion>,
     revision: u64,
 }
 
@@ -52,12 +52,12 @@ enum WaitState {
 }
 
 /// A wait bound to the completion queue and revision observed at preparation.
-pub struct NativeCompletionWait {
+pub struct CompletionWait {
     queue: Arc<CompletionQueue>,
     state: WaitState,
 }
 
-impl NativeCompletionWait {
+impl CompletionWait {
     pub fn wait(self) {
         match self.state {
             WaitState::Ready => (),
@@ -81,7 +81,7 @@ impl NativeCompletionWait {
 }
 
 struct ExecutorInner {
-    jobs: mpsc::Sender<Option<NativeActionJob>>,
+    jobs: mpsc::Sender<Option<ActionJob>>,
     completions: Arc<CompletionQueue>,
     workers: Vec<JoinHandle<()>>,
 }
@@ -99,23 +99,23 @@ impl Drop for ExecutorInner {
 
 /// A bounded Rust worker set used only for Rust-owned actions.
 #[derive(Clone)]
-pub struct NativeActionExecutor {
+pub struct ActionExecutor {
     inner: Arc<ExecutorInner>,
 }
 
-impl NativeActionExecutor {
+impl ActionExecutor {
     /// Creates a native worker set with an explicit positive capacity.
     ///
     /// # Errors
     /// Returns an error when capacity is zero or an operating-system thread
     /// cannot be created.
-    pub fn new(workers: usize) -> Result<Self, NativeActionError> {
+    pub fn new(workers: usize) -> Result<Self, ActionError> {
         if workers == 0 {
-            return Err(NativeActionError::new(
+            return Err(ActionError::new(
                 "native action workers must be greater than zero",
             ));
         }
-        let (jobs, receiver) = mpsc::channel::<Option<NativeActionJob>>();
+        let (jobs, receiver) = mpsc::channel::<Option<ActionJob>>();
         let receiver = Arc::new(Mutex::new(receiver));
         let completions = Arc::new(CompletionQueue::default());
         let mut worker_handles = Vec::with_capacity(workers);
@@ -123,10 +123,10 @@ impl NativeActionExecutor {
             let receiver = Arc::clone(&receiver);
             let completions = Arc::clone(&completions);
             let worker = thread::Builder::new()
-                .name(format!("NativeGraphWorker-{index}"))
+                .name(format!("ActionWorker-{index}"))
                 .spawn(move || worker_loop(&receiver, &completions))
                 .map_err(|error| {
-                    NativeActionError::new(format!("failed to create native graph worker: {error}"))
+                    ActionError::new(format!("failed to create native graph worker: {error}"))
                 })?;
             worker_handles.push(worker);
         }
@@ -146,19 +146,19 @@ impl NativeActionExecutor {
     pub fn submit(
         &self,
         node: usize,
-        action: NativeActionHandle,
-        context: NativeActionContext,
-        inputs: Vec<Option<NativeValue>>,
-    ) -> Result<(), NativeActionError> {
+        action: ActionHandle,
+        context: ActionContext,
+        inputs: Vec<Option<Value>>,
+    ) -> Result<(), ActionError> {
         self.inner
             .jobs
-            .send(Some(NativeActionJob {
+            .send(Some(ActionJob {
                 node,
                 action,
                 context,
                 inputs,
             }))
-            .map_err(|_| NativeActionError::new("native action executor is closed"))
+            .map_err(|_| ActionError::new("native action executor is closed"))
     }
 
     /// Blocks until at least one completion can be drained.
@@ -167,14 +167,14 @@ impl NativeActionExecutor {
     }
 
     #[must_use]
-    pub fn prepare_wait(&self) -> NativeCompletionWait {
+    pub fn prepare_wait(&self) -> CompletionWait {
         let state = self
             .inner
             .completions
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        NativeCompletionWait {
+        CompletionWait {
             queue: Arc::clone(&self.inner.completions),
             state: if state.values.is_empty() {
                 WaitState::Pending(state.revision)
@@ -185,7 +185,7 @@ impl NativeActionExecutor {
     }
 
     #[must_use]
-    pub fn drain_completions(&self) -> Vec<NativeActionCompletion> {
+    pub fn drain_completions(&self) -> Vec<ActionCompletion> {
         self.inner
             .completions
             .state
@@ -197,10 +197,7 @@ impl NativeActionExecutor {
     }
 }
 
-fn worker_loop(
-    jobs: &Mutex<mpsc::Receiver<Option<NativeActionJob>>>,
-    completions: &CompletionQueue,
-) {
+fn worker_loop(jobs: &Mutex<mpsc::Receiver<Option<ActionJob>>>, completions: &CompletionQueue) {
     loop {
         let job = jobs
             .lock()
@@ -212,12 +209,12 @@ fn worker_loop(
         let result = catch_unwind(AssertUnwindSafe(|| {
             job.action.execute(&job.context, &job.inputs)
         }))
-        .unwrap_or_else(|_| Err(NativeActionError::new("native action panicked")));
+        .unwrap_or_else(|_| Err(ActionError::new("native action panicked")));
         let mut state = completions
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        state.values.push_back(NativeActionCompletion {
+        state.values.push_back(ActionCompletion {
             node: job.node,
             result,
         });
@@ -233,29 +230,29 @@ fn worker_loop(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::NativeAction;
+    use crate::Action;
     use std::sync::mpsc;
     use std::time::Duration;
 
     struct Noop;
 
-    impl NativeAction for Noop {
+    impl Action for Noop {
         type Inputs = ();
         type Output = ();
-        fn execute(&self, _context: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
+        fn execute(&self, _context: &ActionContext, (): ()) -> Result<(), ActionError> {
             Ok(())
         }
     }
 
     #[test]
     fn prepared_wait_survives_completion_drain() {
-        let executor = NativeActionExecutor::new(1).unwrap();
+        let executor = ActionExecutor::new(1).unwrap();
         let pending = executor.prepare_wait();
         executor
             .submit(
                 0,
-                NativeActionHandle::new(Noop),
-                NativeActionContext::default(),
+                ActionHandle::new(Noop),
+                ActionContext::default(),
                 Vec::new(),
             )
             .unwrap();

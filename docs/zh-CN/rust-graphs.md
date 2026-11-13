@@ -1,6 +1,6 @@
-# Python 图与 Rust 原生图
+# Python 图与 Rust 图
 
-[English](../native-graphs.md) | 简体中文
+[English](../rust-graphs.md) | 简体中文
 
 `rivlet` 允许一张 Python 声明图挂载完整的 Rust 原生子图。两者最终进入同一份
 Rust `CompiledExecutionGraph`，共享依赖、层级、失败传播和并发预算，但不会把原生子图
@@ -9,7 +9,7 @@ Rust `CompiledExecutionGraph`，共享依赖、层级、失败传播和并发预
 ```text
 Python Graph / Leaf
     ├── Python Leaf
-    └── Graph(NativeGraphStructure)
+    └── Graph(RustGraphStructure)
           ├── Rust Leaf
           └── Rust Graph → Rust Leaf / Graph
                 │
@@ -19,7 +19,7 @@ Python Graph / Leaf
         └── Rust leaf   → Rust worker
 ```
 
-Python 只看见一个不透明的 `NativeGraphStructure`。它不能取得并逐个调用其中的 Rust `Leaf`
+Python 只看见一个不透明的 `RustGraphStructure`。它不能取得并逐个调用其中的 Rust `Leaf`
 和 Rust action 对象，也不会先把它们翻译成 Python `Node`。因此原生图无论包含十个还是上万
 个 action，执行 action 本身都不需要逐项回调 Python。混合图的 Python driver 仍会按批次
 接收原生完成事件，以便统一维护结果、日志和展示状态。内部节点仍可以出现在编译图
@@ -34,7 +34,7 @@ prepare = Leaf(prepare_source, label=("prepare"))
 ```
 
 Rust adapter 构造 graph::GraphStructure；Python adapter 将其包装为不透明的
-NativeGraphStructure，再由 Python Graph 节点组合：
+RustGraphStructure，再由 Python Graph 节点组合：
 
 ```python
 from rivetoo_ninja import import_clean_build_graph
@@ -56,7 +56,7 @@ graph = (prepare >> compile >> install).graph()
 这里 `compile` 是外层 composite。它保留子图边界；原生图内部的节点和边仍由 Rust
 编译器看到并参与全局调度。Graph 不会隐式展开并丢掉这个边界。
 
-`NativeGraphStructure` 是 Python 可以持有的最小原生单位。Python 包不公开 `NativeAction` 或
+`RustGraphStructure` 是 Python 可以持有的最小原生单位。Python 包不公开 `Action` 或
 `ProcessAction`；否则同一个原生 action 会同时拥有“Rust 直接执行”和“Python 逐项提交”
 两套入口，重新产生跨语言往返和重复事实来源。
 
@@ -72,7 +72,7 @@ graph = (prepare >> compile >> install).graph()
 
 原生 action 声明确定的输入、输出类型。Rust→Rust 结果边共享 Rust 值；只有跨语言边界
 才转换。进程 action 返回 unit，在 Python 中表现为 `Some(None)`，不是没有结果。
-完整 API 与转换规则见[原生结果值](./native-results.md)。原生 action 仍不能读取 Python
+完整 API 与转换规则见[原生结果值](./rust-results.md)。原生 action 仍不能读取 Python
 `NodeRunContext`，也不支持返回并展开动态图。
 
 ## Rust crate 边界
@@ -83,11 +83,11 @@ graph = (prepare >> compile >> install).graph()
 - `crates/graph`：Rust `Leaf/Graph` 节点、`Node` trait、`GraphStructure`、有方向的端口与错误。
 - `crates/topology`：整数节点与纯拓扑算法。
 - `crates/core`：语言无关的声明编译和 execution session。
-- `crates/python`：把 Python `Graph` 和整体 `NativeGraphStructure` 接入同一编译过程。
+- `crates/python`：把 Python `Graph` 和整体 `RustGraphStructure` 接入同一编译过程。
 
 adapter 可以在 Rust 中实现任意 action，但动态库之间不传递 Rust trait object。独立
 adapter 应输出一份批量、稳定的原生图规格，再由 graph extension 一次构造
-`NativeGraphStructure`。这会保留包边界，也避免每个 action 经过 Python 调度。
+`RustGraphStructure`。这会保留包边界，也避免每个 action 经过 Python 调度。
 
 ## Rust 声明 API
 
@@ -97,21 +97,21 @@ adapter 应输出一份批量、稳定的原生图规格，再由 graph extensio
 
 ```rust
 use std::sync::Arc;
-use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
+use action::{Action, ActionContext, ActionError, ActionHandle};
 use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf};
 
 struct Work;
-impl NativeAction for Work {
+impl Action for Work {
     type Inputs = ();
     type Output = ();
-    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
+    fn execute(&self, _: &ActionContext, (): ()) -> Result<(), ActionError> {
         println!("work");
         Ok(())
     }
 }
 
 fn workflow() -> Result<graph::Compilation, graph::GraphError> {
-    let task = Leaf::new("task", NativeActionHandle::new(Work))?;
+    let task = Leaf::new("task", ActionHandle::new(Work))?;
     let body = Arc::new(GraphStructure::with_interface(
         [task.clone().into()], [],
         GraphInterface::default()

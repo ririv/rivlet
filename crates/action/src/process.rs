@@ -3,7 +3,7 @@ use std::fs::{File, OpenOptions};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
-use crate::{NativeAction, NativeActionContext, NativeActionError};
+use crate::{Action, ActionContext, ActionError};
 
 /// A native action that executes one program without a command shell.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -31,10 +31,10 @@ impl ProcessAction {
     }
 }
 
-impl NativeAction for ProcessAction {
+impl Action for ProcessAction {
     type Inputs = ();
     type Output = ();
-    fn execute(&self, context: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
+    fn execute(&self, context: &ActionContext, (): ()) -> Result<(), ActionError> {
         let mut command = Command::new(&self.program);
         command.args(&self.arguments);
         configure_command(&mut command, &self.cwd, &self.environment, context)?;
@@ -46,14 +46,14 @@ fn configure_command(
     command: &mut Command,
     cwd: &PathBuf,
     environment: &BTreeMap<String, String>,
-    context: &NativeActionContext,
-) -> Result<(), NativeActionError> {
+    context: &ActionContext,
+) -> Result<(), ActionError> {
     command.current_dir(cwd);
     command.env_clear().envs(environment);
     if let Some(path) = context.component_log_path() {
         let stdout = append_log_file(path)?;
         let stderr = stdout.try_clone().map_err(|error| {
-            NativeActionError::new(format!(
+            ActionError::new(format!(
                 "failed to clone native action log file {}: {error}",
                 path.display()
             ))
@@ -64,29 +64,29 @@ fn configure_command(
     Ok(())
 }
 
-fn append_log_file(path: &std::path::Path) -> Result<File, NativeActionError> {
+fn append_log_file(path: &std::path::Path) -> Result<File, ActionError> {
     OpenOptions::new()
         .create(true)
         .append(true)
         .open(path)
         .map_err(|error| {
-            NativeActionError::new(format!(
+            ActionError::new(format!(
                 "failed to open native action log file {}: {error}",
                 path.display()
             ))
         })
 }
 
-fn run_command(mut command: Command, display_name: &str) -> Result<(), NativeActionError> {
+fn run_command(mut command: Command, display_name: &str) -> Result<(), ActionError> {
     let status = command.status().map_err(|error| {
-        NativeActionError::new(format!(
+        ActionError::new(format!(
             "failed to execute native action {display_name}: {error}"
         ))
     })?;
     if status.success() {
         return Ok(());
     }
-    Err(NativeActionError::new(format!(
+    Err(ActionError::new(format!(
         "native action {display_name} exited with status {status}"
     )))
 }

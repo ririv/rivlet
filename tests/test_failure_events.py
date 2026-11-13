@@ -35,7 +35,7 @@ from rivlet import (
     ThreadRunOptions,
     resolve_port_requirements,
 )
-from rivlet._native import _native_process_graph
+from rivlet._native import _rust_process_graph
 
 
 @dataclass
@@ -455,7 +455,7 @@ def test_provider_failure_after_ready_does_not_retroactively_block_consumer(
 def test_native_action_failure_uses_the_same_causal_model(
     execute: Execute, mode: GraphMode, tmp_path: Path
 ) -> None:
-    native = _native_process_graph(
+    native = _rust_process_graph(
         [("fail", sys.executable, ["-c", "raise SystemExit(7)"], str(tmp_path), {})],
         [],
     )

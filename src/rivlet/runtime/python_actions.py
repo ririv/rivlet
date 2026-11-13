@@ -72,10 +72,10 @@ class PythonActionRuntime:
             run_leaf=lambda step: self._run_step(run, step),
         )
         return SessionDefinition(
-            compilation._native_graph,
+            compilation._execution_graph,
             host,
-            compilation._native_actions,
-            run.native_action_contexts(self.state),
+            compilation._rust_actions,
+            run.rust_action_contexts(self.state),
         )
 
     def after_success(

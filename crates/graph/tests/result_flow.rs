@@ -1,29 +1,23 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use action::{
-    NativeAction, NativeActionContext, NativeActionError, NativeActionExecutor, NativeActionHandle,
-    NativeValue,
-};
+use action::{Action, ActionContext, ActionError, ActionExecutor, ActionHandle, Value};
 use graph::{
     Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, Leaf, ProjectedKind,
 };
 use rivlet::{ExecutionEvent, ExecutionSession, ExecutionUpdate, NodeId, NodeState, SessionStatus};
 
 // 测试宿主只管理值与 worker，依赖状态完全由正式 ExecutionSession 推进。
-fn run(
-    compilation: &Compilation,
-    skipped: Vec<NodeId>,
-) -> (SessionStatus, HashMap<NodeId, NativeValue>) {
+fn run(compilation: &Compilation, skipped: Vec<NodeId>) -> (SessionStatus, HashMap<NodeId, Value>) {
     let mut session =
         ExecutionSession::new(Arc::new(compilation.graph().clone()), skipped).unwrap();
-    let executor = NativeActionExecutor::new(2).unwrap();
+    let executor = ActionExecutor::new(2).unwrap();
     let mut values = HashMap::new();
     let mut batch = session.start(2).unwrap();
     loop {
         for event in batch.events() {
             if let ExecutionEvent::CompositeCompleted(node) = event {
-                values.insert(*node, NativeValue::new(()));
+                values.insert(*node, Value::new(()));
             }
         }
         for node in batch.actions() {
@@ -44,7 +38,7 @@ fn run(
                 .submit(
                     node.index(),
                     action.clone(),
-                    NativeActionContext::default(),
+                    ActionContext::default(),
                     inputs,
                 )
                 .unwrap();
@@ -78,10 +72,10 @@ struct Plan {
     bytes: Vec<u8>,
 }
 struct Produce;
-impl NativeAction for Produce {
+impl Action for Produce {
     type Inputs = ();
     type Output = Plan;
-    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<Plan, NativeActionError> {
+    fn execute(&self, _: &ActionContext, (): ()) -> Result<Plan, ActionError> {
         Ok(Plan {
             bytes: vec![7; 4096],
         })
@@ -89,14 +83,10 @@ impl NativeAction for Produce {
 }
 
 struct Consume(Arc<Mutex<Vec<usize>>>);
-impl NativeAction for Consume {
+impl Action for Consume {
     type Inputs = (Option<Arc<Plan>>,);
     type Output = usize;
-    fn execute(
-        &self,
-        _: &NativeActionContext,
-        (plan,): Self::Inputs,
-    ) -> Result<usize, NativeActionError> {
+    fn execute(&self, _: &ActionContext, (plan,): Self::Inputs) -> Result<usize, ActionError> {
         match plan {
             Some(plan) => {
                 self.0.lock().unwrap().push(Arc::as_ptr(&plan) as usize);
@@ -110,7 +100,7 @@ impl NativeAction for Consume {
 #[test]
 fn arbitrary_nonclone_payload_crosses_forwarded_shared_graphs_without_copying() {
     let pointers = Arc::new(Mutex::new(Vec::new()));
-    let producer = Leaf::new("produce", NativeActionHandle::new(Produce)).unwrap();
+    let producer = Leaf::new("produce", ActionHandle::new(Produce)).unwrap();
     let body = Arc::new(
         GraphStructure::with_interface(
             [producer.clone().into()],
@@ -134,11 +124,7 @@ fn arbitrary_nonclone_payload_crosses_forwarded_shared_graphs_without_copying() 
         ),
     )
     .unwrap();
-    let consume = Leaf::new(
-        "consume",
-        NativeActionHandle::new(Consume(Arc::clone(&pointers))),
-    )
-    .unwrap();
+    let consume = Leaf::new("consume", ActionHandle::new(Consume(Arc::clone(&pointers)))).unwrap();
     let shared = Arc::new(
         GraphStructure::with_interface(
             [consume.clone().into()],
@@ -189,8 +175,8 @@ fn arbitrary_nonclone_payload_crosses_forwarded_shared_graphs_without_copying() 
 
 #[test]
 fn skipped_result_is_none_not_an_invented_unit_value() {
-    let producer = Leaf::new("produce", NativeActionHandle::new(Produce)).unwrap();
-    let consume = Leaf::new("consume", NativeActionHandle::new(Consume(Arc::default()))).unwrap();
+    let producer = Leaf::new("produce", ActionHandle::new(Produce)).unwrap();
+    let consume = Leaf::new("consume", ActionHandle::new(Consume(Arc::default()))).unwrap();
     let compilation = GraphStructure::new(
         [producer.clone().into(), consume.clone().into()],
         [Edge::results([&producer], &consume).unwrap()],
@@ -219,18 +205,18 @@ fn skipped_result_is_none_not_an_invented_unit_value() {
 }
 
 struct Text;
-impl NativeAction for Text {
+impl Action for Text {
     type Inputs = ();
     type Output = String;
-    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<String, NativeActionError> {
+    fn execute(&self, _: &ActionContext, (): ()) -> Result<String, ActionError> {
         Ok(String::from("wrong"))
     }
 }
 
 #[test]
 fn compiler_checks_concrete_types_and_complete_input_groups() {
-    let wrong = Leaf::new("text", NativeActionHandle::new(Text)).unwrap();
-    let consume = Leaf::new("consume", NativeActionHandle::new(Consume(Arc::default()))).unwrap();
+    let wrong = Leaf::new("text", ActionHandle::new(Text)).unwrap();
+    let consume = Leaf::new("consume", ActionHandle::new(Consume(Arc::default()))).unwrap();
     let graph = GraphStructure::new(
         [wrong.clone().into(), consume.clone().into()],
         [Edge::results([&wrong], &consume).unwrap()],
@@ -251,19 +237,15 @@ fn compiler_checks_concrete_types_and_complete_input_groups() {
 fn result_cycle_is_checked_after_resolving_actual_endpoints() {
     // 这里用同型的 usize 传递来构成真正的结果依赖环。
     struct Size;
-    impl NativeAction for Size {
+    impl Action for Size {
         type Inputs = (Option<Arc<usize>>,);
         type Output = usize;
-        fn execute(
-            &self,
-            _: &NativeActionContext,
-            (value,): Self::Inputs,
-        ) -> Result<usize, NativeActionError> {
+        fn execute(&self, _: &ActionContext, (value,): Self::Inputs) -> Result<usize, ActionError> {
             Ok(*value.unwrap())
         }
     }
-    let a = Leaf::new("a", NativeActionHandle::new(Size)).unwrap();
-    let b = Leaf::new("b", NativeActionHandle::new(Size)).unwrap();
+    let a = Leaf::new("a", ActionHandle::new(Size)).unwrap();
+    let b = Leaf::new("b", ActionHandle::new(Size)).unwrap();
     let graph = GraphStructure::new(
         [a.clone().into(), b.clone().into()],
         [
@@ -279,32 +261,32 @@ fn result_cycle_is_checked_after_resolving_actual_endpoints() {
 }
 
 struct Number;
-impl NativeAction for Number {
+impl Action for Number {
     type Inputs = ();
     type Output = i64;
-    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<i64, NativeActionError> {
+    fn execute(&self, _: &ActionContext, (): ()) -> Result<i64, ActionError> {
         Ok(21)
     }
 }
 
 struct Pair;
-impl NativeAction for Pair {
+impl Action for Pair {
     type Inputs = (Option<Arc<String>>, Option<Arc<i64>>);
     type Output = String;
     fn execute(
         &self,
-        _: &NativeActionContext,
+        _: &ActionContext,
         (text, number): Self::Inputs,
-    ) -> Result<String, NativeActionError> {
+    ) -> Result<String, ActionError> {
         Ok(format!("{}:{}", text.unwrap(), number.unwrap()))
     }
 }
 
 #[test]
 fn ordered_heterogeneous_tuple_inputs_ignore_declaration_and_completion_order() {
-    let number = Leaf::new("number", NativeActionHandle::new(Number)).unwrap();
-    let text = Leaf::new("text", NativeActionHandle::new(Text)).unwrap();
-    let pair = Leaf::new("pair", NativeActionHandle::new(Pair)).unwrap();
+    let number = Leaf::new("number", ActionHandle::new(Number)).unwrap();
+    let text = Leaf::new("text", ActionHandle::new(Text)).unwrap();
+    let pair = Leaf::new("pair", ActionHandle::new(Pair)).unwrap();
     let compilation = GraphStructure::new(
         [
             number.clone().into(),

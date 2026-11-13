@@ -11,7 +11,7 @@ from .session_tree import DynamicSubgraph, RootSession, SessionDefinition
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from .._native import NativeMixedExecutionBatch, NativeMixedExecutionSession
+    from .._native import MixedExecutionBatch, MixedExecutionSession
 
 
 @dataclass(frozen=True, slots=True)
@@ -23,21 +23,21 @@ class _Child:
 @dataclass(slots=True)
 class _Frame:
     definition: SessionDefinition
-    native: NativeMixedExecutionSession
-    batch: NativeMixedExecutionBatch
+    engine: MixedExecutionSession
+    batch: MixedExecutionBatch
     owner: RootSession | _Child
     held_actions: list[int] = field(default_factory=list)
 
 
 def _frame(definition: SessionDefinition, owner: RootSession | _Child) -> _Frame:
-    native = definition.graph.mixed_session(
+    engine = definition.graph.mixed_session(
         definition.host.skipped_nodes(),
-        definition.native_actions,
-        definition.native_contexts,
+        definition.rust_actions,
+        definition.rust_contexts,
         1,
-        retain_results=definition.host.retains_native_results(),
+        retain_results=definition.host.retains_rust_results(),
     )
-    return _Frame(definition, native, native.start(1), owner)
+    return _Frame(definition, engine, engine.start(1), owner)
 
 
 def run_serial_definition(root: SessionDefinition) -> None:
@@ -49,7 +49,7 @@ def run_serial_definition(root: SessionDefinition) -> None:
             frame = stack[-1]
             host = frame.definition.host
             host.require_running()
-            actions, conditions, events, finished, native_running, failures, results = (
+            actions, conditions, events, finished, rust_running, failures, results = (
                 frame.batch.parts()
             )
             host.apply_events(events, results)
@@ -57,11 +57,11 @@ def run_serial_definition(root: SessionDefinition) -> None:
                 host.record_failure(node, RuntimeError(message))
             if conditions:
                 frame.held_actions.extend(actions)
-                frame.batch = frame.native.advance(
+                frame.batch = frame.engine.advance(
                     [],
                     host.resolve_conditions(conditions),
                     host.skipped_nodes(),
-                    1 - len(frame.held_actions) - native_running,
+                    1 - len(frame.held_actions) - rust_running,
                 )
                 continue
             if frame.held_actions:
@@ -84,23 +84,23 @@ def run_serial_definition(root: SessionDefinition) -> None:
                         else:
                             complete()
                             success = True
-                        parent.batch = parent.native.advance(
+                        parent.batch = parent.engine.advance(
                             [(node, success)],
                             [],
                             parent.definition.host.skipped_nodes(),
                             1,
-                            values=parent.definition.host.native_values(
+                            values=parent.definition.host.rust_input_values(
                                 [(node, success)]
                             ),
                         )
                 continue
             if not actions:
-                if not native_running:
+                if not rust_running:
                     raise RuntimeError(
                         "running graph session returned no serial action"
                     )
-                frame.native.wait_native()
-                frame.batch = frame.native.advance([], [], host.skipped_nodes(), 0)
+                frame.engine.wait_rust()
+                frame.batch = frame.engine.advance([], [], host.skipped_nodes(), 0)
                 continue
             node = actions[0]
             try:
@@ -121,12 +121,12 @@ def run_serial_definition(root: SessionDefinition) -> None:
                 success = False
             else:
                 success = True
-            frame.batch = frame.native.advance(
+            frame.batch = frame.engine.advance(
                 [(node, success)],
                 [],
                 host.skipped_nodes(),
                 1,
-                values=host.native_values([(node, success)]),
+                values=host.rust_input_values([(node, success)]),
             )
     except BaseException:
         root.host.request_stop()

@@ -11,14 +11,14 @@ from rivlet import (
     ResultStore,
     export_graph,
 )
-from rivlet._native import _native_process_graph
+from rivlet._native import _rust_process_graph
 
 
 def test_native_subgraph_exports_all_nodes_and_edges_without_process_details(
     tmp_path,
 ) -> None:
     marker = tmp_path / "must-not-exist"
-    native = _native_process_graph(
+    native = _rust_process_graph(
         [
             (
                 "compile",

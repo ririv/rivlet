@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use action::{NativeActionHandle, NativeValueType};
+use action::{ActionHandle, ValueType};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::{
@@ -9,10 +9,10 @@ use rivlet::{
     GraphDeclaration, GraphId, NodeActivation, NodeId, PortConnection, RuntimeCondition,
 };
 
-use crate::NativeCompiledExecutionGraph;
-use crate::mixed_execution::{NativeActionBindings, NativeActionDeclaration};
-use crate::native_graph::NativeGraphStructure;
+use crate::CompiledExecutionGraph;
+use crate::mixed_execution::{RustActionBindings, RustActionDeclaration};
 use crate::result_values::ValueCodecs;
+use crate::rust_graph::RustGraphStructure;
 
 type ExportOrigins = (
     Vec<usize>,
@@ -72,7 +72,7 @@ struct NodeRecord {
 
 enum NodeContent {
     Python(Py<PyAny>),
-    Native(NativeActionHandle, Arc<ValueCodecs>),
+    Rust(ActionHandle, Arc<ValueCodecs>),
     Composite(usize),
 }
 
@@ -80,7 +80,7 @@ impl NodeRecord {
     fn child_graph(&self) -> Option<usize> {
         match self.content {
             NodeContent::Composite(child) => Some(child),
-            NodeContent::Python(_) | NodeContent::Native(_, _) => None,
+            NodeContent::Python(_) | NodeContent::Rust(_, _) => None,
         }
     }
 }
@@ -129,7 +129,7 @@ impl<'py> Collector<'py> {
         root_label: &str,
         root_label_path: Vec<String>,
         id_prefix: &[usize],
-    ) -> PyResult<NativeDeclarationCompilation> {
+    ) -> PyResult<DeclarationCompilation> {
         self.collect_graph(
             source_graph,
             root_label,
@@ -150,7 +150,7 @@ impl<'py> Collector<'py> {
                             .bind(self.py)
                             .call_method1("validate_inputs", (node.inputs.len(),))?;
                     }
-                    NodeContent::Native(action, _) => self.validate_native_inputs(node, action)?,
+                    NodeContent::Rust(action, _) => self.validate_rust_inputs(node, action)?,
                     NodeContent::Composite(_) => unreachable!(),
                 }
             }
@@ -185,7 +185,7 @@ impl<'py> Collector<'py> {
             .map(|(index, node)| (node.index(), index))
             .collect();
         let mut python_sources = HashSet::new();
-        let native_actions = NativeActionBindings::new(
+        let rust_actions = RustActionBindings::new(
             compilation
                 .declaration_nodes()
                 .iter()
@@ -193,13 +193,13 @@ impl<'py> Collector<'py> {
                     let record = &self.nodes[node.index()];
                     match &record.content {
                         NodeContent::Python(_) | NodeContent::Composite(_) => None,
-                        NodeContent::Native(action, codecs) => {
+                        NodeContent::Rust(action, codecs) => {
                             for source in &record.inputs {
                                 if matches!(self.nodes[*source].content, NodeContent::Python(_)) {
                                     python_sources.insert(compact[source]);
                                 }
                             }
-                            Some(NativeActionDeclaration {
+                            Some(RustActionDeclaration {
                                 action: action.clone(),
                                 codecs: Arc::clone(codecs),
                                 inputs: record
@@ -214,27 +214,23 @@ impl<'py> Collector<'py> {
                 .collect(),
             python_sources.into_iter().collect(),
         );
-        let graph = NativeCompiledExecutionGraph {
+        let graph = CompiledExecutionGraph {
             graph: Arc::new(compilation.into_graph()),
         };
-        Ok(NativeDeclarationCompilation {
+        Ok(DeclarationCompilation {
             graph,
             declaration_nodes,
             declaration_conditions,
             graphs: self.graphs,
             nodes: self.nodes,
             conditions: self.conditions,
-            native_actions,
+            rust_actions,
             disabled_edges: self.disabled_edges,
             id_prefix: id_prefix.to_vec(),
         })
     }
 
-    fn validate_native_inputs(
-        &self,
-        node: &NodeRecord,
-        action: &NativeActionHandle,
-    ) -> PyResult<()> {
+    fn validate_rust_inputs(&self, node: &NodeRecord, action: &ActionHandle) -> PyResult<()> {
         if action.input_types().len() != node.inputs.len() {
             return Err(PyValueError::new_err(format!(
                 "native action expects {} result inputs, received {}",
@@ -244,8 +240,8 @@ impl<'py> Collector<'py> {
         }
         for (source, expected) in node.inputs.iter().zip(action.input_types()) {
             let actual = match &self.nodes[*source].content {
-                NodeContent::Native(source, _) => Some(source.output_type()),
-                NodeContent::Composite(_) => Some(NativeValueType::of::<()>()),
+                NodeContent::Rust(source, _) => Some(source.output_type()),
+                NodeContent::Composite(_) => Some(ValueType::of::<()>()),
                 NodeContent::Python(_) => None,
             };
             if let Some(actual) = actual {
@@ -401,9 +397,9 @@ impl<'py> Collector<'py> {
         child_label_path.push(step_label.to_owned());
         let child_graph = if action.is_instance(&self.types.graph)? {
             let structure = action.getattr("structure")?;
-            if let Ok(native_graph) = structure.extract::<PyRef<'_, NativeGraphStructure>>() {
-                Some(self.collect_native_graph(
-                    &native_graph,
+            if let Ok(rust_graph) = structure.extract::<PyRef<'_, RustGraphStructure>>() {
+                Some(self.collect_rust_graph(
+                    &rust_graph,
                     &child_label_path,
                     node_index,
                     node_path,
@@ -435,23 +431,23 @@ impl<'py> Collector<'py> {
         Ok(())
     }
 
-    fn collect_native_graph(
+    fn collect_rust_graph(
         &mut self,
-        native_graph: &NativeGraphStructure,
+        rust_graph: &RustGraphStructure,
         label_path: &[String],
         owner: usize,
         id_prefix: &[usize],
         parent_active: bool,
     ) -> PyResult<usize> {
-        let projection = native_graph.projection()?;
+        let projection = rust_graph.projection()?;
         let first_graph = self.graphs.len();
         let first_node = self.nodes.len();
         // V/E/P/R/L 为挂载、边、端口名、展开端点与路径总长，K 为单层端口数：
         // O(V+E+P*log(K+1)+R+L) 整批导入侧表，复用投影与 Rust action handles；
         // Graph 直接登记为 Composite，不制造空 action 或 Python 回调。
-        self.collect_native_scopes(
+        self.collect_rust_scopes(
             &projection,
-            native_graph.codecs(),
+            rust_graph.codecs(),
             label_path,
             owner,
             first_node,
@@ -460,7 +456,7 @@ impl<'py> Collector<'py> {
             let graph = first_graph + node.graph().index();
             let (content, kind) = match node.kind() {
                 graph::ProjectedKind::Leaf(action) => (
-                    NodeContent::Native(action.clone(), Arc::clone(native_graph.codecs())),
+                    NodeContent::Rust(action.clone(), Arc::clone(rust_graph.codecs())),
                     DeclaredNodeKind::Leaf,
                 ),
                 graph::ProjectedKind::Graph(child) => {
@@ -520,7 +516,7 @@ impl<'py> Collector<'py> {
         Ok(first_graph)
     }
 
-    fn collect_native_scopes(
+    fn collect_rust_scopes(
         &mut self,
         projection: &Arc<graph::Projection>,
         codecs: &Arc<ValueCodecs>,
@@ -550,7 +546,7 @@ impl<'py> Collector<'py> {
             self.graphs.push(GraphRecord {
                 source_graph: Py::new(
                     self.py,
-                    NativeGraphStructure::view(
+                    RustGraphStructure::view(
                         Arc::clone(projection),
                         GraphId::new(index),
                         Arc::clone(codecs),
@@ -1033,21 +1029,21 @@ fn require_interface_port<'py>(
         .get_item(port)
 }
 
-/// Native compilation plus opaque Python declaration metadata.
+/// Rust compilation plus opaque Python declaration metadata.
 #[pyclass(frozen, module = "rivlet._native")]
-pub(crate) struct NativeDeclarationCompilation {
-    pub(crate) graph: NativeCompiledExecutionGraph,
+pub(crate) struct DeclarationCompilation {
+    pub(crate) graph: CompiledExecutionGraph,
     declaration_nodes: Vec<usize>,
     declaration_conditions: Vec<usize>,
     graphs: Vec<GraphRecord>,
     nodes: Vec<NodeRecord>,
     conditions: Vec<ConditionRecord>,
-    native_actions: NativeActionBindings,
+    rust_actions: RustActionBindings,
     disabled_edges: Vec<(usize, usize)>,
     id_prefix: Vec<usize>,
 }
 
-impl NativeDeclarationCompilation {
+impl DeclarationCompilation {
     // 只导出存活节点，顺序与编译索引一致；保留声明 ID 用于原作用域引用。
     // 每个节点侧表 O(V_active)，不再为裁剪节点复制字符串、路径或 Python 引用。
     fn active_nodes(&self) -> impl Iterator<Item = &NodeRecord> {
@@ -1058,7 +1054,7 @@ impl NativeDeclarationCompilation {
 }
 
 #[pymethods]
-impl NativeDeclarationCompilation {
+impl DeclarationCompilation {
     /// Captures compiler decisions without reevaluating any host condition.
     fn export_origins(&self) -> ExportOrigins {
         // S/C 为被移除的静态边与活跃条件数，L 为复制的挂载路径总长：
@@ -1090,7 +1086,7 @@ impl NativeDeclarationCompilation {
     }
 
     #[getter]
-    fn graph(&self) -> NativeCompiledExecutionGraph {
+    fn graph(&self) -> CompiledExecutionGraph {
         self.graph.clone()
     }
 
@@ -1134,13 +1130,13 @@ impl NativeDeclarationCompilation {
         self.active_nodes()
             .map(|node| match &node.content {
                 NodeContent::Python(action) => Some(action.clone_ref(py)),
-                NodeContent::Native(_, _) | NodeContent::Composite(_) => None,
+                NodeContent::Rust(_, _) | NodeContent::Composite(_) => None,
             })
             .collect()
     }
 
-    fn native_actions(&self) -> NativeActionBindings {
-        self.native_actions.clone()
+    fn rust_actions(&self) -> RustActionBindings {
+        self.rust_actions.clone()
     }
 
     fn graph_labels(&self) -> Vec<String> {
@@ -1205,7 +1201,7 @@ pub(crate) fn compile_declaration(
     root_label: &str,
     root_label_path: Vec<String>,
     id_prefix: Vec<usize>,
-) -> PyResult<NativeDeclarationCompilation> {
+) -> PyResult<DeclarationCompilation> {
     Collector::new(source_graph.py())?.collect_root(
         source_graph,
         root_label,

@@ -10,11 +10,11 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from .._native import (
-        NativeActionBindings,
-        NativeCompiledExecutionGraph,
-        NativeExecutionEvent,
-        NativeMixedExecutionSession,
-        _NativeResult,
+        CompiledExecutionGraph,
+        EncodedExecutionEvent,
+        MixedExecutionSession,
+        RustActionBindings,
+        _RustResult,
     )
     from ..model import NodePath
 
@@ -37,13 +37,13 @@ class BatchExecutionHost(Protocol):
     def raise_failures(self) -> None: ...
     def apply_events(
         self,
-        events: list[NativeExecutionEvent],
-        native_results: Sequence[tuple[int, _NativeResult]] = (),
+        events: list[EncodedExecutionEvent],
+        rust_results: Sequence[tuple[int, _RustResult]] = (),
     ) -> None: ...
-    def native_values(
+    def rust_input_values(
         self, completed: list[tuple[int, bool]]
     ) -> list[tuple[int, object]]: ...
-    def retains_native_results(self) -> bool: ...
+    def retains_rust_results(self) -> bool: ...
     def run_leaf(self, node: int) -> LeafInvocation: ...
     def stop_requested(self) -> bool: ...
     def request_stop(self) -> None: ...
@@ -52,10 +52,10 @@ class BatchExecutionHost(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class SessionDefinition:
-    graph: NativeCompiledExecutionGraph
+    graph: CompiledExecutionGraph
     host: BatchExecutionHost
-    native_actions: NativeActionBindings
-    native_contexts: list[tuple[int, str | None]]
+    rust_actions: RustActionBindings
+    rust_contexts: list[tuple[int, str | None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,10 +86,10 @@ class SessionPhase(Enum):
 @dataclass(eq=False, slots=True)
 class SessionRun:
     definition: SessionDefinition
-    native: NativeMixedExecutionSession
+    engine: MixedExecutionSession
     owner: RootSession | ChildSession
     phase: SessionPhase = SessionPhase.NEW
-    native_running: int = 0
+    rust_running: int = 0
     python_running: int = 0
     completed: list[tuple[int, bool]] = field(default_factory=list)
 
@@ -114,7 +114,7 @@ class SessionTree:
         self._queued: set[SessionRun] = set()
         self._waiting: dict[SessionRun, None] = {}
         self._active: set[SessionRun] = set()
-        self.native_runs: dict[SessionRun, None] = {}
+        self.rust_runs: dict[SessionRun, None] = {}
         self._skip_revision = self.host.skip_revision()
         self._add(root, RootSession())
 
@@ -125,10 +125,10 @@ class SessionTree:
             definition,
             definition.graph.mixed_session(
                 definition.host.skipped_nodes(),
-                definition.native_actions,
-                definition.native_contexts,
+                definition.rust_actions,
+                definition.rust_contexts,
                 self.capacity,
-                retain_results=definition.host.retains_native_results(),
+                retain_results=definition.host.retains_rust_results(),
             ),
             owner,
         )
@@ -185,21 +185,21 @@ class SessionTree:
             run = self._ready.popleft()
             self._queued.remove(run)
             available = self.capacity - self._occupied
-            if available == 0 and not run.completed and not run.native_running:
+            if available == 0 and not run.completed and not run.rust_running:
                 self._waiting[run] = None
                 continue
             source = run.definition
-            previous_native = run.native_running
+            previous_native = run.rust_running
             if run.phase is SessionPhase.NEW:
-                batch = run.native.start(available)
+                batch = run.engine.start(available)
                 run.phase = SessionPhase.RUNNING
             else:
-                batch = run.native.advance(
+                batch = run.engine.advance(
                     run.completed,
                     [],
                     source.host.skipped_nodes(),
                     available,
-                    values=source.host.native_values(run.completed),
+                    values=source.host.rust_input_values(run.completed),
                 )
                 run.completed = []
             issued = 0
@@ -209,7 +209,7 @@ class SessionTree:
                     conditions,
                     events,
                     finished,
-                    native_running,
+                    rust_running,
                     failures,
                     results,
                 ) = batch.parts()
@@ -218,33 +218,33 @@ class SessionTree:
                     source.host.record_failure(node, RuntimeError(message))
                 work.extend(PythonWork(run, node) for node in actions)
                 issued += len(actions)
-                self._occupied += len(actions) + native_running - run.native_running
+                self._occupied += len(actions) + rust_running - run.rust_running
                 run.python_running += len(actions)
-                run.native_running = native_running
+                run.rust_running = rust_running
                 if not conditions:
                     break
                 resolutions = source.host.resolve_conditions(conditions)
                 self.host.require_running()
-                batch = run.native.advance(
+                batch = run.engine.advance(
                     [],
                     resolutions,
                     source.host.skipped_nodes(),
                     self.capacity - self._occupied,
                 )
-            if run.native_running:
-                self.native_runs[run] = None
+            if run.rust_running:
+                self.rust_runs[run] = None
             else:
-                self.native_runs.pop(run, None)
+                self.rust_runs.pop(run, None)
             if finished:
                 self._finish(run)
             elif (
                 self._occupied == self.capacity
                 and not issued
                 and not run.python_running
-                and not run.native_running
+                and not run.rust_running
             ):
                 self._waiting[run] = None
-            if previous_native > run.native_running and self._waiting:
+            if previous_native > run.rust_running and self._waiting:
                 for waiting in tuple(self._waiting):
                     self.wake(waiting)
         return work
@@ -252,7 +252,7 @@ class SessionTree:
     def _finish(self, run: SessionRun) -> None:
         self._active.remove(run)
         self._waiting.pop(run, None)
-        self.native_runs.pop(run, None)
+        self.rust_runs.pop(run, None)
         match run.owner:
             case RootSession():
                 self.finished = True

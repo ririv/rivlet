@@ -1,4 +1,4 @@
-"""Exercise native process boundaries without relying on a command shell."""
+"""Exercise Rust process boundaries without relying on a command shell."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from rivlet import (
     GraphStructure,
     ThreadRunOptions,
 )
-from rivlet._native import _native_process_graph
+from rivlet._native import _rust_process_graph
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
@@ -43,7 +43,7 @@ print('stdout marker', flush=True)
 print('stderr marker', file=sys.stderr, flush=True)
 """
     native = Graph(
-        structure=_native_process_graph(
+        structure=_rust_process_graph(
             [
                 (
                     "process",

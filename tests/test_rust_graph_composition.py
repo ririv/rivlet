@@ -35,11 +35,11 @@ from rivlet import (
     static,
 )
 from rivlet._native import (
-    NativeGraphStructure,
-    _native_compose_graph,
-    _native_process_graph,
+    RustGraphStructure,
+    _compose_rust_graph,
+    _rust_process_graph,
 )
-from rivlet.compile import CompiledNativeLeaf
+from rivlet.compile import CompiledRustLeaf
 
 type Backend = Literal["serial", "thread", "async"]
 
@@ -62,8 +62,8 @@ def processes(
     arcs: list[tuple[int, int]],
     inputs: list[tuple[str, list[int]]],
     outputs: list[tuple[str, int]],
-) -> NativeGraphStructure:
-    return _native_process_graph(
+) -> RustGraphStructure:
+    return _rust_process_graph(
         [
             (name, sys.executable, ["-c", script], str(directory), dict(os.environ))
             for name, script in scripts
@@ -91,7 +91,7 @@ def test_nested_shared_rust_graph_has_ports_paths_logs_and_no_python_actions(
         inputs=[("start", [0])],
         outputs=[("done", 0)],
     )
-    composed = _native_compose_graph(
+    composed = _compose_rust_graph(
         [("left", body), ("right", body)],
         [(0, 1, "done", "start")],
         [("start", [(0, "start")])],
@@ -143,9 +143,7 @@ def test_nested_shared_rust_graph_has_ports_paths_logs_and_no_python_actions(
     assert observed == ["task", "task"]
     assert log.read_text().splitlines() == ["native task", "native task"]
     native = [
-        node
-        for node in execution.compile().steps
-        if isinstance(node, CompiledNativeLeaf)
+        node for node in execution.compile().steps if isinstance(node, CompiledRustLeaf)
     ]
     assert len(native) == 2
     assert native[0].id == native[1].id
@@ -193,7 +191,7 @@ def test_native_output_can_feed_python_result_without_inventing_native_values(
     body = processes(
         tmp_path, [("done", "pass")], arcs=[], inputs=[], outputs=[("done", 0)]
     )
-    inner = _native_compose_graph([("child", body)], [], [], [("result", 0, "done")])
+    inner = _compose_rust_graph([("child", body)], [], [], [("result", 0, "done")])
     producer = Graph(inner)
     seen: list[object] = []
 
@@ -247,7 +245,7 @@ def test_native_failure_is_scoped_and_blocks_only_port_dependents(
         inputs=[("apply", [0])],
         outputs=[],
     )
-    body = _native_compose_graph(
+    body = _compose_rust_graph(
         [("provider", failed_body), ("consumer", target_body)],
         [(0, 1, "ready", "apply")],
         [],
@@ -278,7 +276,7 @@ def test_outer_python_condition_skips_whole_native_hierarchy(
         inputs=[],
         outputs=[],
     )
-    nested = _native_compose_graph([("inner", body)], [], [], [])
+    nested = _compose_rust_graph([("inner", body)], [], [], [])
     root = Graph(nested, condition=lambda: False)
     execution = Execution(root)
     execute(execution, backend)
@@ -287,7 +285,7 @@ def test_outer_python_condition_skips_whole_native_hierarchy(
         cases=(Case(False, root), Case(True, Leaf(lambda: None)))
     ).graph()
     compilation = Execution(selected).compile()
-    assert not any(isinstance(node, CompiledNativeLeaf) for node in compilation.steps)
+    assert not any(isinstance(node, CompiledRustLeaf) for node in compilation.steps)
 
 
 def test_native_ports_reject_real_expanded_cycle_and_retain_scope_local_view(
@@ -300,12 +298,12 @@ def test_native_ports_reject_real_expanded_cycle_and_retain_scope_local_view(
         inputs=[("in", [0])],
         outputs=[("out", 0)],
     )
-    cyclic = _native_compose_graph(
+    cyclic = _compose_rust_graph(
         [("a", body), ("b", body)], [(0, 1, "out", "in"), (1, 0, "out", "in")], [], []
     )
     with pytest.raises(GraphError, match="cycle"):
         Execution(Graph(cyclic)).compile()
-    nested = _native_compose_graph([("inner", body)], [], [], [])
+    nested = _compose_rust_graph([("inner", body)], [], [], [])
     _, _, child_view = nested.nodes()[0]
     assert child_view is not None
     assert child_view.output_path("out") == [0]
@@ -322,7 +320,7 @@ def test_two_python_mounts_share_nested_rust_body_without_sharing_scopes(
     body = processes(
         tmp_path, [("task", "pass")], arcs=[], inputs=[], outputs=[("done", 0)]
     )
-    shared = _native_compose_graph([("child", body)], [], [], [("done", 0, "done")])
+    shared = _compose_rust_graph([("child", body)], [], [], [("done", 0, "done")])
     left, right = Graph(shared, label="left"), Graph(shared, label="right")
     seen: list[tuple[object, object]] = []
     consume = Leaf(lambda ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
@@ -340,9 +338,7 @@ def test_two_python_mounts_share_nested_rust_body_without_sharing_scopes(
     )
     execute(execution, backend)
     native = [
-        node
-        for node in execution.compile().steps
-        if isinstance(node, CompiledNativeLeaf)
+        node for node in execution.compile().steps if isinstance(node, CompiledRustLeaf)
     ]
     assert len(native) == 2
     assert native[0].id == native[1].id

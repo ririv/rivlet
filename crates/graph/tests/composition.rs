@@ -1,6 +1,6 @@
 use std::sync::{Arc, Mutex};
 
-use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
+use action::{Action, ActionContext, ActionError, ActionHandle};
 use graph::{
     Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, Leaf, ProjectedKind,
 };
@@ -10,13 +10,13 @@ use rivlet::{ExecutionSession, ExecutionUpdate, NodeState, SessionStatus};
 struct Record {
     name: &'static str,
     events: Arc<Mutex<Vec<&'static str>>>,
-    outcome: Result<(), NativeActionError>,
+    outcome: Result<(), ActionError>,
 }
 
-impl NativeAction for Record {
+impl Action for Record {
     type Inputs = ();
     type Output = ();
-    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
+    fn execute(&self, _: &ActionContext, (): ()) -> Result<(), ActionError> {
         self.events.lock().unwrap().push(self.name);
         self.outcome.clone()
     }
@@ -29,11 +29,11 @@ fn leaf(name: &'static str, events: &Arc<Mutex<Vec<&'static str>>>) -> Leaf {
 fn leaf_with_outcome(
     name: &'static str,
     events: &Arc<Mutex<Vec<&'static str>>>,
-    outcome: Result<(), NativeActionError>,
+    outcome: Result<(), ActionError>,
 ) -> Leaf {
     Leaf::new(
         name,
-        NativeActionHandle::new(Record {
+        ActionHandle::new(Record {
             name,
             events: Arc::clone(events),
             outcome,
@@ -58,7 +58,7 @@ fn run(compilation: &Compilation) -> (SessionStatus, ExecutionSession) {
                 (
                     *id,
                     action
-                        .execute(&NativeActionContext::default(), &[])
+                        .execute(&ActionContext::default(), &[])
                         .map(|_| ())
                         .map_err(|_| ()),
                 )
@@ -171,7 +171,7 @@ fn forwarded_ports_allow_interleaving_without_false_component_cycle() {
 #[test]
 fn failed_output_blocks_only_its_consumers_and_not_independent_work() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let fail = leaf_with_outcome("failed", &events, Err(NativeActionError::new("failure")));
+    let fail = leaf_with_outcome("failed", &events, Err(ActionError::new("failure")));
     let provider = Graph::new(
         "provider",
         Arc::new(
@@ -235,7 +235,7 @@ fn failed_output_blocks_only_its_consumers_and_not_independent_work() {
 fn port_fanout_does_not_wait_for_unrelated_provider_completion() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let ready = leaf("ready", &events);
-    let later_fail = leaf_with_outcome("later-fail", &events, Err(NativeActionError::new("late")));
+    let later_fail = leaf_with_outcome("later-fail", &events, Err(ActionError::new("late")));
     let first = leaf("first", &events);
     let second = leaf("second", &events);
     let consumer = Graph::new(

@@ -1,6 +1,6 @@
-# 原生结果值
+# Rust 结果值
 
-[English](../native-results.md) | 简体中文
+[English](../rust-results.md) | 简体中文
 
 结果边同时等待来源并将结果绑定到 action 的位置参数。载荷属于执行层，语言无关的
 调度器只处理依赖和状态。不默认转 JSON，也不向 action context 恢复结果查询入口。
@@ -9,34 +9,34 @@
 
 ```rust
 use std::sync::Arc;
-use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
+use action::{Action, ActionContext, ActionError, ActionHandle};
 use graph::{Edge, GraphStructure, Leaf};
 
 struct Plan { count: i64 }
 struct Design;
-impl NativeAction for Design {
+impl Action for Design {
     type Inputs = ();
     type Output = Plan;
-    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<Plan, NativeActionError> {
+    fn execute(&self, _: &ActionContext, (): ()) -> Result<Plan, ActionError> {
         Ok(Plan { count: 21 })
     }
 }
 
 struct Apply;
-impl NativeAction for Apply {
+impl Action for Apply {
     type Inputs = (Option<Arc<Plan>>,);
     type Output = i64;
-    fn execute(&self, _: &NativeActionContext, (plan,): Self::Inputs)
-        -> Result<i64, NativeActionError>
+    fn execute(&self, _: &ActionContext, (plan,): Self::Inputs)
+        -> Result<i64, ActionError>
     {
-        let plan = plan.ok_or_else(|| NativeActionError::new("plan was skipped"))?;
+        let plan = plan.ok_or_else(|| ActionError::new("plan was skipped"))?;
         Ok(plan.count * 2)
     }
 }
 
 fn workflow() -> Result<graph::Compilation, graph::GraphError> {
-    let design = Leaf::new("design", NativeActionHandle::new(Design))?;
-    let apply = Leaf::new("apply", NativeActionHandle::new(Apply))?;
+    let design = Leaf::new("design", ActionHandle::new(Design))?;
+    let apply = Leaf::new("apply", ActionHandle::new(Apply))?;
     let results = Edge::results([&design], &apply)?;
     GraphStructure::new([design.into(), apply.into()], [results])?.compile_structure()
 }
@@ -45,7 +45,7 @@ fn workflow() -> Result<graph::Compilation, graph::GraphError> {
 输出可以是任意 `Send + Sync + 'static` Rust 类型，不要求 Clone 或序列化 trait。
 执行层持有共享原生值，输入按 `Option<Arc<T>>` 接收，fan-out 只克隆 Arc，不复制 T。
 内部类型擦除仍按确定的 Rust 类型身份校验。内置元组实现覆盖一至十二个参数；
-自定义 `NativeInputs` 可声明其它完整输入组，因此不是给图的入度设十二个的上限。
+自定义 `ActionInputs` 可声明其它完整输入组，因此不是给图的入度设十二个的上限。
 
 编译校验参数数量、来源顺序、实际类型、每个真实接收方只有一组完整结果绑定，以及
 最终依赖 DAG。组合期间可以保留未绑定的公开输入，最终编译时活跃 action 必须闭合。
@@ -110,7 +110,7 @@ Vec<u8>/bytes。整数检查范围，bool 不当整数，字符串不解析成�
 只导入原生结果边确实引用的 Python 值，无关的任意对象不序列化。纯原生图在没有
 Python 结果保留需求时，不创建 Python 结果包装。需要保留时先记录原生引用，实际
 读取时才创建 Python 值。Python action 仍接收既有 Option 并解包，不需要引入公开
-NativeResult API。
+RustResult API。
 
 自定义类型的转换明确属于 PyO3 adapter。内部 `ValueCodecs` 为确定类型组合成对的
 Rust 导出/导入函数，不能覆盖已有或标准转换。组合图可以复用同一个转换器对象，

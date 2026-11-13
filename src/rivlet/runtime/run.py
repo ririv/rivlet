@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 
 from ..compile import (
     CompiledLeaf,
-    CompiledNativeLeaf,
     CompiledPythonLeaf,
+    CompiledRustLeaf,
     GraphCompilation,
 )
 from ..errors import GraphError
@@ -118,7 +118,7 @@ class CompiledGraphRun:
     def step_log_path_for(
         self,
         state: ExecutionState,
-        step: CompiledPythonLeaf | CompiledNativeLeaf,
+        step: CompiledPythonLeaf | CompiledRustLeaf,
     ) -> Path | None:
         """Resolve a step's explicit or inherited log path without creating a run context."""
 
@@ -134,15 +134,15 @@ class CompiledGraphRun:
                 break
         return step_log_path
 
-    def native_action_contexts(
+    def rust_action_contexts(
         self,
         state: ExecutionState,
     ) -> list[tuple[int, str | None]]:
         """Project native leaf log contexts without exposing their actions."""
 
         contexts: list[tuple[int, str | None]] = []
-        for node, compiled_node in enumerate(self.compilation._native_nodes):
-            if not isinstance(compiled_node, CompiledNativeLeaf):
+        for node, compiled_node in enumerate(self.compilation._execution_nodes):
+            if not isinstance(compiled_node, CompiledRustLeaf):
                 continue
             step_log_path = self.step_log_path_for(state, compiled_node)
             contexts.append(

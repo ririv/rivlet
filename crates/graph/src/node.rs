@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use action::NativeActionHandle;
+use action::ActionHandle;
 use rivlet::NodeIdentity;
 
 use crate::{GraphError, GraphInterfaceView, GraphStructure, Projection};
@@ -34,7 +34,7 @@ pub trait Node {
 #[derive(Clone, Debug)]
 pub struct Leaf {
     metadata: Metadata,
-    action: NativeActionHandle,
+    action: ActionHandle,
 }
 
 impl Leaf {
@@ -42,7 +42,7 @@ impl Leaf {
     ///
     /// # Errors
     /// Returns an error for an empty label.
-    pub fn new(label: impl Into<String>, action: NativeActionHandle) -> Result<Self, GraphError> {
+    pub fn new(label: impl Into<String>, action: ActionHandle) -> Result<Self, GraphError> {
         Ok(Self {
             metadata: Metadata::new(label)?,
             action,
@@ -60,7 +60,7 @@ impl Leaf {
     }
 
     #[must_use]
-    pub const fn action(&self) -> &NativeActionHandle {
+    pub const fn action(&self) -> &ActionHandle {
         &self.action
     }
 }

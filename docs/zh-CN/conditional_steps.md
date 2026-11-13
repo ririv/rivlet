@@ -5,7 +5,7 @@
 ## 用途
 
 条件边决定依赖是否成立；Node.condition 决定节点自身是否参与执行。
-它适用于 Python 叶子、Python Graph 子图和 NativeGraphStructure 子图。
+它适用于 Python 叶子、Python Graph 子图和 RustGraphStructure 子图。
 
 ## 声明
 

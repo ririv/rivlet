@@ -63,17 +63,17 @@ def main() -> None:
 
     batch = _measure(
         lambda: run_threaded_session(
-            compilation._native_graph,
+            compilation._execution_graph,
             _host(compilation),
             workers=args.workers,
-            native_actions=compilation._native_actions,
-            native_contexts=[],
+            rust_actions=compilation._rust_actions,
+            rust_contexts=[],
         ),
         args.repeats,
     )
     tokio = _measure(
         lambda: _experimental_run_tokio_callbacks(
-            compilation._native_graph,
+            compilation._execution_graph,
             _host(compilation),
             args.workers,
         ),

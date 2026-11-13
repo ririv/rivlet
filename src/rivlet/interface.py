@@ -102,12 +102,12 @@ class _Inputs(Mapping[str, InputPort]):
         self._graph = graph
 
     def __getitem__(self, key: str) -> InputPort:
-        from ._native import NativeGraphStructure
+        from ._native import RustGraphStructure
 
         body = self._graph.structure
         exists = (
             body.has_input_port(key)
-            if isinstance(body, NativeGraphStructure)
+            if isinstance(body, RustGraphStructure)
             else key in body.interface.inputs
         )
         if not exists:
@@ -116,12 +116,12 @@ class _Inputs(Mapping[str, InputPort]):
 
     @property
     def _names(self) -> Mapping[str, tuple[InputEndpoint, ...]] | list[str]:
-        from ._native import NativeGraphStructure
+        from ._native import RustGraphStructure
 
         body = self._graph.structure
         return (
             body.input_ports()
-            if isinstance(body, NativeGraphStructure)
+            if isinstance(body, RustGraphStructure)
             else body.interface.inputs
         )
 
@@ -137,12 +137,12 @@ class _Outputs(Mapping[str, OutputPort]):
         self._graph = graph
 
     def __getitem__(self, key: str) -> OutputPort:
-        from ._native import NativeGraphStructure
+        from ._native import RustGraphStructure
 
         body = self._graph.structure
         exists = (
             body.has_output_port(key)
-            if isinstance(body, NativeGraphStructure)
+            if isinstance(body, RustGraphStructure)
             else key in body.interface.outputs
         )
         if not exists:
@@ -151,12 +151,12 @@ class _Outputs(Mapping[str, OutputPort]):
 
     @property
     def _names(self) -> Mapping[str, OutputEndpoint] | list[str]:
-        from ._native import NativeGraphStructure
+        from ._native import RustGraphStructure
 
         body = self._graph.structure
         return (
             body.output_ports()
-            if isinstance(body, NativeGraphStructure)
+            if isinstance(body, RustGraphStructure)
             else body.interface.outputs
         )
 
@@ -285,7 +285,7 @@ def resolve_port_requirements(
                     )
                 )
 
-    native_selections = [
+    resolved_selections = [
         (
             _requirement_index(declared_requirements, selection.requirement),
             component_indexes.get(selection.provider, len(mounted_components)),
@@ -301,7 +301,7 @@ def resolve_port_requirements(
             len(declared_requirements),
             any_requirements,
             exact_requirements,
-            native_selections,
+            resolved_selections,
         )
     except ValueError as error:
         raise GraphError(str(error)) from error

@@ -19,16 +19,16 @@ from .session_tree import (
 )
 
 if TYPE_CHECKING:
-    from .._native import NativeActionBindings, NativeCompiledExecutionGraph
+    from .._native import CompiledExecutionGraph, RustActionBindings
 
 
 @dataclass(frozen=True, slots=True)
-class _NativeWait:
+class _RustWait:
     session: SessionRun
 
 
-def _wait_native(run: SessionRun) -> LeafOutcome:
-    run.native.wait_native()
+def _wait_rust(run: SessionRun) -> LeafOutcome:
+    run.engine.wait_rust()
     return None
 
 
@@ -47,31 +47,29 @@ def _invoke_sync(work: PythonWork) -> LeafOutcome:
 
 
 def run_serial_session(
-    graph: NativeCompiledExecutionGraph,
+    graph: CompiledExecutionGraph,
     host: BatchExecutionHost,
-    native_actions: NativeActionBindings,
-    native_contexts: list[tuple[int, str | None]],
+    rust_actions: RustActionBindings,
+    rust_contexts: list[tuple[int, str | None]],
 ) -> None:
     from .serial_session import run_serial_definition
 
-    run_serial_definition(
-        SessionDefinition(graph, host, native_actions, native_contexts)
-    )
+    run_serial_definition(SessionDefinition(graph, host, rust_actions, rust_contexts))
 
 
 def run_threaded_session(
-    graph: NativeCompiledExecutionGraph,
+    graph: CompiledExecutionGraph,
     host: BatchExecutionHost,
     *,
     workers: int,
-    native_actions: NativeActionBindings,
-    native_contexts: list[tuple[int, str | None]],
+    rust_actions: RustActionBindings,
+    rust_contexts: list[tuple[int, str | None]],
 ) -> None:
     tree = SessionTree(
-        SessionDefinition(graph, host, native_actions, native_contexts), workers
+        SessionDefinition(graph, host, rust_actions, rust_contexts), workers
     )
-    running: dict[Future[LeafOutcome], PythonWork | _NativeWait] = {}
-    native_waiters: set[SessionRun] = set()
+    running: dict[Future[LeafOutcome], PythonWork | _RustWait] = {}
+    rust_waiters: set[SessionRun] = set()
     with ThreadPoolExecutor(
         max_workers=workers, thread_name_prefix="GraphWorker"
     ) as pool:
@@ -79,10 +77,10 @@ def run_threaded_session(
             while True:
                 for work in tree.poll():
                     running[pool.submit(_invoke_sync, work)] = work
-                for run in tree.native_runs:
-                    if run not in native_waiters:
-                        native_waiters.add(run)
-                        running[pool.submit(_wait_native, run)] = _NativeWait(run)
+                for run in tree.rust_runs:
+                    if run not in rust_waiters:
+                        rust_waiters.add(run)
+                        running[pool.submit(_wait_rust, run)] = _RustWait(run)
                 if tree.finished and not running:
                     break
                 if not running:
@@ -92,9 +90,9 @@ def run_threaded_session(
                 done, _ = wait(running, return_when=FIRST_COMPLETED)
                 for future in done:
                     item = running.pop(future)
-                    if isinstance(item, _NativeWait):
+                    if isinstance(item, _RustWait):
                         future.result()
-                        native_waiters.remove(item.session)
+                        rust_waiters.remove(item.session)
                         tree.wake(item.session)
                         continue
                     try:
@@ -113,28 +111,28 @@ def run_threaded_session(
 
 
 async def run_async_session(
-    graph: NativeCompiledExecutionGraph,
+    graph: CompiledExecutionGraph,
     host: BatchExecutionHost,
     *,
     concurrency: int,
-    native_actions: NativeActionBindings,
-    native_contexts: list[tuple[int, str | None]],
+    rust_actions: RustActionBindings,
+    rust_contexts: list[tuple[int, str | None]],
 ) -> None:
     tree = SessionTree(
-        SessionDefinition(graph, host, native_actions, native_contexts), concurrency
+        SessionDefinition(graph, host, rust_actions, rust_contexts), concurrency
     )
-    running: dict[asyncio.Future[LeafOutcome], PythonWork | _NativeWait] = {}
-    native_waiters: set[SessionRun] = set()
+    running: dict[asyncio.Future[LeafOutcome], PythonWork | _RustWait] = {}
+    rust_waiters: set[SessionRun] = set()
     try:
         while True:
             for work in tree.poll():
                 running[asyncio.create_task(_invoke_async(work))] = work
-            for run in tree.native_runs:
-                if run not in native_waiters:
-                    native_waiters.add(run)
-                    running[
-                        asyncio.create_task(asyncio.to_thread(_wait_native, run))
-                    ] = _NativeWait(run)
+            for run in tree.rust_runs:
+                if run not in rust_waiters:
+                    rust_waiters.add(run)
+                    running[asyncio.create_task(asyncio.to_thread(_wait_rust, run))] = (
+                        _RustWait(run)
+                    )
             if tree.finished and not running:
                 break
             if not running:
@@ -142,9 +140,9 @@ async def run_async_session(
             done, _ = await asyncio.wait(running, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 item = running.pop(task)
-                if isinstance(item, _NativeWait):
+                if isinstance(item, _RustWait):
                     task.result()
-                    native_waiters.remove(item.session)
+                    rust_waiters.remove(item.session)
                     tree.wake(item.session)
                     continue
                 try:

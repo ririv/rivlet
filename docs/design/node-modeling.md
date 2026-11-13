@@ -41,7 +41,7 @@ interface through wrapping. Forwarded port references retain their owning graph.
 | wiring.step(label=...) | wiring.graph(label=...) |
 | StepWiring | NodeWiring |
 | StepRunContext / step_id / step_path | NodeRunContext / node_id / node_path |
-| NativeGraph (opaque body) | NativeGraphStructure |
+| NativeGraph (opaque body) | RustGraphStructure |
 
 Recipe functions still return Graph. Execution receives that actual node directly.
 Events and mounted identity types likewise use the Node prefix.

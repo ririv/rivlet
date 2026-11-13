@@ -27,7 +27,7 @@ from rivlet import (
     render_live_execution,
     resolve_port_requirements,
 )
-from rivlet._native import _native_process_graph
+from rivlet._native import _rust_process_graph
 
 
 @pytest.fixture(params=["serial", "thread", "async"])
@@ -365,7 +365,7 @@ def test_dynamic_returned_graph_failure_is_local_to_its_parent_action(execute):
 
 
 def test_native_failure_preserves_successes_in_same_completion_batch(execute, tmp_path):
-    native = _native_process_graph(
+    native = _rust_process_graph(
         [
             (
                 "fail",
@@ -460,7 +460,7 @@ def test_cancellation_from_condition_waits_for_started_async_action():
 def test_parallel_native_errors_are_collected_without_losing_completions(
     options, tmp_path
 ):
-    native = _native_process_graph(
+    native = _rust_process_graph(
         [
             (
                 "fail-a",

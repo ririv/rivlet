@@ -2,7 +2,7 @@ use std::any::TypeId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use action::{NativeValue, NativeValueType};
+use action::{Value, ValueType};
 use pyo3::BoundObject;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -13,8 +13,8 @@ type Export<T> = fn(Python<'_>, &T) -> PyResult<Py<PyAny>>;
 type Import<T> = fn(&Bound<'_, PyAny>) -> PyResult<T>;
 
 trait ErasedCodec: Send + Sync {
-    fn export(&self, py: Python<'_>, value: &NativeValue) -> PyResult<Py<PyAny>>;
-    fn import(&self, value: &Bound<'_, PyAny>) -> PyResult<NativeValue>;
+    fn export(&self, py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>>;
+    fn import(&self, value: &Bound<'_, PyAny>) -> PyResult<Value>;
 }
 
 struct Codec<T> {
@@ -23,14 +23,14 @@ struct Codec<T> {
 }
 
 impl<T: Send + Sync + 'static> ErasedCodec for Codec<T> {
-    fn export(&self, py: Python<'_>, value: &NativeValue) -> PyResult<Py<PyAny>> {
+    fn export(&self, py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
         let value = value
             .downcast::<T>()
             .map_err(|error| PyTypeError::new_err(error.to_string()))?;
         (self.export)(py, &value)
     }
-    fn import(&self, value: &Bound<'_, PyAny>) -> PyResult<NativeValue> {
-        (self.import)(value).map(NativeValue::new)
+    fn import(&self, value: &Bound<'_, PyAny>) -> PyResult<Value> {
+        (self.import)(value).map(Value::new)
     }
 }
 
@@ -116,7 +116,7 @@ impl ValueCodecs {
         Ok(())
     }
 
-    pub(crate) fn export(&self, py: Python<'_>, value: &NativeValue) -> PyResult<Py<PyAny>> {
+    pub(crate) fn export(&self, py: Python<'_>, value: &Value) -> PyResult<Py<PyAny>> {
         if let Some(codec) = self.custom.get(&value.type_id()) {
             return codec.export(py, value);
         }
@@ -163,11 +163,7 @@ impl ValueCodecs {
         }
     }
 
-    pub(crate) fn import(
-        &self,
-        expected: NativeValueType,
-        value: &Bound<'_, PyAny>,
-    ) -> PyResult<NativeValue> {
+    pub(crate) fn import(&self, expected: ValueType, value: &Bound<'_, PyAny>) -> PyResult<Value> {
         if let Some(codec) = self.custom.get(&expected.id()) {
             return codec.import(value);
         }
@@ -202,24 +198,24 @@ impl ValueCodecs {
             )));
         }
         match kind {
-            Builtin::Unit => Ok(NativeValue::new(())),
-            Builtin::Bool => value.extract::<bool>().map(NativeValue::new),
-            Builtin::I8 => value.extract::<i8>().map(NativeValue::new),
-            Builtin::I16 => value.extract::<i16>().map(NativeValue::new),
-            Builtin::I32 => value.extract::<i32>().map(NativeValue::new),
-            Builtin::I64 => value.extract::<i64>().map(NativeValue::new),
-            Builtin::I128 => value.extract::<i128>().map(NativeValue::new),
-            Builtin::Isize => value.extract::<isize>().map(NativeValue::new),
-            Builtin::U8 => value.extract::<u8>().map(NativeValue::new),
-            Builtin::U16 => value.extract::<u16>().map(NativeValue::new),
-            Builtin::U32 => value.extract::<u32>().map(NativeValue::new),
-            Builtin::U64 => value.extract::<u64>().map(NativeValue::new),
-            Builtin::U128 => value.extract::<u128>().map(NativeValue::new),
-            Builtin::Usize => value.extract::<usize>().map(NativeValue::new),
-            Builtin::F32 => value.extract::<f32>().map(NativeValue::new),
-            Builtin::F64 => value.extract::<f64>().map(NativeValue::new),
-            Builtin::String => value.extract::<String>().map(NativeValue::new),
-            Builtin::Bytes => value.extract::<Vec<u8>>().map(NativeValue::new),
+            Builtin::Unit => Ok(Value::new(())),
+            Builtin::Bool => value.extract::<bool>().map(Value::new),
+            Builtin::I8 => value.extract::<i8>().map(Value::new),
+            Builtin::I16 => value.extract::<i16>().map(Value::new),
+            Builtin::I32 => value.extract::<i32>().map(Value::new),
+            Builtin::I64 => value.extract::<i64>().map(Value::new),
+            Builtin::I128 => value.extract::<i128>().map(Value::new),
+            Builtin::Isize => value.extract::<isize>().map(Value::new),
+            Builtin::U8 => value.extract::<u8>().map(Value::new),
+            Builtin::U16 => value.extract::<u16>().map(Value::new),
+            Builtin::U32 => value.extract::<u32>().map(Value::new),
+            Builtin::U64 => value.extract::<u64>().map(Value::new),
+            Builtin::U128 => value.extract::<u128>().map(Value::new),
+            Builtin::Usize => value.extract::<usize>().map(Value::new),
+            Builtin::F32 => value.extract::<f32>().map(Value::new),
+            Builtin::F64 => value.extract::<f64>().map(Value::new),
+            Builtin::String => value.extract::<String>().map(Value::new),
+            Builtin::Bytes => value.extract::<Vec<u8>>().map(Value::new),
         }
     }
 }
@@ -227,18 +223,18 @@ impl ValueCodecs {
 /// Lazy adapter-owned conversion; pure Rust edges retain the original Arc value.
 #[pyclass(
     frozen,
-    name = "_NativeResult",
+    name = "_RustResult",
     module = "rivlet._native",
     skip_from_py_object
 )]
-pub(crate) struct NativeResult {
-    value: NativeValue,
+pub(crate) struct RustResult {
+    value: Value,
     codecs: Arc<ValueCodecs>,
     converted: PyOnceLock<Py<PyAny>>,
 }
 
-impl NativeResult {
-    pub(crate) fn new(value: NativeValue, codecs: Arc<ValueCodecs>) -> Self {
+impl RustResult {
+    pub(crate) fn new(value: Value, codecs: Arc<ValueCodecs>) -> Self {
         Self {
             value,
             codecs,
@@ -248,7 +244,7 @@ impl NativeResult {
 }
 
 #[pymethods]
-impl NativeResult {
+impl RustResult {
     fn to_python(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         self.converted
             .get_or_try_init(py, || self.codecs.export(py, &self.value))

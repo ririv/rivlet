@@ -9,10 +9,10 @@ from ..compile import (
     CompiledConditionalDependency,
     CompiledLeaf,
     CompiledLeafRef,
-    CompiledNativeLeaf,
     CompiledPrerequisite,
     CompiledPythonLeaf,
     CompiledRuntimeCondition,
+    CompiledRustLeaf,
     GraphCompilation,
     compile_graph,
 )
@@ -52,7 +52,7 @@ def render_step_label(
     *,
     node_path: NodePath | None = None,
 ) -> str:
-    if isinstance(step, (CompiledPythonLeaf, CompiledNativeLeaf)):
+    if isinstance(step, (CompiledPythonLeaf, CompiledRustLeaf)):
         return step.path.labels[-1]
     if node_path is None:
         raise ValueError("declaration node label requires its mounted path")

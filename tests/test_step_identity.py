@@ -20,7 +20,7 @@ from rivlet import (
     ThreadRunOptions,
     export_graph,
 )
-from rivlet._native import _native_process_graph
+from rivlet._native import _rust_process_graph
 
 
 def test_path_labels_do_not_change_identity_and_parent_preserves_labels():
@@ -117,7 +117,7 @@ def test_dynamic_child_keeps_identity_and_full_path_labels():
 
 
 def test_native_declaration_ids_survive_compilation_and_repeated_mounts():
-    native = _native_process_graph(
+    native = _rust_process_graph(
         [("leaf", sys.executable, ["-c", "pass"], ".", {})], []
     )
     python_step = Leaf(lambda: None)
@@ -134,12 +134,12 @@ def test_native_declaration_ids_survive_compilation_and_repeated_mounts():
     first = export_graph(Execution(root).compile())
     second = export_graph(Execution(root).compile())
     assert first == second
-    native_nodes = [
+    execution_nodes = [
         node
         for node in first["nodes"]
         if node["kind"] == "leaf" and node["action_kind"] == "native"
     ]
-    assert [node["id"] for node in native_nodes] == ["0.0.0", "0.1.0"]
-    assert [node["node_id"] for node in native_nodes] == [native.node_ids()[0]] * 2
+    assert [node["id"] for node in execution_nodes] == ["0.0.0", "0.1.0"]
+    assert [node["node_id"] for node in execution_nodes] == [native.node_ids()[0]] * 2
     assert native.node_ids()[0] not in {step.id.value for step in graph.structure.nodes}
     assert NodeId().value not in {step.id.value for step in graph.structure.nodes}

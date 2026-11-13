@@ -4,7 +4,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ._native import _NativeResult
+from ._native import _RustResult
 from .option import Some
 from .runtime.control import ExecutionControl
 
@@ -84,7 +84,7 @@ class ResultStore:
             result = self._results.get(node_path)
         # 原生值在真正被 Python 读取时才转换，不让 Rust→Rust 经过 Python。
         # 转换不持有 store 锁；同一原生结果在适配层缓存 Python 对象身份。
-        if result is not None and isinstance(result.value, _NativeResult):
+        if result is not None and isinstance(result.value, _RustResult):
             return Some(result.value.to_python())
         return result
 

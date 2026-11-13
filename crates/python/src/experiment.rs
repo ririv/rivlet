@@ -4,7 +4,7 @@ use pyo3::prelude::*;
 use rivlet::{ConditionRequest, ConditionResolution, ExecutionEvent, NodeId};
 use tokio_runtime::CallbackHost;
 
-use crate::{NativeCompiledExecutionGraph, encode_event};
+use crate::{CompiledExecutionGraph, encode_event};
 
 struct PythonCallbackHost {
     host: Py<PyAny>,
@@ -97,7 +97,7 @@ impl CallbackHost for PythonCallbackHost {
 #[pyfunction(name = "_experimental_run_tokio_callbacks")]
 pub(crate) fn run_tokio_callbacks(
     py: Python<'_>,
-    graph: &NativeCompiledExecutionGraph,
+    graph: &CompiledExecutionGraph,
     host: Py<PyAny>,
     concurrency: usize,
 ) -> PyResult<()> {

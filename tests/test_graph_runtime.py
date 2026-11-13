@@ -41,7 +41,7 @@ from rivlet import (
     render_execution,
     render_live_execution,
 )
-from rivlet._native import NativeGraphStructure, _native_process_graph
+from rivlet._native import RustGraphStructure, _rust_process_graph
 from rivlet.compile import compile_graph
 from rivlet.runtime.compiled import CompiledExecutionHost
 
@@ -64,10 +64,10 @@ def _process_graph(
     program: str,
     arguments: list[str],
     cwd: Path,
-) -> NativeGraphStructure:
+) -> RustGraphStructure:
     """Build a native process graph through the private adapter test boundary."""
 
-    return _native_process_graph(
+    return _rust_process_graph(
         [(label, program, arguments, str(cwd), dict(os.environ))],
         [],
     )

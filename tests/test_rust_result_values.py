@@ -1,4 +1,4 @@
-"""Typed native payloads and explicit language conversions on real result edges."""
+"""Typed Rust payloads and explicit language conversions on real result edges."""
 
 from __future__ import annotations
 
@@ -27,8 +27,8 @@ from rivlet import (
     render_graph_mermaid,
 )
 from rivlet._native import (
-    _native_compose_graph,
-    _native_result_fixture,
+    _compose_rust_graph,
+    _rust_result_fixture,
 )
 from rivlet._native import (
     _ResultFixtureKind as Kind,
@@ -64,8 +64,8 @@ CASES = (
 def test_rust_to_rust_to_python_preserves_actual_typed_values(
     kind: Kind, expected: object, backend: Backend
 ) -> None:
-    source, target = _native_result_fixture(kind)
-    body = _native_compose_graph(
+    source, target = _rust_result_fixture(kind)
+    body = _compose_rust_graph(
         [("producer", source), ("consumer", target)],
         [([(0, "value")], (1, "apply"))],
         [],
@@ -99,7 +99,7 @@ def test_rust_to_rust_to_python_preserves_actual_typed_values(
 def test_python_to_rust_and_back_uses_receiver_type(
     kind: Kind, value: object, backend: Backend
 ) -> None:
-    _, body = _native_result_fixture(kind)
+    _, body = _rust_result_fixture(kind)
     native = Graph(body, label="native")
     producer = Leaf(lambda: value)
     seen: list[object] = []
@@ -124,8 +124,8 @@ def test_python_to_rust_and_back_uses_receiver_type(
 def test_custom_native_payload_needs_no_codec_for_native_only_edges(
     backend: Backend,
 ) -> None:
-    source, target = _native_result_fixture(Kind.Opaque)
-    body = _native_compose_graph(
+    source, target = _rust_result_fixture(Kind.Opaque)
+    body = _compose_rust_graph(
         [("source", source), ("target", target)],
         [([(0, "value")], (1, "apply"))],
         [],
@@ -141,7 +141,7 @@ def test_custom_native_payload_needs_no_codec_for_native_only_edges(
 def test_native_option_distinguishes_skipped_from_successful_unit(
     skipped: bool, backend: Backend
 ) -> None:
-    source, target = _native_result_fixture(Kind.Unit)
+    source, target = _rust_result_fixture(Kind.Unit)
     producer = Graph(source, condition=(lambda: False) if skipped else None)
     consumer = Graph(target)
     seen: list[object] = []
@@ -179,7 +179,7 @@ def test_native_option_distinguishes_skipped_from_successful_unit(
 def test_bad_python_import_fails_receiver_only(
     kind: Kind, bad_value: object, backend: Backend
 ) -> None:
-    _, body = _native_result_fixture(kind)
+    _, body = _rust_result_fixture(kind)
     native = Graph(body, label="receiver")
     producer = Leaf(lambda: bad_value)
     seen: list[str] = []
@@ -208,7 +208,7 @@ def test_bad_python_import_fails_receiver_only(
 def test_unregistered_native_export_fails_python_reader_not_native_producer(
     backend: Backend,
 ) -> None:
-    source, _ = _native_result_fixture(Kind.Opaque)
+    source, _ = _rust_result_fixture(Kind.Opaque)
     native = Graph(source)
     reader = Leaf(lambda ctx, value: value.unwrap())
     seen: list[str] = []
@@ -235,7 +235,7 @@ def test_unregistered_native_export_fails_python_reader_not_native_producer(
 def test_forwarded_reused_consumers_keep_values_bound_to_each_mount(
     backend: Backend,
 ) -> None:
-    _, body = _native_result_fixture(Kind.Custom)
+    _, body = _rust_result_fixture(Kind.Custom)
     inner = Graph(body, label="inner")
     shared = GraphStructure(
         nodes=(inner,), interface=GraphInterface(inputs=inner, outputs=inner)
@@ -270,7 +270,7 @@ def test_forwarded_reused_consumers_keep_values_bound_to_each_mount(
 def test_custom_export_is_cached_for_fanout_and_retained_results(
     backend: Backend,
 ) -> None:
-    body, _ = _native_result_fixture(Kind.Custom)
+    body, _ = _rust_result_fixture(Kind.Custom)
     native = Graph(body)
     seen: list[object] = []
     one = Leaf(lambda ctx, value: seen.append(value.unwrap()))
@@ -295,8 +295,8 @@ def test_custom_export_is_cached_for_fanout_and_retained_results(
 
 
 def test_known_native_result_type_mismatch_is_rejected_before_execution() -> None:
-    source, _ = _native_result_fixture(Kind.Bool)
-    _, target = _native_result_fixture(Kind.I64)
+    source, _ = _rust_result_fixture(Kind.Bool)
+    _, target = _rust_result_fixture(Kind.I64)
     first, second = Graph(source), Graph(target)
     graph = Graph(
         GraphStructure(

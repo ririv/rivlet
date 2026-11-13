@@ -4,9 +4,9 @@ mod declaration;
 mod events;
 mod experiment;
 mod mixed_execution;
-mod native_graph;
 mod result_fixture;
 mod result_values;
+mod rust_graph;
 
 use events::{EncodedEvent, encode_event};
 use pyo3::exceptions::PyValueError;
@@ -14,9 +14,10 @@ use pyo3::prelude::*;
 use rivlet::{
     Arc as TopologyArc, CompiledExecutionGraph as CoreCompiledExecutionGraph, ComponentId,
     ConditionId, ConditionResolution, DagTopology, DeclaredGraph, DeclaredNode, DirectedTopology,
-    ExecutionBatch, ExecutionGraphDeclaration, ExecutionSession, ExecutionUpdate, GraphId, NodeId,
-    PortConnection, PortId, PortRequirement, Prerequisite, ProviderSelection, RequirementId,
-    RuntimeCondition, SessionStatus, TopologyError, resolve_ports,
+    ExecutionBatch as CoreExecutionBatch, ExecutionGraphDeclaration,
+    ExecutionSession as CoreExecutionSession, ExecutionUpdate, GraphId, NodeId, PortConnection,
+    PortId, PortRequirement, Prerequisite, ProviderSelection, RequirementId, RuntimeCondition,
+    SessionStatus, TopologyError, resolve_ports,
 };
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -24,20 +25,20 @@ use std::sync::Arc;
 /// Rust-owned structural execution graph.
 #[derive(Clone)]
 #[pyclass(frozen, module = "rivlet._native", skip_from_py_object)]
-struct NativeCompiledExecutionGraph {
+struct CompiledExecutionGraph {
     pub(crate) graph: Arc<CoreCompiledExecutionGraph>,
 }
 
 #[pyclass(frozen, module = "rivlet._native")]
-pub(crate) struct NativeExecutionBatch {
+pub(crate) struct ExecutionBatch {
     pub(crate) actions: Vec<usize>,
     pub(crate) conditions: Vec<(usize, usize)>,
     pub(crate) events: Vec<EncodedEvent>,
     pub(crate) finished: bool,
 }
 
-impl From<ExecutionBatch> for NativeExecutionBatch {
-    fn from(batch: ExecutionBatch) -> Self {
+impl From<CoreExecutionBatch> for ExecutionBatch {
+    fn from(batch: CoreExecutionBatch) -> Self {
         Self {
             actions: batch.actions().iter().map(|node| node.index()).collect(),
             conditions: batch
@@ -52,7 +53,7 @@ impl From<ExecutionBatch> for NativeExecutionBatch {
 }
 
 #[pymethods]
-impl NativeExecutionBatch {
+impl ExecutionBatch {
     #[allow(clippy::type_complexity)]
     fn parts(&self) -> (Vec<usize>, Vec<(usize, usize)>, Vec<EncodedEvent>, bool) {
         (
@@ -65,16 +66,16 @@ impl NativeExecutionBatch {
 }
 
 #[pyclass(module = "rivlet._native")]
-struct NativeExecutionSession {
-    session: ExecutionSession,
+struct ExecutionSession {
+    session: CoreExecutionSession,
 }
 
 #[pymethods]
-impl NativeExecutionSession {
-    fn start(&mut self, max_actions: usize) -> PyResult<NativeExecutionBatch> {
+impl ExecutionSession {
+    fn start(&mut self, max_actions: usize) -> PyResult<ExecutionBatch> {
         self.session
             .start(max_actions)
-            .map(NativeExecutionBatch::from)
+            .map(ExecutionBatch::from)
             .map_err(|error| PyValueError::new_err(error.to_string()))
     }
 
@@ -85,7 +86,7 @@ impl NativeExecutionSession {
         conditions: Vec<(usize, Option<bool>)>,
         skipped: Vec<usize>,
         max_actions: usize,
-    ) -> PyResult<NativeExecutionBatch> {
+    ) -> PyResult<ExecutionBatch> {
         self.session
             .advance(
                 ExecutionUpdate::new(
@@ -104,7 +105,7 @@ impl NativeExecutionSession {
                 ),
                 max_actions,
             )
-            .map(NativeExecutionBatch::from)
+            .map(ExecutionBatch::from)
             .map_err(|error| PyValueError::new_err(error.to_string()))
     }
 }
@@ -218,7 +219,7 @@ fn set_requirement(
 }
 
 #[pymethods]
-impl NativeCompiledExecutionGraph {
+impl CompiledExecutionGraph {
     #[new]
     fn new(
         node_graphs: Vec<usize>,
@@ -343,9 +344,9 @@ impl NativeCompiledExecutionGraph {
         node_indexes(self.graph.dependency_topology().topological_order())
     }
 
-    fn session(&self, initially_skipped: Vec<usize>) -> PyResult<NativeExecutionSession> {
-        Ok(NativeExecutionSession {
-            session: ExecutionSession::new(
+    fn session(&self, initially_skipped: Vec<usize>) -> PyResult<ExecutionSession> {
+        Ok(ExecutionSession {
+            session: CoreExecutionSession::new(
                 Arc::clone(&self.graph),
                 initially_skipped.into_iter().map(NodeId::new),
             )
@@ -353,31 +354,26 @@ impl NativeCompiledExecutionGraph {
         })
     }
 
-    #[pyo3(signature = (initially_skipped, native_actions, native_contexts, workers, retain_results=false))]
+    #[pyo3(signature = (initially_skipped, rust_actions, rust_contexts, workers, retain_results=false))]
     fn mixed_session(
         &self,
         initially_skipped: Vec<usize>,
-        native_actions: &mixed_execution::NativeActionBindings,
-        native_contexts: Vec<(usize, Option<String>)>,
+        rust_actions: &mixed_execution::RustActionBindings,
+        rust_contexts: Vec<(usize, Option<String>)>,
         workers: usize,
         retain_results: bool,
-    ) -> PyResult<mixed_execution::NativeMixedExecutionSession> {
-        let bindings = mixed_execution::NativeMixedExecutionSession::bindings(
+    ) -> PyResult<mixed_execution::MixedExecutionSession> {
+        let bindings = mixed_execution::MixedExecutionSession::bindings(
             self.graph.nodes().len(),
-            native_actions,
-            native_contexts,
+            rust_actions,
+            rust_contexts,
         )?;
-        let session = ExecutionSession::new(
+        let session = CoreExecutionSession::new(
             Arc::clone(&self.graph),
             initially_skipped.into_iter().map(NodeId::new),
         )
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
-        mixed_execution::NativeMixedExecutionSession::new(
-            session,
-            bindings,
-            workers,
-            retain_results,
-        )
+        mixed_execution::MixedExecutionSession::new(session, bindings, workers, retain_results)
     }
 }
 
@@ -394,27 +390,21 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(resolve_port_connections, module)?)?;
     module.add_function(wrap_pyfunction!(declaration::compile_declaration, module)?)?;
     module.add_function(wrap_pyfunction!(experiment::run_tokio_callbacks, module)?)?;
-    module.add_function(wrap_pyfunction!(
-        native_graph::native_process_graph,
-        module
-    )?)?;
-    module.add_function(wrap_pyfunction!(
-        native_graph::native_compose_graph,
-        module
-    )?)?;
-    module.add_class::<NativeCompiledExecutionGraph>()?;
-    module.add_class::<declaration::NativeDeclarationCompilation>()?;
-    module.add_class::<NativeExecutionBatch>()?;
-    module.add_class::<NativeExecutionSession>()?;
-    module.add_class::<mixed_execution::NativeActionBindings>()?;
-    module.add_class::<result_values::NativeResult>()?;
+    module.add_function(wrap_pyfunction!(rust_graph::rust_process_graph, module)?)?;
+    module.add_function(wrap_pyfunction!(rust_graph::compose_rust_graph, module)?)?;
+    module.add_class::<CompiledExecutionGraph>()?;
+    module.add_class::<declaration::DeclarationCompilation>()?;
+    module.add_class::<ExecutionBatch>()?;
+    module.add_class::<ExecutionSession>()?;
+    module.add_class::<mixed_execution::RustActionBindings>()?;
+    module.add_class::<result_values::RustResult>()?;
     module.add_class::<result_fixture::ResultFixtureKind>()?;
     module.add_function(wrap_pyfunction!(
-        result_fixture::native_result_fixture,
+        result_fixture::rust_result_fixture,
         module
     )?)?;
-    module.add_class::<mixed_execution::NativeMixedExecutionBatch>()?;
-    module.add_class::<mixed_execution::NativeMixedExecutionSession>()?;
-    module.add_class::<native_graph::NativeGraphStructure>()?;
+    module.add_class::<mixed_execution::MixedExecutionBatch>()?;
+    module.add_class::<mixed_execution::MixedExecutionSession>()?;
+    module.add_class::<rust_graph::RustGraphStructure>()?;
     Ok(())
 }

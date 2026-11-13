@@ -1,4 +1,4 @@
-"""Render opaque Rust declarations without manufacturing Python nodes."""
+"""Render Rust graph declarations without manufacturing Python nodes."""
 
 from __future__ import annotations
 
@@ -7,12 +7,12 @@ from typing import TYPE_CHECKING
 from .formatting import escape_label
 
 if TYPE_CHECKING:
-    from .._native import NativeGraphStructure
+    from .._native import RustGraphStructure
     from ..model import NodePath
 
 
-def append_native_tree(
-    lines: list[str], body: NativeGraphStructure, *, prefix: str
+def append_rust_tree(
+    lines: list[str], body: RustGraphStructure, *, prefix: str
 ) -> None:
     nodes = body.nodes()
     incoming: dict[int, list[str]] = {}
@@ -33,19 +33,19 @@ def append_native_tree(
             suffix += f" [after: {', '.join(incoming[index])}]"
         lines.append(f"{prefix}{branch}{label}{suffix}")
         if child is not None:
-            append_native_tree(lines, child, prefix=prefix + ("   " if last else "│  "))
+            append_rust_tree(lines, child, prefix=prefix + ("   " if last else "│  "))
 
 
-def append_native_mermaid(
+def append_rust_mermaid(
     lines: list[str],
-    body: NativeGraphStructure,
+    body: RustGraphStructure,
     *,
     owner: NodePath,
     label: str,
     indent: str,
 ) -> None:
     def node_id(path: NodePath) -> str:
-        return "native_" + "_".join(map(str, path.segments))
+        return "rust_" + "_".join(map(str, path.segments))
 
     lines.append(f'{indent}subgraph {node_id(owner)}_body["{escape_label(label)}"]')
     nodes = body.nodes()
@@ -53,7 +53,7 @@ def append_native_mermaid(
         path = owner.child(index)
         lines.append(f'{indent}    {node_id(path)}["{escape_label(child_label)}"]')
         if child is not None:
-            append_native_mermaid(
+            append_rust_mermaid(
                 lines, child, owner=path, label=child_label, indent=indent + "    "
             )
     for edge in body.edges():

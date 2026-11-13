@@ -1,6 +1,6 @@
-# Python graphs and Rust-native graphs
+# Python graphs and Rust graphs
 
-English | [简体中文](./zh-CN/native-graphs.md)
+English | [简体中文](./zh-CN/rust-graphs.md)
 
 A Python declaration can mount a complete Rust-native subgraph. Both enter one
 Rust CompiledExecutionGraph and share dependencies, hierarchy, failure propagation,
@@ -10,7 +10,7 @@ Python actions.
 ```text
 Python Graph / Leaf
     ├── Python Leaf
-    └── Graph(NativeGraphStructure)
+    └── Graph(RustGraphStructure)
           ├── Rust Leaf
           └── Rust Graph → Rust Leaf / Graph
                 │
@@ -20,7 +20,7 @@ Python Graph / Leaf
         └── Rust leaf   → Rust worker
 ```
 
-Python holds an opaque NativeGraphStructure, not individually callable Rust Leaf or
+Python holds an opaque RustGraphStructure, not individually callable Rust Leaf or
 Rust action objects. Native action execution does not require a per-action Python
 callback. The mixed driver receives batches of native completion events for
 results, logs, and presentation. Internal nodes remain visible in compiled and
@@ -35,7 +35,7 @@ prepare = Leaf(prepare_source, label=("prepare"))
 ```
 
 A Rust adapter constructs graph::GraphStructure. The Python adapter wraps it as
-NativeGraphStructure; Python composes that body into a Graph:
+RustGraphStructure; Python composes that body into a Graph:
 
 ```python
 from rivetoo_ninja import import_clean_build_graph
@@ -57,8 +57,8 @@ explicitly choose this adapter.
 Here compile is an outer composite. Rust sees the internal nodes and edges for
 global scheduling while preserving the composite boundary.
 
-NativeGraphStructure is the smallest native unit exposed to Python. There is no public
-Python NativeAction or ProcessAction API that would create a second per-action
+RustGraphStructure is the smallest native unit exposed to Python. There is no public
+Python Action or ProcessAction API that would create a second per-action
 submission path.
 
 ## Execution and results
@@ -75,7 +75,7 @@ Within one execution session:
 Native actions declare typed inputs and outputs. Rust-to-Rust result edges share
 Rust-owned values; Python conversions happen only at the adapter boundary.
 A process action returns unit, observed as `Some(None)` in Python, not an absent
-result. See [native result values](./native-results.md) for the API and conversion rules.
+result. See [native result values](./rust-results.md) for the API and conversion rules.
 Native actions still cannot read Python NodeRunContext or expand dynamic graphs.
 
 ## Rust crates
@@ -84,11 +84,11 @@ Native actions still cannot read Python NodeRunContext or expand dynamic graphs.
 - graph: Rust Leaf/Graph nodes, Node trait, GraphStructure, typed ports, and GraphError.
 - topology: integer nodes and pure graph algorithms.
 - core: language-independent declaration compilation and execution sessions.
-- python: integration of Python Graph and complete NativeGraphStructure declarations.
+- python: integration of Python Graph and complete RustGraphStructure declarations.
 
 Adapters may implement arbitrary Rust actions, but Rust trait objects are not
 passed between dynamic libraries. An independent adapter should provide a stable
-batch graph specification, from which the Graph extension constructs NativeGraphStructure
+batch graph specification, from which the Graph extension constructs RustGraphStructure
 once. This preserves package boundaries without routing each action through Python.
 
 ## Rust declaration API
@@ -100,21 +100,21 @@ arbitrary executable node kinds. Only `Graph` has an interface.
 
 ```rust
 use std::sync::Arc;
-use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
+use action::{Action, ActionContext, ActionError, ActionHandle};
 use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf};
 
 struct Work;
-impl NativeAction for Work {
+impl Action for Work {
     type Inputs = ();
     type Output = ();
-    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
+    fn execute(&self, _: &ActionContext, (): ()) -> Result<(), ActionError> {
         println!("work");
         Ok(())
     }
 }
 
 fn workflow() -> Result<graph::Compilation, graph::GraphError> {
-    let task = Leaf::new("task", NativeActionHandle::new(Work))?;
+    let task = Leaf::new("task", ActionHandle::new(Work))?;
     let body = Arc::new(GraphStructure::with_interface(
         [task.clone().into()], [],
         GraphInterface::default()

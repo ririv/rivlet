@@ -10,10 +10,10 @@ from ._compilation_origins import (
     NodeConditionOrigin,
 )
 from ._native import (
-    NativeActionBindings,
-    NativeCompiledExecutionGraph,
-    NativeDeclarationCompilation,
-    NativeGraphStructure,
+    CompiledExecutionGraph,
+    DeclarationCompilation,
+    RustActionBindings,
+    RustGraphStructure,
     compile_declaration,
 )
 from .errors import GraphError
@@ -124,7 +124,7 @@ class CompiledPythonLeaf:
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledNativeLeaf:
+class CompiledRustLeaf:
     """由 Rust 执行器直接调用的原生叶子节点。"""
 
     ref: CompiledLeafRef
@@ -153,7 +153,7 @@ class CompiledComposite:
     """
 
     ref: CompiledCompositeRef
-    source_graph: GraphStructure | NativeGraphStructure
+    source_graph: GraphStructure | RustGraphStructure
     graph_label: str
     children: tuple[CompiledNodeRef, ...]
     after: tuple[CompiledPrerequisite, ...]
@@ -172,7 +172,7 @@ class CompiledComposite:
         return self.context.node_id
 
 
-type CompiledLeaf = CompiledPythonLeaf | CompiledNativeLeaf
+type CompiledLeaf = CompiledPythonLeaf | CompiledRustLeaf
 type CompiledNode = CompiledLeaf | CompiledComposite
 
 
@@ -185,10 +185,10 @@ class _MaterializeExecutionGraph:
 class _PrecompiledExecutionGraph:
     """Carry one complete execution graph compiled by the Rust declaration compiler."""
 
-    graph: NativeCompiledExecutionGraph
+    graph: CompiledExecutionGraph
     conditions: tuple[CompiledRuntimeCondition, ...]
     nodes: tuple[CompiledNode, ...]
-    native_actions: NativeActionBindings
+    rust_actions: RustActionBindings
 
 
 type _ExecutionGraphInput = _MaterializeExecutionGraph | _PrecompiledExecutionGraph
@@ -221,27 +221,27 @@ class GraphCompilation:
         repr=False,
         compare=False,
     )
-    _native_graph: NativeCompiledExecutionGraph = field(
+    _execution_graph: CompiledExecutionGraph = field(
         init=False,
         repr=False,
         compare=False,
     )
-    _native_nodes: tuple[CompiledNode, ...] = field(
+    _execution_nodes: tuple[CompiledNode, ...] = field(
         init=False,
         repr=False,
         compare=False,
     )
-    _native_node_indexes: Mapping[NodePath, int] = field(
+    _execution_node_indexes: Mapping[NodePath, int] = field(
         init=False,
         repr=False,
         compare=False,
     )
-    _native_conditions: tuple[CompiledRuntimeCondition, ...] = field(
+    _execution_conditions: tuple[CompiledRuntimeCondition, ...] = field(
         init=False,
         repr=False,
         compare=False,
     )
-    _native_actions: NativeActionBindings = field(
+    _rust_actions: RustActionBindings = field(
         init=False,
         repr=False,
         compare=False,
@@ -331,15 +331,15 @@ class GraphCompilation:
                     f"{composite.path}"
                 )
 
-        native_nodes = tuple(nodes.values())
-        native_node_indexes = {
-            node.path: index for index, node in enumerate(native_nodes)
+        execution_nodes = tuple(nodes.values())
+        execution_node_indexes = {
+            node.path: index for index, node in enumerate(execution_nodes)
         }
         try:
-            native_graph, native_conditions, effective_after = (
-                _materialize_native_execution_graph(
-                    native_nodes,
-                    native_node_indexes,
+            execution_graph, execution_conditions, effective_after = (
+                _materialize_execution_graph(
+                    execution_nodes,
+                    execution_node_indexes,
                 )
             )
         except ValueError as exc:
@@ -347,12 +347,14 @@ class GraphCompilation:
 
         if any(
             node.after != lowered_after
-            for node, lowered_after in zip(native_nodes, effective_after, strict=True)
+            for node, lowered_after in zip(
+                execution_nodes, effective_after, strict=True
+            )
         ):
-            native_nodes = tuple(
+            execution_nodes = tuple(
                 replace(node, after=lowered_after)
                 for node, lowered_after in zip(
-                    native_nodes,
+                    execution_nodes,
                     effective_after,
                     strict=True,
                 )
@@ -362,7 +364,7 @@ class GraphCompilation:
                 "steps",
                 tuple(
                     node
-                    for node in native_nodes
+                    for node in execution_nodes
                     if not isinstance(node, CompiledComposite)
                 ),
             )
@@ -370,31 +372,35 @@ class GraphCompilation:
                 self,
                 "composites",
                 tuple(
-                    node for node in native_nodes if isinstance(node, CompiledComposite)
+                    node
+                    for node in execution_nodes
+                    if isinstance(node, CompiledComposite)
                 ),
             )
 
-        native_root_ids = {native_nodes[index].path for index in native_graph.roots()}
-        if native_root_ids != ownerless_node_ids:
+        execution_root_ids = {
+            execution_nodes[index].path for index in execution_graph.roots()
+        }
+        if execution_root_ids != ownerless_node_ids:
             raise GraphError("compiled graph native roots do not match ownerless nodes")
         for composite in self.composites:
-            composite_index = native_node_indexes[composite.path]
-            native_child_ids = {
-                native_nodes[index].path
-                for index in native_graph.children(composite_index)
+            composite_index = execution_node_indexes[composite.path]
+            execution_child_ids = {
+                execution_nodes[index].path
+                for index in execution_graph.children(composite_index)
             }
-            if native_child_ids != {child.path for child in composite.children}:
+            if execution_child_ids != {child.path for child in composite.children}:
                 raise GraphError(
                     "compiled graph native children do not match composite: "
                     f"{composite.path}"
                 )
 
-        self._set_native_execution_graph(
-            graph=native_graph,
-            nodes=native_nodes,
-            node_indexes=native_node_indexes,
-            conditions=native_conditions,
-            native_actions=NativeActionBindings(len(native_nodes)),
+        self._set_execution_graph(
+            graph=execution_graph,
+            nodes=execution_nodes,
+            node_indexes=execution_node_indexes,
+            conditions=execution_conditions,
+            rust_actions=RustActionBindings(len(execution_nodes)),
         )
 
     def _initialize_precompiled_execution_graph(
@@ -412,53 +418,53 @@ class GraphCompilation:
         } != {id(node) for node in declared_nodes}:
             raise GraphError("precompiled execution nodes do not match compiled nodes")
 
-        native_node_indexes = {
+        execution_node_indexes = {
             node.path: index for index, node in enumerate(precompiled.nodes)
         }
-        if len(native_node_indexes) != len(precompiled.nodes):
+        if len(execution_node_indexes) != len(precompiled.nodes):
             raise GraphError("precompiled execution graph has duplicate node ids")
 
-        self._set_native_execution_graph(
+        self._set_execution_graph(
             graph=precompiled.graph,
             nodes=precompiled.nodes,
-            node_indexes=native_node_indexes,
+            node_indexes=execution_node_indexes,
             conditions=precompiled.conditions,
-            native_actions=precompiled.native_actions,
+            rust_actions=precompiled.rust_actions,
         )
 
-    def _set_native_execution_graph(
+    def _set_execution_graph(
         self,
         *,
-        graph: NativeCompiledExecutionGraph,
+        graph: CompiledExecutionGraph,
         nodes: tuple[CompiledNode, ...],
         node_indexes: dict[NodePath, int],
         conditions: tuple[CompiledRuntimeCondition, ...],
-        native_actions: NativeActionBindings,
+        rust_actions: RustActionBindings,
     ) -> None:
         """Commit the complete native execution view as one internal state transition."""
 
-        object.__setattr__(self, "_native_graph", graph)
-        object.__setattr__(self, "_native_nodes", nodes)
-        object.__setattr__(self, "_native_conditions", conditions)
-        object.__setattr__(self, "_native_actions", native_actions)
+        object.__setattr__(self, "_execution_graph", graph)
+        object.__setattr__(self, "_execution_nodes", nodes)
+        object.__setattr__(self, "_execution_conditions", conditions)
+        object.__setattr__(self, "_rust_actions", rust_actions)
         object.__setattr__(
             self,
-            "_native_node_indexes",
+            "_execution_node_indexes",
             MappingProxyType(node_indexes),
         )
 
     def _dependent_refs(self, node_id: NodePath) -> tuple[CompiledNodeRef, ...]:
-        node_index = self._native_node_indexes[node_id]
+        node_index = self._execution_node_indexes[node_id]
         return tuple(
-            self._native_nodes[index].ref
-            for index in self._native_graph.dependents(node_index)
+            self._execution_nodes[index].ref
+            for index in self._execution_graph.dependents(node_index)
         )
 
-    def _native_node(self, index: int) -> CompiledNode:
-        return self._native_nodes[index]
+    def _execution_node(self, index: int) -> CompiledNode:
+        return self._execution_nodes[index]
 
-    def _native_condition(self, index: int) -> CompiledRuntimeCondition:
-        return self._native_conditions[index]
+    def _execution_condition(self, index: int) -> CompiledRuntimeCondition:
+        return self._execution_conditions[index]
 
 
 def _require_compiled_node(
@@ -522,11 +528,11 @@ def _validate_compiled_condition(
         _require_compiled_node(nodes, read)
 
 
-def _materialize_native_execution_graph(
+def _materialize_execution_graph(
     nodes: tuple[CompiledNode, ...],
     node_indexes: Mapping[NodePath, int],
 ) -> tuple[
-    NativeCompiledExecutionGraph,
+    CompiledExecutionGraph,
     tuple[CompiledRuntimeCondition, ...],
     tuple[tuple[CompiledPrerequisite, ...], ...],
 ]:
@@ -577,7 +583,7 @@ def _materialize_native_execution_graph(
             None if node.condition is None else register_condition(node.condition)
         )
 
-    native_graph = NativeCompiledExecutionGraph(
+    execution_graph = CompiledExecutionGraph(
         node_graphs,
         list(composite_child_graphs.items()),
         graph_owners,
@@ -596,10 +602,10 @@ def _materialize_native_execution_graph(
             )
             for node_index, condition_index in prerequisites
         )
-        for prerequisites in native_graph.all_prerequisites()
+        for prerequisites in execution_graph.all_prerequisites()
     )
     return (
-        native_graph,
+        execution_graph,
         tuple(conditions),
         effective_after,
     )
@@ -626,16 +632,16 @@ def compile_graph(
         )
     except ValueError as exc:
         raise GraphError(str(exc)) from exc
-    return _materialize_native_compilation(
+    return _bind_declaration_compilation(
         source_graph,
         native,
         external_ancestor_graph_scopes=ancestor_graph_scopes,
     )
 
 
-def _materialize_native_compilation(
+def _bind_declaration_compilation(
     source_graph: GraphStructure,
-    native: NativeDeclarationCompilation,
+    native: DeclarationCompilation,
     *,
     external_ancestor_graph_scopes: tuple[GraphScope, ...] = (),
 ) -> GraphCompilation:
@@ -715,8 +721,8 @@ def _materialize_native_compilation(
         )
         for predicate, reads in zip(predicates, condition_reads, strict=True)
     )
-    native_after = native.graph.all_prerequisites()
-    native_conditions = native.graph.node_conditions()
+    execution_after = native.graph.all_prerequisites()
+    execution_conditions = native.graph.node_conditions()
     node_inputs = native.node_inputs()
 
     def prerequisite(value: tuple[int, int | None]) -> CompiledPrerequisite:
@@ -748,8 +754,8 @@ def _materialize_native_compilation(
             if owner_declaration is None
             else _require_composite_ref(refs_by_declaration[owner_declaration])
         )
-        after = tuple(prerequisite(value) for value in native_after[compiled_index])
-        condition_index = native_conditions[compiled_index]
+        after = tuple(prerequisite(value) for value in execution_after[compiled_index])
+        condition_index = execution_conditions[compiled_index]
         condition = (
             None if condition_index is None else compiled_conditions[condition_index]
         )
@@ -759,7 +765,7 @@ def _materialize_native_compilation(
             action = actions[compiled_index]
             compiled_step: CompiledLeaf
             if action is None:
-                compiled_step = CompiledNativeLeaf(
+                compiled_step = CompiledRustLeaf(
                     ref=cast("CompiledLeafRef", ref),
                     after=after,
                     condition=condition,
@@ -787,7 +793,7 @@ def _materialize_native_compilation(
             ordered_nodes.append(compiled_step)
             continue
         component_source_graph = cast(
-            "GraphStructure | NativeGraphStructure",
+            "GraphStructure | RustGraphStructure",
             source_graphs[child_graph],
         )
         composite = CompiledComposite(
@@ -843,7 +849,7 @@ def _materialize_native_compilation(
             graph=native.graph,
             conditions=compiled_conditions,
             nodes=tuple(ordered_nodes),
-            native_actions=native.native_actions(),
+            rust_actions=native.rust_actions(),
         ),
     )
 

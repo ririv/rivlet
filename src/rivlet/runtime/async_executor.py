@@ -91,8 +91,8 @@ class AsyncGraphExecutor:
             definition.graph,
             definition.host,
             concurrency=concurrency,
-            native_actions=definition.native_actions,
-            native_contexts=definition.native_contexts,
+            rust_actions=definition.rust_actions,
+            rust_contexts=definition.rust_contexts,
         )
         self.state.require_skip_requests_resolved()
         self._runtime.after_success(graph)

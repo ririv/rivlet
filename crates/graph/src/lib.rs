@@ -6,19 +6,19 @@
 //!
 //! ```
 //! use std::sync::Arc;
-//! use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
+//! use action::{Action, ActionContext, ActionError, ActionHandle};
 //! use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf};
 //!
 //! struct Work;
-//! impl NativeAction for Work {
+//! impl Action for Work {
 //!     type Inputs = ();
 //!     type Output = ();
-//!     fn execute(&self, _: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
+//!     fn execute(&self, _: &ActionContext, (): ()) -> Result<(), ActionError> {
 //!         Ok(())
 //!     }
 //! }
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let task = Leaf::new("task", NativeActionHandle::new(Work))?;
+//! let task = Leaf::new("task", ActionHandle::new(Work))?;
 //! let body = Arc::new(GraphStructure::with_interface(
 //!     [task.clone().into()], [],
 //!     GraphInterface::default().input("apply", [&task])?.output("ready", &task)?,

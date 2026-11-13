@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use action::{NativeActionHandle, NativeValueType};
+use action::{ActionHandle, ValueType};
 use rivlet::{
     CompiledExecutionGraph, DeclarationNode, DeclarationPrerequisite, DeclaredGraph,
     DeclaredNodeKind, GraphCompilation, GraphDeclaration, GraphId, NodeActivation, NodeId,
@@ -16,7 +16,7 @@ use crate::{
 /// Action ownership and composite membership are mutually exclusive.
 #[derive(Clone, Debug)]
 pub enum ProjectedKind {
-    Leaf(NativeActionHandle),
+    Leaf(ActionHandle),
     Graph(GraphId),
 }
 
@@ -321,7 +321,7 @@ impl Projection {
         for (source, expected) in sources.iter().zip(action.input_types()) {
             let actual = match &self.nodes[source.index()].kind {
                 ProjectedKind::Leaf(action) => action.output_type(),
-                ProjectedKind::Graph(_) => NativeValueType::of::<()>(),
+                ProjectedKind::Graph(_) => ValueType::of::<()>(),
             };
             if actual != *expected {
                 return Err(GraphError::ResultTypeMismatch {

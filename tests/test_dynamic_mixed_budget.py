@@ -26,7 +26,7 @@ from rivlet import (
     ThreadRunOptions,
     resolve_port_requirements,
 )
-from rivlet._native import _native_process_graph
+from rivlet._native import _rust_process_graph
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
@@ -61,7 +61,7 @@ change(-1)
         subprocess.run(command, check=True, timeout=30)
 
     def branch() -> GraphStructure:
-        native = _native_process_graph(
+        native = _rust_process_graph(
             [("process", command[0], command[1:], str(tmp_path), dict(os.environ))],
             [],
         )
@@ -99,14 +99,10 @@ change(-1)
     assert state["completed"] == 12
     assert state["active"] == 0
     assert 1 <= state["peak"] <= 2
-    native_events = [
-        event for event in events if event.node_path.labels[-1] == "process"
-    ]
+    rust_events = [event for event in events if event.node_path.labels[-1] == "process"]
+    assert sum(event.state is NodeExecutionState.STARTED for event in rust_events) == 4
     assert (
-        sum(event.state is NodeExecutionState.STARTED for event in native_events) == 4
-    )
-    assert (
-        sum(event.state is NodeExecutionState.COMPLETED for event in native_events) == 4
+        sum(event.state is NodeExecutionState.COMPLETED for event in rust_events) == 4
     )
 
 

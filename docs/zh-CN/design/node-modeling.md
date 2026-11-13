@@ -37,7 +37,7 @@ edges = Edge.results(
 | wiring.step(label=...) | wiring.graph(label=...) |
 | StepWiring | NodeWiring |
 | StepRunContext / step_id / step_path | NodeRunContext / node_id / node_path |
-| NativeGraph（不透明结构） | NativeGraphStructure |
+| NativeGraph（不透明结构） | RustGraphStructure |
 
 recipe 仍返回 Graph，Execution 直接接收实际节点；事件和挂载身份类型同步使用 Node 前缀。
 

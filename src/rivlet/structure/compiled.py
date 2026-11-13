@@ -36,11 +36,11 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
         label_path=compilation.root_label_path,
     )
     declaration = index.document
-    nodes = compilation._native_nodes
+    nodes = compilation._execution_nodes
     active = {str(node.path): node for node in nodes}
     condition_ids = {
         id(condition): f"condition:{i}"
-        for i, condition in enumerate(compilation._native_conditions)
+        for i, condition in enumerate(compilation._execution_conditions)
     }
     conditions: list[CompiledConditionDocument] = [
         {
@@ -48,7 +48,7 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
             "index": i,
             "inputs": [str(ref.path) for ref in condition.inputs],
         }
-        for i, condition in enumerate(compilation._native_conditions)
+        for i, condition in enumerate(compilation._execution_conditions)
     ]
     edge_conditions: dict[tuple[str, int], str] = {}
     for i, origin in enumerate(origins.conditions):
