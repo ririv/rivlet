@@ -28,13 +28,13 @@ build = Step(
 )
 graph = Graph.from_wiring((
     probe.wire(),
-    build.wire(inputs={build.action: (probe,)}),
+    build.wire().results(probe),
 ))
 ```
 
 无输入时直接写 `condition=lambda: True`；子图挂载同样通过
 `child_graph.step(condition=...)` 接收这两种写法。条件的输入直接保存在条件声明中，
-不是第二份 ResultEdge，也不是新增 Step。
+不需要重复声明 action 结果边，也不新增 Step。
 
 ## 语义
 
@@ -118,7 +118,7 @@ observation 与 condition。激活后才释放直接子节点；空 composite �
 
 ## inputs 与执行前置
 
-`Step.wire(inputs=...)` 只绑定 action 参数。条件在 `(predicate, source_step, ...)`
+`Step.wire().results(...)` 只绑定 action 参数。条件在 `(predicate, source_step, ...)`
 中声明自己的来源。节点条件只等待自己的输入；节点启用后，action 才等待自己的输入
 以及 after 指定的前置步骤。两类输入均引用当前图的 Step，参与 DAG 校验和接线边界计算。
 
@@ -136,10 +136,7 @@ graph = Graph.from_wiring(
         probe.wire(),
         prepare_a.wire(),
         prepare_b.wire(),
-        heavy_build.wire(
-            after=(prepare_a, prepare_b),
-            inputs={heavy_build.action: (probe,)},
-        ),
+        heavy_build.wire(after=(prepare_a, prepare_b)).results(probe),
     )
 )
 ```
@@ -171,9 +168,7 @@ consumer = Step(
 graph = Graph.from_wiring((
     count_step.wire(),
     approval_step.wire(),
-    consumer.wire(inputs={
-        consumer.action: (count_step, approval_step),
-    }),
+    consumer.wire().results(count_step, approval_step),
 ))
 ```
 

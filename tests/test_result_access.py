@@ -77,7 +77,7 @@ def test_actions_receive_bound_results_and_observers_receive_read_only_view() ->
 
     execution = GraphExecution(
         graph=Graph.from_wiring(
-            (prepare.wire(), finish.wire(inputs={finish.action: (prepare,)})),
+            (prepare.wire(), finish.wire().results(prepare)),
             observation=GraphObservationMessages(after_success="done"),
         ),
         execution_state=state,

@@ -421,7 +421,7 @@ def test_graph_execution_run_records_sync_step_results() -> None:
         label="root",
         wiring=(
             prepare.wire(),
-            build.wire(inputs={build.action: (prepare,)}),
+            build.wire().results(prepare),
         ),
     )
 
@@ -736,7 +736,7 @@ def test_dynamic_subgraph_captures_explicit_result_input() -> None:
         label="root",
         wiring=(
             prepare.wire(),
-            stage.wire(inputs={stage.action: (prepare,)}),
+            stage.wire().results(prepare),
         ),
     )
 
@@ -778,11 +778,8 @@ def test_runtime_condition_true_waits_for_source_step(mode: GraphMode) -> None:
                             )
                         ),
                     ),
-                ),
-                inputs={
-                    build.action: (probe,),
-                },
-            ),
+                )
+            ).results(probe),
         ),
     )
 
@@ -821,12 +818,7 @@ def test_runtime_step_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
             probe.wire(),
             first.wire(),
             second.wire(),
-            target.wire(
-                after=(first, second),
-                inputs={
-                    target.action: (probe,),
-                },
-            ),
+            target.wire(after=(first, second)).results(probe),
         ),
     )
 
@@ -867,11 +859,8 @@ def test_runtime_edge_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
                         step=source,
                         condition=(_edge_condition_848 := (_condition, probe)),
                     ),
-                ),
-                inputs={
-                    target.action: (probe,),
-                },
-            ),
+                )
+            ).results(probe),
         ),
     )
 
@@ -941,11 +930,8 @@ def test_runtime_condition_false_does_not_require_source_result(
                             )
                         ),
                     ),
-                ),
-                inputs={
-                    build.action: (probe,),
-                },
-            ),
+                )
+            ).results(probe),
         ),
     )
 
@@ -990,11 +976,8 @@ def test_runtime_condition_false_does_not_wait_for_source(mode: GraphMode) -> No
                             )
                         ),
                     ),
-                ),
-                inputs={
-                    build.action: (probe,),
-                },
-            ),
+                )
+            ).results(probe),
         ),
     )
 
@@ -1306,7 +1289,7 @@ def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
         label="root",
         wiring=(
             prepare.wire(),
-            stage.wire(inputs={stage.action: (prepare,)}),
+            stage.wire().results(prepare),
         ),
     )
 
@@ -1377,11 +1360,8 @@ def test_async_runtime_condition_false_does_not_wait_for_source(
                             )
                         ),
                     ),
-                ),
-                inputs={
-                    build.action: (probe,),
-                },
-            ),
+                )
+            ).results(probe),
         ),
     )
 
@@ -1522,14 +1502,7 @@ def test_run_freezes_static_conditions_before_execution(mode: GraphMode) -> None
         wiring=(
             prepare.wire(),
             android_shim.wire(),
-            archive.wire(
-                inputs={
-                    archive.action: (
-                        prepare,
-                        android_shim,
-                    )
-                }
-            ),
+            archive.wire().results(prepare, android_shim),
         ),
         static=StaticConditions(
             evaluator=_ConditionEvaluator(active=frozenset({"android"})),
@@ -1566,12 +1539,7 @@ def test_step_when_false_skips_step_and_allows_downstream_continue(
         label="root",
         wiring=(
             probe.wire(),
-            optional.wire(
-                after=(),
-                inputs={
-                    optional.action: (probe,),
-                },
-            ),
+            optional.wire(after=()).results(probe),
             package.wire(after=(optional,)),
         ),
     )
@@ -1709,12 +1677,7 @@ def test_graph_execution_run_logs_step_skip_by_condition(
         label="root",
         wiring=(
             probe.wire(),
-            build.wire(
-                after=(),
-                inputs={
-                    build.action: (probe,),
-                },
-            ),
+            build.wire(after=()).results(probe),
         ),
     )
 
@@ -1741,12 +1704,7 @@ def test_graph_execution_run_writes_execution_render_to_run_log_dir(
         label="root",
         wiring=(
             probe.wire(),
-            build.wire(
-                after=(),
-                inputs={
-                    build.action: (probe,),
-                },
-            ),
+            build.wire(after=()).results(probe),
         ),
     )
 

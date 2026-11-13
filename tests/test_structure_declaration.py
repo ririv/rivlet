@@ -8,7 +8,6 @@ from rivlet import (
     Graph,
     GraphInterface,
     LeafAction,
-    ResultEdge,
     StaticCondition,
     StaticConditions,
     Step,
@@ -59,7 +58,7 @@ def test_export_preserves_order_result_and_conditional_edges() -> None:
         edges=(
             Edge(gate, consumer),
             Edge(prerequisite, consumer, condition=(edge_condition, data)),
-            ResultEdge(data, consumer, 0, action),
+            *Edge.results((data,), consumer),
         ),
     )
     document = export_graph(graph)
@@ -69,7 +68,7 @@ def test_export_preserves_order_result_and_conditional_edges() -> None:
         "result",
     ]
     result = document["edges"][2]
-    assert result["kind"] == "result" and result["receiver"] == {"kind": "action"}
+    assert result["kind"] == "result"
     assert result["argument_index"] == 0
     assert [condition["inputs"] for condition in document["conditions"]] == [
         ["1"],
@@ -135,9 +134,7 @@ def test_ports_and_binding_refer_to_exact_descendants() -> None:
 def test_documents_are_detached_and_from_wiring_keeps_real_edges() -> None:
     first = Step(lambda: "value", label="first")
     second = Step(lambda _ctx, value: value.unwrap(), label="second")
-    graph = Graph.from_wiring(
-        (StepWiring(first), second.wire(inputs={second.action: (first,)}))
-    )
+    graph = Graph.from_wiring((StepWiring(first), second.wire().results(first)))
     document = export_graph(graph)
     assert document["edges"][0]["kind"] == "result"
     document["nodes"][0]["label_path"].append("local mutation")

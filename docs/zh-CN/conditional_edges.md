@@ -134,7 +134,7 @@ predicate 按扁平元组中来源 Step 的顺序接收各个 `Option[object]`�
 ## inputs 与 after
 
 条件在使用位置直接声明自己的输入。action 参数仍通过
-`wire(inputs={action: (...)})` 绑定，after 只表达执行顺序。
+`wire().results(...)` 绑定，after 只表达执行顺序。
 节点条件和每条条件边可以读取不同来源，不再通过 receiver 查找条件对象。
 
 ```python
@@ -162,12 +162,7 @@ graph = Graph.from_wiring((
     design.wire(),
     environment_check.wire(),
     prepare.wire(),
-    implementation.wire(
-        after=(prepare_dependency,),
-        inputs={
-            implementation.action: (design,),
-        },
-    ),
+    implementation.wire(after=(prepare_dependency,)).results(design),
 ))
 ```
 

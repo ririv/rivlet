@@ -197,7 +197,7 @@ def test_runtime_condition_and_result_binding_remain_independent() -> None:
     )
     choice = static.select(cases=(Case(True, selected),))
     graph = Graph.from_wiring(
-        (source.wire(), selected.wire(inputs={selected.action: (source,)})),
+        (source.wire(), selected.wire().results(source)),
         static_selections=choice.static_selections,
     )
     GraphExecution(graph).run()
@@ -213,7 +213,7 @@ def test_result_input_from_unselected_case_is_rejected() -> None:
         (
             selected.wire(),
             unselected.wire(),
-            consume.wire(inputs={consume.action: (unselected,)}),
+            consume.wire().results(unselected),
         ),
         static_selections=choice.static_selections,
     )

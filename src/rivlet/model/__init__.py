@@ -1,7 +1,5 @@
 """Public graph-model declarations, assembled from their owning modules."""
 
-from collections.abc import Mapping
-
 from .._native import NativeGraph
 from .action import LeafAction, LeafActionCallable
 from .condition import (
@@ -12,7 +10,6 @@ from .edge import (
     ConditionalPrerequisite,
     Edge,
     GraphEdge,
-    ResultEdge,
     prerequisite_step,
 )
 from .edge import _condition_uses as _condition_uses
@@ -41,8 +38,6 @@ type StepActionInput = StepAction | LeafActionCallable
 type ConditionInput = (
     ConditionalEdgePredicate | tuple[ConditionalEdgePredicate, Step, *tuple[Step, ...]]
 )
-type ResultReceiver = StepAction
-type ResultBindings = Mapping[ResultReceiver, tuple[Step, ...]]
 type StepPrerequisite = Step | ConditionalPrerequisite
 type GraphWiringOperand = Step | Graph | GraphWiring
 type GraphWiringInput = tuple[StepWiring, ...] | GraphWiring
@@ -60,8 +55,6 @@ __all__ = [
     "StepActionInput",
     "ConditionalEdgePredicate",
     "ConditionInput",
-    "ResultReceiver",
-    "ResultBindings",
     "ConditionalPrerequisite",
     "StepPrerequisite",
     "prerequisite_step",
@@ -70,7 +63,6 @@ __all__ = [
     "step",
     "StepWiring",
     "Edge",
-    "ResultEdge",
     "GraphEdge",
     "GraphWiring",
     "GraphWiringOperand",

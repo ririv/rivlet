@@ -137,9 +137,7 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
     graph = Graph.from_wiring(
         (
             prepared.wire(),
-            (input_step_125 := Step(expand, label="expand")).wire(
-                inputs={input_step_125.action: (prepared,)}
-            ),
+            Step(expand, label="expand").wire().results(prepared),
         )
     )
     GraphExecution(

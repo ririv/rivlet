@@ -18,7 +18,6 @@ from rivlet import (
     GraphExecutionStopped,
     GraphInterface,
     GraphNodeFailure,
-    ResultEdge,
     SerialGraphExecutor,
     Step,
     StepPath,
@@ -139,7 +138,7 @@ def test_condition_does_not_read_failed_action_result(execute):
             ),
             Step(lambda: calls.append("good")),
         ),
-        edges=(ResultEdge(producer, consumer_134, 0, receiver=consumer_134.action),),
+        edges=(*Edge.results((producer,), consumer_134),),
     )
     state = GraphExecutionState()
     with pytest.raises(RuntimeError, match="action failed"):
@@ -344,7 +343,7 @@ def test_cancellation_from_condition_waits_for_started_async_action():
                 )
             ),
         ),
-        edges=(ResultEdge(ready, consumer_337, 0, receiver=consumer_337.action),),
+        edges=(*Edge.results((ready,), consumer_337),),
     )
     plan = GraphExecution(graph=graph, execution_control=control)
     with pytest.raises(GraphExecutionStopped):

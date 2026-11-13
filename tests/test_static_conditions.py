@@ -10,7 +10,6 @@ from rivlet import (
     GraphExecution,
     GraphInterface,
     GraphMode,
-    ResultEdge,
     StaticCondition,
     StaticConditions,
     Step,
@@ -84,7 +83,7 @@ def test_result_edge_static_rule_is_evaluated_once() -> None:
     consumer = Step(lambda _ctx, result: result.unwrap())
     graph = Graph(
         steps=(source, consumer),
-        edges=(ResultEdge(source, consumer, 0, receiver=consumer.action),),
+        edges=(*Edge.results((source,), consumer),),
         static=StaticConditions(
             evaluator=record, conditions={(source, consumer): ENABLED}
         ),
@@ -210,7 +209,7 @@ def test_static_pruning_does_not_leave_runtime_reads_without_a_source() -> None:
     graph = Graph(
         steps=(probe, consumer),
         static=StaticConditions(evaluator=evaluate, conditions={probe: DISABLED}),
-        edges=(ResultEdge(probe, consumer, 0, receiver=consumer.action),),
+        edges=(*Edge.results((probe,), consumer),),
     )
 
     with pytest.raises(GraphError, match="result input was removed"):

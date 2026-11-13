@@ -72,8 +72,8 @@ GraphExecutionState
 - Graph 显式声明 label 时，该值优先
 
 显式接线只保存在 `Graph.edges` 中。规范化后的 `Graph` 不接受 `StepWiring`，
-Step 本身不保存 `after` 或 action `inputs`。ResultEdge 承载 action 数据绑定；
-条件直接声明自己的结果来源，不再通过 ResultEdge 重复绑定。
+Step 本身不保存执行或结果接线。`Edge.results()` 生成同时传递 action 结果的 Edge；
+条件直接声明自己的结果来源，不需要重复声明 action 结果边。
 
 ## `Step`
 
@@ -131,10 +131,10 @@ runtime 消费三种 action：
 
 ## 拓扑与接线
 
-规范化边是和类型：
+规范化接线统一使用 Edge，其内部区分执行连接与结果连接：
 
 ```python
-type GraphEdge = Edge | ResultEdge
+type GraphEdge = Edge
 ```
 
 这些边引用真实 Step 对象：
@@ -143,7 +143,7 @@ type GraphEdge = Edge | ResultEdge
 - `Edge(source, target, condition=condition)`
 - `Edge(source, target, ports="ready")`
 - `Edge(source, target, ports=("sdk-ready", "toolchain-ready"), condition=condition)`
-- `ResultEdge(source, target, argument_index, receiver)`：同时声明等待关系与结果参数位置
+- `Edge.results((first, second), target)`：生成一组 Edge，同时声明等待关系与结果参数顺序
 
 作者通常不需要直接构造边，可以使用 `Step.wire(...)`：
 
@@ -273,7 +273,7 @@ selected_graph = select_one(
 没有结果输入时，调用 `fn()` 或 `fn(ctx)`。两种形式都有效时固定使用零参，
 保留 `lambda value=value: ...` 这种闭包默认值。
 
-通过 `wire(inputs={consumer.action: (producer, ...)})` 接入结果后，固定调用
+通过 `wire().results(producer, ...)` 接入结果后，固定调用
 `fn(ctx, first_result, ...)`。每个结果是 `Option[object]`，构图时校验完整签名，
 不根据参数名或类型标注猜测调用方式。
 
@@ -286,7 +286,7 @@ prepare = Step(prepare_source)
 compile_step = Step(compile_action)
 graph = Graph.from_wiring((
     prepare.wire(),
-    compile_step.wire(inputs={compile_step.action: (prepare,)}),
+    compile_step.wire().results(prepare),
 ))
 ```
 
@@ -303,7 +303,7 @@ def select_graph(ctx: StepRunContext, selected: Option[object]) -> Graph:
     return graph_for(selected.unwrap())
 
 selection = Step(select_graph)
-graph = Graph.from_wiring((select_strategy.wire(), selection.wire(inputs={selection.action: (select_strategy,)})))
+graph = Graph.from_wiring((select_strategy.wire(), selection.wire().results(select_strategy)))
 ```
 
 这个端口用于先读取运行时结果，再选择下一层结构。父 Step 等待子图整体完成后才完成；
@@ -335,8 +335,8 @@ Step.condition 和 Edge 接受零参判断函数，或扁平元组 `(predicate, 
 condition=(lambda result: not bool(result.unwrap()), cache_probe)
 ```
 
-这些引用参与调度、环检测和接线边界计算，不再产生重复的条件 ResultEdge。
-action 参数仍通过 `wire(inputs={action: (...)})` 独立声明。
+这些引用参与调度、环检测和接线边界计算，不再产生重复的 action 结果边。
+action 参数仍通过 `wire().results(...)` 独立声明。
 
 ## `GraphExecution`
 
@@ -428,15 +428,28 @@ Rust 编译路径会把声明期已知子图转换为统一执行结构：
 
 ## 结果与运行上下文
 
-`wire(after=(prepare,), inputs={consumer.action: (producer,)})` 区分纯执行前置和最终结果绑定。
+`wire(after=(prepare,)).results(producer)` 区分纯执行前置和最终结果绑定。
 两者都在图的接线处声明；inputs 已包含等待关系，不必再把同一来源写进 after。
 
-Graph.from_wiring 把 inputs 归一化成
-`ResultEdge(source, target, argument_index, receiver)`。直接构造 Graph 时可以放入 edges；
-参数索引必须从零连续且不重复。输入顺序与重复来源均保留。
-inputs 的键必须是目标现有的 LeafAction，按对象身份区分；无关对象即使绑定空元组也报错。
-节点条件和每条条件边直接通过 `condition=(predicate, source_step, ...)` 声明各自的输入，
-不再查找 receiver，也不接收 ctx。复用函数或条件元组不会合并不同位置的求值，
+`StepWiring.results(first, second)` 返回新接线，不修改 Step 或原接线；连续调用按顺序追加来源。
+`Graph.from_wiring()` 将它归一化为 Edge，与直接构造完全相同：
+
+```python
+graph = Graph(
+    steps=(prepare, plan, review, work),
+    edges=(
+        Edge(prepare, work),
+        *Edge.results((plan, review), work),
+    ),
+)
+```
+
+结果边已经包含等待生产者结束的约束；上例的 prepare 是额外的纯执行前置。
+输入顺序与重复来源均保留，不需要 receiver 或手写参数索引。
+每个目标只能接入一组完整结果边，不可切片或拼接多组独立绑定；构造 Graph 时校验函数参数数量。
+目标必须是当前图内的 LeafAction 步骤。跨子图结果端口暂不支持，端口仍只表达就绪关系。
+节点条件和每条条件边通过 `condition=(predicate, source_step, ...)` 声明独立输入，
+不接收 ctx。复用函数或条件元组不会合并不同位置的求值，
 不同挂载之间也独立。不使用函数名查找，不增加端口包装类型。
 
 结果绑定到当前挂载；同一子图重复挂载时不会串读其它挂载的结果。

@@ -219,6 +219,34 @@ GraphExecution(graph).run()
 evaluator。Python 构图时已计算布尔条件，编译时检查选择。子图、边界与直接声明见
 [图内静态选择](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/static_selection.md)。
 
+### 把结果传给动作
+
+```python
+from rivlet import Edge, Graph, GraphExecution, Option, Step, StepRunContext
+
+prepare = Step(lambda: print("prepare"))
+plan = Step(lambda: "implementation plan")
+review = Step(lambda: True)
+
+def implement(ctx: StepRunContext, plan: Option[object], review: Option[object]) -> None:
+    ctx.control.require_running()
+    print(plan.unwrap(), review.unwrap())
+
+work = Step(implement)
+graph = Graph.from_wiring((
+    prepare.wire(),
+    plan.wire(),
+    review.wire(),
+    work.wire(after=(prepare,)).results(plan, review),
+))
+GraphExecution(graph).run()
+```
+
+`.results(plan, review)` 同时声明等待关系和结果参数顺序；`after` 增加纯执行前置。
+直接构造时，等价边是 `Edge(prepare, work)` 和 `*Edge.results((plan, review), work)`。
+生产者被跳过时传入 `Nothing()`，成功返回 None 时传入 `Some(None)`；生产者失败会阻断消费者。
+结果连接目前只支持同一图内步骤，子图端口仍只表达就绪关系，不传值。
+
 ### 运行时条件：根据步骤结果决定是否执行
 
 ```python

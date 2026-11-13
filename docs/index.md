@@ -63,7 +63,7 @@ performance guarantee for the latest release.
 | `GraphExecution` | A declaration and one execution scope |
 | `Step` | Optional label and condition; Python action, Python subgraph, or Rust-native subgraph |
 | `Graph.edges` | Explicit wiring |
-| `Step.wire(inputs=...)` | Result edges binding ordered arguments to actions and conditions |
+| `Step.wire().results(...)` / `Edge.results(...)` | Ordered action results; conditions declare their own sources |
 | `StepWiring` / `GraphWiring` | Declaration-time composition |
 | `GraphCompilation` | Runtime execution structure and composite boundaries |
 

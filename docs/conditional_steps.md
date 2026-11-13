@@ -30,7 +30,7 @@ build = Step(
 )
 graph = Graph.from_wiring((
     probe.wire(),
-    build.wire(inputs={build.action: (probe,)}),
+    build.wire().results(probe),
 ))
 ```
 
@@ -134,7 +134,7 @@ still retain their dependency boundary.
 
 ## Inputs versus action prerequisites
 
-`Step.wire(inputs=...)` binds action arguments only. Conditions declare their own
+`Step.wire().results(...)` binds action arguments only. Conditions declare their own
 sources in `(predicate, source_step, ...)`. A node condition waits only for its
 sources; after it enables the node, action inputs and `after` constrain execution.
 Both kinds of inputs must reference Steps in the current graph and participate
@@ -154,10 +154,7 @@ graph = Graph.from_wiring(
         probe.wire(),
         prepare_a.wire(),
         prepare_b.wire(),
-        heavy_build.wire(
-            after=(prepare_a, prepare_b),
-            inputs={heavy_build.action: (probe,)},
-        ),
+        heavy_build.wire(after=(prepare_a, prepare_b)).results(probe),
     )
 )
 ```
@@ -196,9 +193,7 @@ consumer = Step(
 graph = Graph.from_wiring((
     count_step.wire(),
     approval_step.wire(),
-    consumer.wire(inputs={
-        consumer.action: (count_step, approval_step),
-    }),
+    consumer.wire().results(count_step, approval_step),
 ))
 ```
 

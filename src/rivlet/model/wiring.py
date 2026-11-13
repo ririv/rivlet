@@ -3,15 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from ..errors import GraphError
-from .action import LeafAction
 from .edge import (
     ConditionalPrerequisite,
     Edge,
-    ResultEdge,
     _condition_uses,
     prerequisite_step,
 )
@@ -20,7 +17,7 @@ if TYPE_CHECKING:
     from ..interface import GraphInterfaceInput
     from ..static import StaticSelection
     from ..static_conditions import StaticConditions, StaticConditionsInput
-    from . import GraphWiringOperand, ResultBindings, StepPrerequisite
+    from . import GraphWiringOperand, StepPrerequisite
     from .edge import GraphEdge
     from .graph import Graph, GraphObservationMessages
     from .step import Step
@@ -30,16 +27,22 @@ if TYPE_CHECKING:
 class StepWiring:
     """把 step 接入当前图时的接线输入。
 
-    `after` 与 `inputs` 只属于这次图声明；`Graph` 构造时会把它一次解析为
+    `after` 与 `.results()` 只属于这次图声明；`Graph` 构造时会把它一次解析为
     引用真实 `Step` 对象的边，运行期不保留该包装器。
     """
 
     step: Step
     after: tuple[StepPrerequisite, ...] = ()
-    inputs: ResultBindings = field(default_factory=lambda: MappingProxyType({}))
+    _result_sources: tuple[Step, ...] = field(default=(), init=False, repr=False)
 
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "inputs", MappingProxyType(dict(self.inputs)))
+    def results(self, source: Step, *sources: Step) -> StepWiring:
+        """Append action result sources without mutating this wiring or its step."""
+
+        wiring = StepWiring(self.step, self.after)
+        object.__setattr__(
+            wiring, "_result_sources", (*self._result_sources, source, *sources)
+        )
+        return wiring
 
 
 @dataclass(frozen=True, slots=True)
@@ -179,18 +182,8 @@ def _graph_wiring_from_step_wirings(
     declared_edges: list[GraphEdge] = []
     for item in wiring:
         target = item.step
-        for receiver in item.inputs:
-            if receiver is not target.action or not isinstance(receiver, LeafAction):
-                raise GraphError(
-                    "result receiver does not belong to this step or is not callable"
-                )
-        declared_edges.extend(
-            ResultEdge(
-                source=source, target=target, argument_index=index, receiver=receiver
-            )
-            for receiver, sources in item.inputs.items()
-            for index, source in enumerate(sources)
-        )
+        if item._result_sources:
+            declared_edges.extend(Edge.results(item._result_sources, target))
         for prerequisite in item.after:
             source = prerequisite_step(prerequisite)
             if source not in known_steps:

@@ -11,7 +11,6 @@ from rivlet import (
     GraphExecution,
     GraphInterface,
     LeafAction,
-    ResultEdge,
     StaticCondition,
     StaticConditions,
     Step,
@@ -78,7 +77,7 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
         edges=(
             Edge(first, target, condition=(shared, first)),
             Edge(second, target, condition=(other, second)),
-            ResultEdge(second, target, 0, action),
+            *Edge.results((second,), target),
         ),
     )
     document = export_graph(GraphExecution(graph).compile())
@@ -88,7 +87,7 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
     assert edges[0]["kind"] == edges[1]["kind"] == "conditional"
     assert edges[0]["condition"] == "condition:1"
     assert edges[1]["condition"] == "condition:2"
-    assert edges[2]["kind"] == "result" and edges[2]["receiver"] == {"kind": "action"}
+    assert edges[2]["kind"] == "result"
     assert [condition["inputs"] for condition in document["conditions"]] == [
         ["0"],
         ["0"],

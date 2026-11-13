@@ -92,6 +92,9 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 | `conditional` | 由对应运行期条件决定是否生效的依赖 |
 | `port` | 两个挂载组件的接线，分别记录 `source_port`、`target_port`、可选条件 ID 及实际 `provider_node`／`consumer_nodes` |
 
+`argument_index` 由 `Edge.results()` 的来源顺序生成，是供检查使用的事实，不是用户手写的接线参数。
+结果边固定传给目标 action，不再额外记录 receiver 字段。
+
 编译文档中的 `dependencies` 单独描述 Rust 编译器实际采用的前置关系，分为 `required`
 与 `conditional`。端口边在 `edges` 中可以是组件 `0 → 1`，在 `dependencies` 中则是
 端点 `0.0 → 1.1`，不会变成“整个消费者等待整个提供者”。不会从 `after` 反猜来源，

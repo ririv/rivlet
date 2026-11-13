@@ -63,8 +63,8 @@ from rivlet import Graph, GraphExecution, Step
   - 可选展示 label、条件，以及 Python action、Python 子图或完整 Rust 原生子图
 - `Graph.edges`
   - 显式接线关系
-- `Step.wire(inputs=...)`
-  - 条件求值前必须完成的结果依赖
+- `Step.wire().results(...)` / `Edge.results(...)`
+  - 按顺序绑定 action 参数的结果依赖；条件独立声明自己的来源
 - `StepWiring` / `GraphWiring`
   - 声明期组合结构
 - `GraphCompilation`

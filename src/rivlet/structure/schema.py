@@ -5,10 +5,6 @@ from __future__ import annotations
 from typing import Literal, TypedDict
 
 
-class ActionReceiverDocument(TypedDict):
-    kind: Literal["action"]
-
-
 class OrderEdgeDocument(TypedDict):
     kind: Literal["order"]
     id: str
@@ -32,7 +28,6 @@ class ResultEdgeDocument(TypedDict):
     graph: str
     source: str
     target: str
-    receiver: ActionReceiverDocument
     argument_index: int
 
 

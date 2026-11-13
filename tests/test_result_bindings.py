@@ -8,6 +8,7 @@ import pytest
 from rivlet import (
     AsyncGraphRunOptions,
     ConditionalPrerequisite,
+    Edge,
     Graph,
     GraphError,
     GraphExecution,
@@ -90,11 +91,8 @@ def test_inputs_distinguish_skipped_from_none_in_declared_order(
                     ),
                 )
                 if edge
-                else (),
-                inputs={
-                    consumer.action: (skipped, returned_none, returned_false),
-                },
-            ),
+                else ()
+            ).results(skipped, returned_none, returned_false),
             prerequisite.wire(),
             returned_false.wire(),
             returned_none.wire(),
@@ -129,11 +127,7 @@ def test_repeated_nested_graph_mounts_supply_their_own_results(
     )
     child = Graph.from_wiring(
         (
-            consumer.wire(
-                inputs={
-                    consumer.action: (probe,),
-                }
-            ),
+            consumer.wire().results(probe),
             probe.wire(),
         )
     )
@@ -158,11 +152,7 @@ def test_repeated_input_preserves_arguments_without_rewrapping() -> None:
     execution = GraphExecution(
         Graph.from_wiring(
             (
-                consumer.wire(
-                    inputs={
-                        consumer.action: (probe, probe),
-                    }
-                ),
+                consumer.wire().results(probe, probe),
                 probe.wire(),
             )
         )
@@ -208,11 +198,7 @@ def test_actions_and_conditions_share_explicit_result_bindings(
     execute(
         Graph.from_wiring(
             (
-                consumer.wire(
-                    inputs={
-                        consumer.action: (source, skipped),
-                    }
-                ),
+                consumer.wire().results(source, skipped),
                 skipped.wire(),
                 source.wire(),
             )
@@ -235,9 +221,7 @@ def test_action_only_inputs_enable_recording_and_bind_each_mount(
     child = Graph.from_wiring(
         (
             producer.wire(),
-            (input_step_201 := Step(consume)).wire(
-                inputs={input_step_201.action: (producer,)}
-            ),
+            Step(consume).wire().results(producer),
         )
     )
     execute(Graph(steps=(child.step(), child.step())), backend)
@@ -249,9 +233,7 @@ def test_result_binding_validates_callable_boundary_before_execution() -> None:
     source = Step(lambda: 42)
     consumer = Step(lambda _ctx, _first, _second: None)
     with pytest.raises(GraphError, match="signature"):
-        Graph.from_wiring(
-            (source.wire(), consumer.wire(inputs={consumer.action: (source,)}))
-        )
+        Graph.from_wiring((source.wire(), consumer.wire().results(source)))
 
 
 @pytest.mark.parametrize("backend", ["serial", "thread", "async"])
@@ -281,11 +263,8 @@ def test_each_receiver_binds_its_own_results_on_each_mount(backend: Backend) -> 
             consumer.wire(
                 after=(
                     ConditionalPrerequisite(prepare, condition=(edge_condition, check)),
-                ),
-                inputs={
-                    consumer.action: (design,),
-                },
-            ),
+                )
+            ).results(design),
         )
     )
     execute(Graph(steps=(child.step(), child.step())), backend)
@@ -333,11 +312,8 @@ def test_false_node_condition_does_not_wait_for_other_receiver_inputs() -> None:
                     ConditionalPrerequisite(
                         prepare, condition=(edge_condition, edge_input)
                     ),
-                ),
-                inputs={
-                    consumer.action: (action_input,),
-                },
-            ),
+                )
+            ).results(action_input),
         )
     )
     GraphExecution(graph).run(AsyncGraphRunOptions(concurrency=4))
@@ -374,8 +350,63 @@ def test_one_condition_object_can_bind_two_conditional_edges(backend: Backend) -
     assert seen == ["ran"]
 
 
-def test_unrelated_receiver_is_rejected_even_with_empty_inputs() -> None:
-    consumer = Step(lambda: None)
-    foreign = Step(lambda: None)
-    with pytest.raises(GraphError, match="receiver"):
-        Graph.from_wiring((consumer.wire(inputs={foreign.action: ()}),))
+def test_result_wiring_is_immutable_and_chained_sources_keep_order() -> None:
+    first = Step(lambda: 1)
+    second = Step(lambda: 2)
+    seen: list[tuple[object, object]] = []
+    consumer = Step(lambda _ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
+    original = consumer.wire(after=(first,))
+    partial = original.results(first)
+    complete = partial.results(second)
+    assert original is not partial and partial is not complete
+    with pytest.raises(GraphError, match="signature"):
+        Graph.from_wiring((first.wire(), second.wire(), partial))
+    execute(Graph.from_wiring((first.wire(), second.wire(), complete)), "serial")
+    assert seen == [(1, 2)]
+
+
+def test_result_edge_group_is_complete_and_unique_per_action() -> None:
+    first = Step(lambda: 1)
+    second = Step(lambda: 2)
+    consumer = Step(lambda _ctx, *values: None)
+    connections = Edge.results((first, second), consumer)
+    with pytest.raises(GraphError, match="included in full"):
+        Graph(steps=(first, second, consumer), edges=connections[:1])
+    with pytest.raises(GraphError, match="must not be repeated"):
+        Graph(steps=(first, second, consumer), edges=(*connections, connections[0]))
+    with pytest.raises(GraphError, match="one result connection group"):
+        Graph(
+            steps=(first, second, consumer),
+            edges=(
+                *Edge.results((first,), consumer),
+                *Edge.results((second,), consumer),
+            ),
+        )
+
+
+@pytest.mark.parametrize("backend", ["serial", "thread", "async"])
+def test_result_edges_supply_ordered_values_without_extra_order_edges(
+    backend: Backend,
+) -> None:
+    first = Step(lambda: 1)
+    second = Step(lambda: 2)
+    seen: list[tuple[object, object]] = []
+    consumer = Step(lambda _ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
+    execute(
+        Graph(
+            steps=(consumer, second, first),
+            edges=tuple(reversed(Edge.results((first, second), consumer))),
+        ),
+        backend,
+    )
+    assert seen == [(1, 2)]
+
+
+def test_result_connections_require_local_producers_and_a_callable_target() -> None:
+    producer = Step(lambda: 1)
+    child = Graph(steps=(producer,)).step()
+    consumer = Step(lambda _ctx, value: None)
+    with pytest.raises(GraphError, match="unknown|outside"):
+        Graph(steps=(child, consumer), edges=Edge.results((producer,), consumer))
+    with pytest.raises(GraphError, match="callable action"):
+        Edge.results((producer,), child)

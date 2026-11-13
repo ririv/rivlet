@@ -21,9 +21,7 @@ type ExportOrigins = (
 
 struct PythonTypes<'py> {
     graph: Bound<'py, PyAny>,
-    edge: Bound<'py, PyAny>,
     runtime_condition: Bound<'py, PyAny>,
-    result_edge: Bound<'py, PyAny>,
 }
 
 impl<'py> PythonTypes<'py> {
@@ -31,9 +29,7 @@ impl<'py> PythonTypes<'py> {
         let model = py.import("rivlet.model")?;
         Ok(Self {
             graph: model.getattr("Graph")?,
-            edge: model.getattr("Edge")?,
             runtime_condition: model.getattr("_RuntimeCondition")?,
-            result_edge: model.getattr("ResultEdge")?,
         })
     }
 }
@@ -429,35 +425,32 @@ impl<'py> Collector<'py> {
                 continue;
             }
             // 结果边已在 collect_result_inputs 中求值并校验，避免重复调用求值器。
-            if has_static_bindings && !edge.is_instance(&self.types.result_edge)? {
+            if has_static_bindings && edge.getattr("_result_index")?.is_none() {
                 let binding = static_bindings.call_method1("get", ((source_step, target_step),))?;
                 if !binding.is_none() && !binding.call_method0("evaluate")?.extract::<bool>()? {
                     self.disabled_edges.push((graph_index, edge_index));
                     continue;
                 }
             }
-            if edge.is_instance(&self.types.edge)? && !edge.getattr("ports")?.is_none() {
+            if !edge.getattr("ports")?.is_none() {
                 self.collect_port_connection(&edge, graph_index, edge_index)?;
                 continue;
             }
-            let prerequisite =
-                if edge.is_instance(&self.types.edge)? && !edge.getattr("condition")?.is_none() {
-                    let condition = edge.getattr("condition")?;
-                    if condition.is_instance(&self.types.runtime_condition)? {
-                        DeclarationPrerequisite::RuntimeConditional {
-                            node: NodeId::new(source),
-                            condition: self.register_runtime_condition(
-                                &condition,
-                                target,
-                                Some(edge_index),
-                            )?,
-                        }
-                    } else {
-                        return Err(PyValueError::new_err("unsupported graph edge condition"));
-                    }
-                } else {
-                    DeclarationPrerequisite::Required(NodeId::new(source))
-                };
+            let condition = edge.getattr("condition")?;
+            let prerequisite = if condition.is_none() {
+                DeclarationPrerequisite::Required(NodeId::new(source))
+            } else if condition.is_instance(&self.types.runtime_condition)? {
+                DeclarationPrerequisite::RuntimeConditional {
+                    node: NodeId::new(source),
+                    condition: self.register_runtime_condition(
+                        &condition,
+                        target,
+                        Some(edge_index),
+                    )?,
+                }
+            } else {
+                return Err(PyValueError::new_err("unsupported graph edge condition"));
+            };
             self.push_node_prerequisite(target, prerequisite);
         }
         Ok(())
@@ -559,9 +552,9 @@ impl<'py> Collector<'py> {
         let bindings = graph.getattr("_static_bindings")?;
         for edge in graph.getattr("edges")?.try_iter()? {
             let edge = edge?;
-            if !edge.is_instance(&self.types.result_edge)? {
+            let Some(index) = edge.getattr("_result_index")?.extract::<Option<usize>>()? else {
                 continue;
-            }
+            };
             let source_step = edge.getattr("source")?;
             let target_step = edge.getattr("target")?;
             let source = self.require_local_node(graph_index, &source_step)?;
@@ -577,7 +570,6 @@ impl<'py> Collector<'py> {
                     "result input was removed by static conditions",
                 ));
             }
-            let index: usize = edge.getattr("argument_index")?.extract()?;
             let inputs = &mut self.nodes[target].inputs;
             if inputs.len() <= index {
                 inputs.resize(index + 1, usize::MAX);

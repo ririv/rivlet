@@ -6,7 +6,6 @@ from ..model import (
     Edge,
     Graph,
     GraphMode,
-    ResultEdge,
     Step,
     StepPath,
     _condition_uses,
@@ -22,7 +21,6 @@ from .formatting import (
     render_selection_suffix,
     render_step_label,
     render_step_path,
-    result_receiver_label,
 )
 
 
@@ -138,9 +136,9 @@ def append_graph_mermaid(
                 f'{indent}    {node_id}["{escape_label(render_step_label(step, step_path=step_path) + selection_suffix)}"]'
             )
     for edge in graph.edges:
-        if isinstance(edge, ResultEdge):
+        if edge._result_index is not None:
             lines.append(
-                f'{indent}    {node_ids[edge.source]} -->|"{escape_label(result_receiver_label(edge))} input {edge.argument_index}"| {node_ids[edge.target]}'
+                f'{indent}    {node_ids[edge.source]} -->|"action input {edge._result_index}"| {node_ids[edge.target]}'
             )
         elif isinstance(edge, Edge) and edge.ports is not None:
             label = (

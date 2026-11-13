@@ -8,7 +8,6 @@ from rivlet import (
     GraphError,
     GraphWiring,
     LeafAction,
-    ResultEdge,
     Step,
     StepRunContext,
     StepWiring,
@@ -181,7 +180,7 @@ def test_result_edges_define_wiring_boundaries() -> None:
 
     wiring = GraphWiring(
         steps=(probe, conditional),
-        edges=(ResultEdge(probe, conditional, 0, receiver=conditional.action),),
+        edges=(*Edge.results((probe,), conditional),),
     )
 
     assert wiring.entries == (probe,)

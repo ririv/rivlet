@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from .._native import NativeGraph
@@ -25,7 +24,6 @@ if TYPE_CHECKING:
     from . import (
         ConditionInput,
         GraphWiringOperand,
-        ResultBindings,
         StepAction,
         StepActionInput,
         StepPrerequisite,
@@ -97,12 +95,10 @@ class Step:
     def wire(
         self,
         after: tuple[StepPrerequisite, ...] = (),
-        *,
-        inputs: ResultBindings = MappingProxyType({}),
     ) -> StepWiring:
         """为当前 step 创建一份新的图接线，不修改 step 本身。"""
 
-        return StepWiring(step=self, after=after, inputs=inputs)
+        return StepWiring(step=self, after=after)
 
     def __rshift__(self, other: GraphWiringOperand) -> GraphWiring:
         return _sequence_wiring(self, other)

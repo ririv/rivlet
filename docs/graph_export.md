@@ -101,6 +101,10 @@ Both views retain declaration edge IDs and distinguish:
 | `conditional` | A dependency guarded by the referenced runtime condition |
 | `port` | A connection with `source_port`, `target_port`, an optional `condition` ID, and exact `provider_node` / `consumer_nodes` readiness endpoints |
 
+`argument_index` is generated from the source order in `Edge.results()`; it is
+inspection metadata, not a user-supplied wiring parameter. Result edges always
+target the action, so no separate receiver field is needed.
+
 Compiled `dependencies` is a separate view of the Rust compiler's actual prerequisite
 relationships: `required` or `conditional`. A port connection can therefore show
 component `0 → 1` in `edges`, but endpoint `0.0 → 1.1` in `dependencies`; it does not

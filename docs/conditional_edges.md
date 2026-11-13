@@ -152,7 +152,7 @@ callable at several sites does not deduplicate those evaluations.
 ## Inputs and ordering prerequisites
 
 Conditions bind their inputs at the point of use. Action arguments remain in
-`wire(inputs={action: (...)})`; `after` declares execution ordering. Node conditions
+`wire().results(...)`; `after` declares execution ordering. Node conditions
 and individual edge conditions may read different sources without receiver lookup.
 
 ```python
@@ -180,12 +180,7 @@ graph = Graph.from_wiring((
     design.wire(),
     environment_check.wire(),
     prepare.wire(),
-    implementation.wire(
-        after=(prepare_dependency,),
-        inputs={
-            implementation.action: (design,),
-        },
-    ),
+    implementation.wire(after=(prepare_dependency,)).results(design),
 ))
 ```
 

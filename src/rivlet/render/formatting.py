@@ -14,13 +14,11 @@ from ..compile import (
     GraphCompilation,
     compile_graph,
 )
-from ..errors import GraphError
 from ..model import (
     ConditionalPrerequisite,
     Edge,
     Graph,
     GraphEdge,
-    ResultEdge,
     Step,
     StepPath,
     StepPrerequisite,
@@ -166,15 +164,9 @@ def format_graph_edge(
         dep_id += f" (static: {format_static_condition(binding.condition)})"
     if isinstance(edge, Edge) and edge.condition is not None:
         return f"{dep_id} (条件边: {condition_name(edge.condition)})"
-    if isinstance(edge, ResultEdge):
-        return f"{dep_id} ({result_receiver_label(edge)} input: {edge.argument_index})"
+    if edge._result_index is not None:
+        return f"{dep_id} (action input: {edge._result_index})"
     return dep_id
-
-
-def result_receiver_label(edge: ResultEdge) -> str:
-    if edge.receiver is edge.target.action:
-        return "action"
-    raise GraphError("result receiver must be the target action")
 
 
 def render_step_path(path: tuple[str, ...]) -> str:

@@ -64,9 +64,9 @@ is displayed as `<unlabeled>`; an unlabeled nested graph uses its mounting Step'
 label. An explicit Graph label takes precedence.
 
 Explicit wiring lives in `Graph.edges`. A normalized Graph does not accept
-StepWiring objects, and Step does not store `after` or action `inputs`. ResultEdge
-carries action data bindings; each condition directly declares its result sources,
-without duplicate ResultEdges for those sources.
+StepWiring objects, and Step does not store execution or result wiring. `Edge.results()`
+creates ordinary Edge objects that also carry action results. Each condition
+directly declares its own result sources, without duplicate action result edges.
 
 ## Step
 
@@ -78,7 +78,7 @@ action: LeafAction | Graph | NativeGraph
 condition: ConditionInput | None  # constructor input, normalized internally
 ```
 
-It has no public `id` or `after` field.
+It exposes its declaration `id`, but has no `after` field.
 
 ```python
 prepare = Step(prepare_source, label="prepare")
@@ -113,7 +113,7 @@ therefore need no fabricated stable label.
 ## Edges and wiring
 
 ```python
-type GraphEdge = Edge | ResultEdge
+type GraphEdge = Edge
 ```
 
 Ordinary and conditional edges reference actual Step objects:
@@ -225,7 +225,7 @@ inside an already declared graph.
 Without result inputs, LeafAction calls `fn()` or `fn(ctx)`. If both forms
 are valid, the zero-argument form wins, preserving default-value closures.
 
-With `wire(inputs={consumer.action: (producer, ...)})`, the call is always
+With `wire().results(producer, ...)`, the call is always
 `fn(ctx, first_result, ...)`. Each result is an `Option[object]`; graph
 construction validates the complete signature. An annotation never selects a
 different calling convention.
@@ -239,7 +239,7 @@ prepare = Step(prepare_source)
 compile_step = Step(compile_action)
 graph = Graph.from_wiring((
     prepare.wire(),
-    compile_step.wire(inputs={compile_step.action: (prepare,)}),
+    compile_step.wire().results(prepare),
 ))
 ```
 
@@ -255,7 +255,7 @@ def select_graph(ctx: StepRunContext, selected: Option[object]) -> Graph:
     return graph_for(selected.unwrap())
 
 selection = Step(select_graph)
-graph = Graph.from_wiring((select_strategy.wire(), selection.wire(inputs={selection.action: (select_strategy,)})))
+graph = Graph.from_wiring((select_strategy.wire(), selection.wire().results(select_strategy)))
 ```
 
 The returned graph is compiled into a nested session managed by the same execution
@@ -283,7 +283,7 @@ condition=(lambda result: not bool(result.unwrap()), cache_probe)
 `condition` accepts a zero-argument predicate or a flat `(predicate, source, ...)`
 tuple. Each source is a local Step whose Option result becomes one argument.
 These references participate in cycle detection, scheduling and wiring boundaries.
-Action parameters remain bound separately through `wire(inputs={action: (...)})`.
+Action parameters remain bound separately through `wire().results(...)`.
 
 ## GraphExecution
 
@@ -344,17 +344,33 @@ share identities and declaration-scope mappings, so result lookup is consistent.
 
 ## Results and runtime context
 
-`wire(after=(prepare,), inputs={consumer.action: (producer,)})` separates ordering-only prerequisites
+`wire(after=(prepare,)).results(producer)` separates ordering-only prerequisites
 from final-result bindings. Both are explicit graph relations. An input already
 includes its waiting requirement; do not repeat it in after.
 
-Graph.from_wiring lowers inputs to `ResultEdge(source, target, argument_index, receiver)`.
-Direct Graph construction accepts these edges in `edges`; argument indexes
-must be unique and contiguous from zero. Input order and repeated sources are
-preserved per receiver. The inputs mapping key must be the target's existing
-LeafAction object, compared by identity. Unrelated receivers are rejected even
-with empty bindings. Node and edge conditions declare their own independent
-arguments in `condition=(predicate, source, ...)`, without receiver lookup or ctx.
+`StepWiring.results(first, second)` returns new wiring without mutating the Step
+or the original wiring. Repeated calls append sources in order. `Graph.from_wiring()`
+normalizes this declaration into the same Edge objects as the direct form:
+
+```python
+graph = Graph(
+    steps=(prepare, plan, review, work),
+    edges=(
+        Edge(prepare, work),
+        *Edge.results((plan, review), work),
+    ),
+)
+```
+
+The result edges already wait for their producers; `prepare` above is an independent
+ordering-only prerequisite. Sources are passed in declaration order, including
+repeated sources. There is no receiver lookup or user-supplied argument index.
+Each target has one complete result group; do not slice a returned group or combine
+independent groups for the same target. Graph construction checks callable arity.
+The target must be a callable LeafAction in this graph. Result transport through
+subgraph ports is not supported; ports continue to express readiness only.
+Node and edge conditions declare their independent arguments in
+`condition=(predicate, source, ...)`, without receiving ctx.
 Reusing a callable or tuple at several sites does not merge condition evaluations;
 different graph mounts remain independent. No function-name lookup is involved.
 

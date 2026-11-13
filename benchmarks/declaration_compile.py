@@ -12,12 +12,10 @@ from typing import Literal
 from rivlet import (
     Edge,
     Graph,
-    ResultEdge,
     StaticCondition,
     StaticConditions,
     Step,
     compile_graph,
-    runtime_condition,
 )
 
 type Case = Literal["flat", "subgraphs", "pruned", "runtime"]
@@ -38,9 +36,7 @@ def declaration(case: Case, recipes: int, steps: int) -> Graph:
                 leaves[0],
                 Step(
                     lambda _ctx, _result: None,
-                    condition=(
-                        condition := runtime_condition(when=lambda _result: True)
-                    ),
+                    condition=(lambda _result: True, leaves[0]),
                 ),
                 *leaves[2:],
             )
@@ -52,10 +48,7 @@ def declaration(case: Case, recipes: int, steps: int) -> Graph:
                     zip(leaves, leaves[1:], strict=False)
                 )
                 for edge in (
-                    (
-                        ResultEdge(left, right, 0, receiver=right.action),
-                        ResultEdge(left, right, 0, receiver=condition),
-                    )
+                    Edge.results((left,), right)
                     if case == "runtime" and index == 0
                     else (Edge(left, right),)
                 )

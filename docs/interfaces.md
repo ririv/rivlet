@@ -151,8 +151,8 @@ inputs are declared directly in `condition=(predicate, probe, ...)`, resolved in
 the consumer component's parent graph. Unrelated consumer preparation can run early.
 Static edge rules can also remove the connection during compilation.
 
-Ports still express readiness, not result transport. Action `ResultEdge` and
-`wire(inputs=...)` keep their `Option` arguments; there are no `.input()`/`.output()` or
+Ports still express readiness, not result transport. Graph-local `Edge.results()` and
+`wire().results(...)` bind `Option` arguments; there are no `.input()`/`.output()` or
 `.argument()` endpoint helpers in this API.
 
 ## Two requirement forms

@@ -10,7 +10,6 @@ from ..errors import GraphError
 from ..model import (
     Graph,
     LeafAction,
-    ResultEdge,
     StepPath,
     _RuntimeCondition,
     resolve_step_label,
@@ -242,16 +241,14 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
         identifier = edge_id(scope.owner, i)
         index.edge_indexes[identifier] = i
         item: EdgeDocument
-        if isinstance(edge, ResultEdge):
-            assert isinstance(edge.receiver, LeafAction)
+        if edge._result_index is not None:
             item = {
                 "kind": "result",
                 "id": identifier,
                 "graph": scope.id,
                 "source": source,
                 "target": target,
-                "argument_index": edge.argument_index,
-                "receiver": {"kind": "action"},
+                "argument_index": edge._result_index,
             }
         elif edge.ports is not None:
             provider = index.scopes[scope_id(scope.ids[edge.source])]

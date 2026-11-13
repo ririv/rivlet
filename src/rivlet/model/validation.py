@@ -9,7 +9,7 @@ from .._native import dag_cycle
 from ..errors import GraphError
 from ..topology import Arc
 from .action import LeafAction
-from .edge import Edge, ResultEdge, _condition_uses
+from .edge import Edge, _condition_uses, _ResultConnection, _ResultGroup
 from .graph import Graph
 from .step import Step, StepPath, resolve_step_label
 
@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from ..interface import GraphInterface
-    from . import ResultReceiver
     from .edge import GraphEdge
 
 
@@ -99,29 +98,25 @@ def _validated_blocking_arcs(
 def _validate_result_bindings(
     steps: tuple[Step, ...], edges: tuple[GraphEdge, ...]
 ) -> None:
-    # O(V + E)，不为每个消费者重新扫描所有边。
-    slots: dict[tuple[Step, ResultReceiver], set[int]] = {}
+    # I 为条件输入总数；时间/辅助空间 O(V + E + I)，不为每个消费者重扫所有边。
+    groups: dict[Step, _ResultGroup] = {}
+    slots: dict[Step, set[int]] = {}
     for edge in edges:
-        if isinstance(edge, ResultEdge):
-            if not (
-                isinstance(edge.receiver, LeafAction)
-                and edge.receiver is edge.target.action
-            ):
-                raise GraphError(
-                    "result receiver does not belong to this step or is not callable"
-                )
-            indexes = slots.setdefault((edge.target, edge.receiver), set())
-            if edge.argument_index < 0 or edge.argument_index in indexes:
-                raise GraphError(
-                    "result argument indexes must be unique and non-negative"
-                )
-            indexes.add(edge.argument_index)
-    for indexes in slots.values():
-        if indexes != set(range(len(indexes))):
-            raise GraphError("result argument indexes must be contiguous from zero")
+        connection = edge._connection
+        if isinstance(connection, _ResultConnection):
+            group = groups.setdefault(edge.target, connection.group)
+            if group is not connection.group:
+                raise GraphError("target action must have one result connection group")
+            indexes = slots.setdefault(edge.target, set())
+            if connection.index in indexes:
+                raise GraphError("result connection must not be repeated")
+            indexes.add(connection.index)
+    for target, indexes in slots.items():
+        if len(indexes) != groups[target].size:
+            raise GraphError("result connection group must be included in full")
     for step in steps:
         if isinstance(step.action, LeafAction):
-            step.action.validate_inputs(len(slots.get((step, step.action), ())))
+            step.action.validate_inputs(len(slots.get(step, ())))
     for _, condition in _condition_uses(steps, edges):
         count = len(condition.inputs)
         try:

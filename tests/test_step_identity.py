@@ -57,9 +57,7 @@ def test_repeated_mounts_share_declaration_id_not_results(
 
     producer = Step(produce, label="source")
     consumer = Step(consume, label="use")
-    child = Graph.from_wiring(
-        (consumer.wire(inputs={consumer.action: (producer,)}), producer.wire())
-    )
+    child = Graph.from_wiring((consumer.wire().results(producer), producer.wire()))
     graph = Graph(steps=(child.step(label="left"), child.step(label="right")))
     execution = GraphExecution(graph, events=Sink())
     execution.run(options, mode=mode)

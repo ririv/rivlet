@@ -237,6 +237,36 @@ requires no evaluator. Python computes the booleans at construction; compilation
 checks the selection. See [static selection](https://github.com/ririv/rivlet/blob/main/docs/static_selection.md)
 for subgraphs, boundaries, and direct declarations.
 
+### Passing results to an action
+
+```python
+from rivlet import Edge, Graph, GraphExecution, Option, Step, StepRunContext
+
+prepare = Step(lambda: print("prepare"))
+plan = Step(lambda: "implementation plan")
+review = Step(lambda: True)
+
+def implement(ctx: StepRunContext, plan: Option[object], review: Option[object]) -> None:
+    ctx.control.require_running()
+    print(plan.unwrap(), review.unwrap())
+
+work = Step(implement)
+graph = Graph.from_wiring((
+    prepare.wire(),
+    plan.wire(),
+    review.wire(),
+    work.wire(after=(prepare,)).results(plan, review),
+))
+GraphExecution(graph).run()
+```
+
+`.results(plan, review)` both waits for the producers and passes their results in
+that order; `after` adds an ordering-only prerequisite. For direct construction,
+the equivalent edges are `Edge(prepare, work)` and `*Edge.results((plan, review), work)`.
+Skipped producers supply `Nothing()`; a successful `None` is `Some(None)`.
+Failed producers block the consumer. Result connections are currently graph-local;
+subgraph interface ports express readiness, not value transport.
+
 ### Runtime conditions: decide from a step result
 
 ```python
