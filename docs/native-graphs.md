@@ -11,14 +11,14 @@ Python actions.
 Python Graph / Leaf
     ├── Python Leaf ──────────┐
     └── Graph(NativeGraphStructure)           │
-          └── NativeLeaf / Arc     │
+          └── Rust Leaf / Arc      │
                                    ▼
                       Rust CompiledExecutionGraph
                           ├── Python leaf → Python driver
                           └── Rust leaf   → Rust worker
 ```
 
-Python holds an opaque NativeGraphStructure, not individually callable NativeLeaf or
+Python holds an opaque NativeGraphStructure, not individually callable Rust Leaf or
 Rust action objects. Native action execution does not require a per-action Python
 callback. The mixed driver receives batches of native completion events for
 results, logs, and presentation. Internal nodes remain visible in compiled and
@@ -32,7 +32,8 @@ Python actions retain their usual declaration:
 prepare = Leaf(prepare_source, label=("prepare"))
 ```
 
-A native adapter constructs a complete NativeGraphStructure; Python mounts it:
+A Rust adapter constructs graph::GraphStructure. The Python adapter wraps it as
+NativeGraphStructure; Python composes that body into a Graph:
 
 ```python
 from rivetoo_ninja import import_clean_build_graph
@@ -77,7 +78,7 @@ not object fields or implicit serialization.
 ## Rust crates
 
 - action: native action trait, execution context, errors, and workers.
-- native-graph: NativeLeaf, graph-owned arcs, and NativeGraphStructure.
+- graph: Rust Leaf, graph-owned arcs, GraphStructure, and GraphError.
 - topology: integer nodes and pure graph algorithms.
 - core: language-independent declaration compilation and execution sessions.
 - python: integration of Python Graph and complete NativeGraphStructure declarations.
@@ -86,3 +87,11 @@ Adapters may implement arbitrary Rust actions, but Rust trait objects are not
 passed between dynamic libraries. An independent adapter should provide a stable
 batch graph specification, from which the Graph extension constructs NativeGraphStructure
 once. This preserves package boundaries without routing each action through Python.
+
+## Rust declaration API
+
+The graph crate currently exposes flat Leaf/GraphStructure declarations and
+compile_structure(), not a second scheduler. GraphStructure is the Rust type;
+NativeGraphStructure is the Python-visible opaque wrapper. The Native prefix is
+not part of the Rust graph API. Hierarchical Graph nodes and named interfaces in
+this Rust declaration layer remain a separate extension, not a feature of this rename.

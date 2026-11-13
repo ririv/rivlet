@@ -1,4 +1,23 @@
-//! Rust-owned graph declarations whose leaf actions stay in Rust.
+//! Rust graph declarations whose leaf actions stay in Rust.
+//!
+//! This declaration API currently exposes flat structures. Hierarchy and port
+//! compilation remain available in core, not yet through this high-level API.
+//!
+//! ```
+//! use action::NativeActionHandle;
+//! use graph::{GraphError, GraphStructure, Leaf};
+//! use rivlet::{Arc, NodeId};
+//!
+//! fn sequence(
+//!     prepare: NativeActionHandle,
+//!     compile: NativeActionHandle,
+//! ) -> Result<GraphStructure, GraphError> {
+//!     GraphStructure::new(
+//!         [Leaf::new("prepare", prepare)?, Leaf::new("compile", compile)?],
+//!         [Arc::new(NodeId::new(0), NodeId::new(1))],
+//!     )
+//! }
+//! ```
 
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
@@ -9,26 +28,23 @@ use rivlet::{
     GraphCompilation, GraphDeclaration, GraphId, NodeActivation, NodeId, NodeIdentity,
 };
 
-/// One Rust-owned executable step in a [`NativeGraphStructure`].
+/// One Rust-owned executable leaf in a [`GraphStructure`].
 #[derive(Clone, Debug)]
-pub struct NativeLeaf {
+pub struct Leaf {
     id: NodeIdentity,
     label: String,
     action: NativeActionHandle,
 }
 
-impl NativeLeaf {
-    /// Creates a native step with an explicit display label.
+impl Leaf {
+    /// Creates a leaf with an explicit display label.
     ///
     /// # Errors
     /// Returns an error when the label is empty.
-    pub fn new(
-        label: impl Into<String>,
-        action: NativeActionHandle,
-    ) -> Result<Self, NativeGraphError> {
+    pub fn new(label: impl Into<String>, action: NativeActionHandle) -> Result<Self, GraphError> {
         let label = label.into();
         if label.is_empty() {
-            return Err(NativeGraphError::EmptyNodeLabel);
+            return Err(GraphError::EmptyNodeLabel);
         }
         Ok(Self {
             id: NodeIdentity::allocate(),
@@ -55,21 +71,21 @@ impl NativeLeaf {
 
 /// A complete Rust declaration graph with Rust-owned leaf actions.
 #[derive(Clone, Debug)]
-pub struct NativeGraphStructure {
-    leaves: Vec<NativeLeaf>,
+pub struct GraphStructure {
+    leaves: Vec<Leaf>,
     arcs: Vec<Arc>,
 }
 
-impl NativeGraphStructure {
+impl GraphStructure {
     /// Creates a native graph while preserving edges as graph-owned topology.
     ///
     /// # Errors
     /// Returns an error when an edge references an unknown step or the declared
     /// topology contains a cycle.
     pub fn new(
-        leaves: impl IntoIterator<Item = NativeLeaf>,
+        leaves: impl IntoIterator<Item = Leaf>,
         arcs: impl IntoIterator<Item = Arc>,
-    ) -> Result<Self, NativeGraphError> {
+    ) -> Result<Self, GraphError> {
         let graph = Self {
             leaves: leaves.into_iter().collect(),
             arcs: arcs.into_iter().collect(),
@@ -80,7 +96,7 @@ impl NativeGraphStructure {
     }
 
     #[must_use]
-    pub fn leaves(&self) -> &[NativeLeaf] {
+    pub fn leaves(&self) -> &[Leaf] {
         &self.leaves
     }
 
@@ -93,14 +109,14 @@ impl NativeGraphStructure {
     ///
     /// # Errors
     /// Returns the common graph declaration error when the topology is invalid.
-    pub fn compile_structure(&self) -> Result<GraphCompilation, NativeGraphError> {
+    pub fn compile_structure(&self) -> Result<GraphCompilation, GraphError> {
         let mut prerequisites = vec![Vec::new(); self.leaves.len()];
         for arc in &self.arcs {
             let Some(target) = prerequisites.get_mut(arc.target.index()) else {
-                return Err(NativeGraphError::UnknownNode(arc.target));
+                return Err(GraphError::UnknownNode(arc.target));
             };
             if arc.source.index() >= self.leaves.len() {
-                return Err(NativeGraphError::UnknownNode(arc.source));
+                return Err(GraphError::UnknownNode(arc.source));
             }
             target.push(DeclarationPrerequisite::Required(arc.source));
         }
@@ -120,26 +136,26 @@ impl NativeGraphStructure {
             [],
         )
         .compile()
-        .map_err(NativeGraphError::Declaration)
+        .map_err(GraphError::Declaration)
     }
 }
 
 /// A native graph declaration failure detected before execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum NativeGraphError {
+pub enum GraphError {
     EmptyNodeLabel,
     UnknownNode(NodeId),
     Declaration(rivlet::DeclarationError),
 }
 
-impl Display for NativeGraphError {
+impl Display for GraphError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EmptyNodeLabel => formatter.write_str("native step label must not be empty"),
+            Self::EmptyNodeLabel => formatter.write_str("leaf label must not be empty"),
             Self::UnknownNode(step) => {
                 write!(
                     formatter,
-                    "native graph edge references unknown step: {}",
+                    "graph edge references unknown node: {}",
                     step.index()
                 )
             }
@@ -148,7 +164,7 @@ impl Display for NativeGraphError {
     }
 }
 
-impl Error for NativeGraphError {
+impl Error for GraphError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
             Self::Declaration(error) => Some(error),
@@ -162,7 +178,7 @@ mod tests {
     use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
     use rivlet::{Arc, NodeId};
 
-    use super::{NativeGraphStructure, NativeLeaf};
+    use super::{GraphStructure, Leaf};
 
     struct Noop;
 
@@ -172,14 +188,14 @@ mod tests {
         }
     }
 
-    fn step(label: &str) -> NativeLeaf {
-        NativeLeaf::new(label, NativeActionHandle::new(Noop)).unwrap()
+    fn leaf(label: &str) -> Leaf {
+        Leaf::new(label, NativeActionHandle::new(Noop)).unwrap()
     }
 
     #[test]
     fn native_graph_uses_the_common_compiled_execution_graph() {
-        let graph = NativeGraphStructure::new(
-            [step("prepare"), step("compile")],
+        let graph = GraphStructure::new(
+            [leaf("prepare"), leaf("compile")],
             [Arc::new(NodeId::new(0), NodeId::new(1))],
         )
         .unwrap();

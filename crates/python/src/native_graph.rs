@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use action::{NativeActionHandle, ProcessAction};
-use native_graph::{NativeGraphStructure as CoreNativeGraph, NativeLeaf};
+use graph::{GraphStructure as RustGraphStructure, Leaf};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::{Arc as GraphArc, NodeId};
@@ -13,11 +13,11 @@ type ProcessDeclaration = (String, String, Vec<String>, String, HashMap<String, 
 #[pyclass(frozen, module = "rivlet._native", skip_from_py_object)]
 #[derive(Clone)]
 pub(crate) struct NativeGraphStructure {
-    graph: CoreNativeGraph,
+    graph: RustGraphStructure,
 }
 
 impl NativeGraphStructure {
-    pub(crate) const fn graph(&self) -> &CoreNativeGraph {
+    pub(crate) const fn graph(&self) -> &RustGraphStructure {
         &self.graph
     }
 }
@@ -61,7 +61,7 @@ pub(crate) fn native_process_graph(
     let steps = processes
         .into_iter()
         .map(|(label, program, arguments, cwd, environment)| {
-            NativeLeaf::new(
+            Leaf::new(
                 label,
                 NativeActionHandle::new(ProcessAction::new(
                     program,
@@ -76,7 +76,7 @@ pub(crate) fn native_process_graph(
     let arcs = arcs
         .into_iter()
         .map(|(source, target)| GraphArc::new(NodeId::new(source), NodeId::new(target)));
-    CoreNativeGraph::new(steps, arcs)
+    RustGraphStructure::new(steps, arcs)
         .map(|graph| NativeGraphStructure { graph })
         .map_err(|error| PyValueError::new_err(error.to_string()))
 }

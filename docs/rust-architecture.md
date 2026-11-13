@@ -11,7 +11,7 @@ integration.
 
 - `crates/action` defines NativeAction, stable errors, and process actions without
   Python callbacks. It does not depend on PyO3, Tokio, or Graph core.
-- `crates/native-graph` owns NativeLeaf, graph-owned arcs, and NativeGraphStructure.
+- `crates/graph` exposes Rust Leaf, graph-owned arcs, GraphStructure, and GraphError.
   Adapters connect complete graphs rather than exposing individual actions to Python.
 - `crates/topology` uses only the Rust standard library for integer nodes,
   adjacency indexes, and DAG algorithms. It knows nothing about actions or domains.
@@ -50,8 +50,10 @@ Python Leaf/Graph are concrete nodes; Node is their protocol, not a wrapper.
 GraphStructure holds the reusable body. PyO3 collects these nodes directly into
 existing Rust leaf/composite variants, without a second scheduler or implementation
 inheritance. Rust NodeIdentity is the process-local declaration identity; indexed
-NodeId is the compiler/topology reference. NativeGraphStructure holds NativeLeaf
-actions, composed into a Python Graph node for mixed-language declarations.
+NodeId is the compiler/topology reference. Rust graph::GraphStructure holds graph::Leaf
+actions. Python's NativeGraphStructure wraps that opaque body, composed into a
+Python Graph node for mixed-language declarations. The Rust declaration API is
+currently flat; a high-level Rust Graph node and named interfaces are not yet exposed.
 
 All production paths share the same compiler and session implementation:
 

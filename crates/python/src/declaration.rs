@@ -359,7 +359,7 @@ impl<'py> Collector<'py> {
     fn collect_native_graph(
         &mut self,
         source_graph: &Bound<'py, PyAny>,
-        native_graph: &native_graph::NativeGraphStructure,
+        native_graph: &graph::GraphStructure,
         label_path: Vec<String>,
         owner: usize,
         id_prefix: &[usize],

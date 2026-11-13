@@ -397,7 +397,7 @@ provider 的隐式策略。
 校验与执行状态机都在 Rust；Python 不维护另一套 provider 选择或 binding lowering 规则。
 
 当前端口引用的是 Python 声明中的 Node，不能直接引用不透明 NativeGraphStructure 内部的
-NativeLeaf。需要公开原生子图整体完成状态时，可以由 Python Node 挂载它，并以该
+Rust Leaf。需要公开原生子图整体完成状态时，可以由 Python Graph 组合它，并以该
 Node 作为出口。运行期才返回的子图也不能提前向外公开尚不存在的内部端口。
 
 端口提供组件及其直接出口不允许使用运行时 `condition` 来决定是否存在；这与“执行失败”

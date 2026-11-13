@@ -2,7 +2,7 @@
 members = [
     "crates/action",
     "crates/core",
-    "crates/native-graph",
+    "crates/graph",
     "crates/python",
     "crates/topology",
     "crates/tokio-runtime",

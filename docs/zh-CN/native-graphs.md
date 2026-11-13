@@ -12,14 +12,14 @@ Python Graph / Leaf
         ├── Python Leaf ───────────────┐
         │                                    │
         └── Graph(NativeGraphStructure)                │
-                └── NativeLeaf / Arc         │
+                └── Rust Leaf / Arc          │
                                              ▼
                                Rust CompiledExecutionGraph
                                   ├── Python leaf → Python driver
                                   └── Rust leaf   → Rust worker
 ```
 
-Python 只看见一个不透明的 `NativeGraphStructure`。它不能取得并逐个调用其中的 `NativeLeaf`
+Python 只看见一个不透明的 `NativeGraphStructure`。它不能取得并逐个调用其中的 Rust `Leaf`
 和 Rust action 对象，也不会先把它们翻译成 Python `Node`。因此原生图无论包含十个还是上万
 个 action，执行 action 本身都不需要逐项回调 Python。混合图的 Python driver 仍会按批次
 接收原生完成事件，以便统一维护结果、日志和展示状态。内部节点仍可以出现在编译图
@@ -33,7 +33,8 @@ Python action 仍按原有方式声明：
 prepare = Leaf(prepare_source, label=("prepare"))
 ```
 
-原生 adapter 在 Rust 中构造完整 `NativeGraphStructure`，Python 只把它作为一个子图挂载：
+Rust adapter 构造 graph::GraphStructure；Python adapter 将其包装为不透明的
+NativeGraphStructure，再由 Python Graph 节点组合：
 
 ```python
 from rivetoo_ninja import import_clean_build_graph
@@ -78,7 +79,7 @@ graph = (prepare >> compile >> install).graph()
 原生端口按职责拆分：
 
 - `crates/action`：Rust action trait、执行上下文、错误和 worker。
-- `crates/native-graph`：`NativeLeaf`、graph-owned arcs 与完整 `NativeGraphStructure`。
+- `crates/graph`：Rust `Leaf`、graph-owned arcs、`GraphStructure` 与 `GraphError`。
 - `crates/topology`：整数节点与纯拓扑算法。
 - `crates/core`：语言无关的声明编译和 execution session。
 - `crates/python`：把 Python `Graph` 和整体 `NativeGraphStructure` 接入同一编译过程。
@@ -86,3 +87,10 @@ graph = (prepare >> compile >> install).graph()
 adapter 可以在 Rust 中实现任意 action，但动态库之间不传递 Rust trait object。独立
 adapter 应输出一份批量、稳定的原生图规格，再由 graph extension 一次构造
 `NativeGraphStructure`。这会保留包边界，也避免每个 action 经过 Python 调度。
+
+## Rust 声明 API
+
+graph crate 当前提供扁平 Leaf/GraphStructure 声明和 compile_structure()，不是第二套
+调度器。GraphStructure 是 Rust 类型，NativeGraphStructure 是 Python 不透明包装；
+Rust 图 API 不再加 Native 前缀。高层 Rust Graph 节点和具名接口属于后续扩展，不是
+这次重命名已经实现的功能。
