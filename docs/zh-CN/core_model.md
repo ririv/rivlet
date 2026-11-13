@@ -197,6 +197,16 @@ graph = (
 ).graph()
 ```
 
+也可以直接把整个组合挂载为 Step：
+
+```python
+pipeline = (prepare >> child_graph >> cleanup).step(label="pipeline")
+```
+
+`.step(label=..., condition=...)` 严格等价于 `.graph().step(...)`，没有另一套执行路径。
+每次调用都创建新的外层 Step，内部已有 Step 保持不变。
+需要设置图的接口或 observation 时，显式使用 `.graph(...).step(...)`。
+
 组合规则是：
 
 - `A >> B`：A 的所有出口连接到 B 的所有入口
@@ -207,11 +217,25 @@ graph = (
 这里的入口、出口是 wiring 的结构边界，不是 `GraphInterface` 的具名端口；
 `>>` 不会自动公开或绑定子图的端口接口。
 
-已有 Graph 必须显式挂载成 Step，再作为 operand，不自动分配节点身份：
+两侧可以是 `Step`、`Leaf`、`Graph` 或已有 `GraphWiring`。
+裸 Leaf／Graph 每出现一次，就归一化成一个新的匿名 Step；已有 Step 保留身份。
+Graph 按子图挂载，不展开成外层的步骤：
+
+```python
+pipeline = (prepare >> child_graph >> Leaf(cleanup)).graph()
+two_mounts = (child_graph | child_graph).graph()
+```
+
+`two_mounts` 的两次挂载共享结构，但拥有不同的 Step 身份。继续组合已归一化的
+GraphWiring 时，保留其中已有 Step，不重复包装。需要标签、条件，或需要在边与端口中
+引用具体挂载时，仍显式创建 Step：
 
 ```python
 pipeline = (prepare >> Step(child_graph, label="child") >> install).graph()
 ```
+
+DSL 不接受裸 callable，须先包装为 Leaf 或 Step；NativeGraph 仍显式包装为 Step。
+这些简写不改变 `Graph.steps`、显式接线与执行入口的类型，它们仍使用 Step。
 
 这样会保留 `child_graph` 的子图边界。Graph 也可以显式转换为 Step，并传递挂载参数：
 

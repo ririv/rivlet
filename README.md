@@ -69,6 +69,14 @@ and internal dependencies. `>>` waits for the whole
 left-hand step or subgraph; `|` adds no dependency between its branches. Actual
 concurrency comes from the run options, not from `|` alone.
 
+The operators also accept bare `Leaf` and `Graph`: `prepare >> checks() >> finish`.
+Each bare occurrence gets a fresh anonymous Step; a Graph remains a subgraph.
+Use an explicit Step when you need a label, condition, or a reference for wiring.
+
+To wrap the whole composition directly, use
+`(prepare >> checks() >> finish).step(label="pipeline")`;
+this is equivalent to `.graph().step(label="pipeline")` and returns a Step.
+
 Declarations and runs are separate: `Graph` describes the workflow;
 `Step` owns identity, label and runtime condition; `Graph` owns structure, not a name.
 `Execution(root_step)` owns one run, including the root's condition and lifecycle.

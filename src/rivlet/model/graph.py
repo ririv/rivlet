@@ -24,7 +24,7 @@ from .wiring import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from . import ConditionInput, GraphWiringInput
+    from . import ConditionInput, GraphWiringInput, GraphWiringOperand
     from .step import Step
 
 
@@ -163,6 +163,16 @@ class Graph:
                 case.step for case in declaration.cases if case.step is not selected
             )
         return tuple(inactive)
+
+    def __rshift__(self, other: GraphWiringOperand) -> GraphWiring:
+        from .wiring import _sequence_wiring
+
+        return _sequence_wiring(self, other)
+
+    def __or__(self, other: GraphWiringOperand) -> GraphWiring:
+        from .wiring import _parallel_wiring
+
+        return _parallel_wiring(self, other)
 
     def step(
         self,

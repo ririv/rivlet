@@ -61,6 +61,13 @@ Execution(root=Step(graph, label="example")).run(ThreadRunOptions(workers=2))
 `>>` 等待左侧整个步骤或子图完成；`|` 不在分支之间添加依赖。实际并发度由执行选项
 控制，不是写了 `|` 就一定并行。
 
+运算符也接受裸 `Leaf` 和 `Graph`，例如 `prepare >> checks() >> finish`。
+每次出现的裸节点都会生成新的匿名 Step，Graph 保留子图边界。
+需要标签、条件，或接线时引用具体挂载，仍显式创建 Step。
+
+整个组合也能直接调用 `(prepare >> checks() >> finish).step(label="pipeline")`，
+等价于 `.graph().step(label="pipeline")`，返回一个 Step。
+
 声明与运行分开：`Graph` 只描述结构；`Step` 持有身份、标签、运行时条件及节点内容。
 `Execution(root_step)` 持有一次执行，根 Step 的条件与生命周期也真实参与执行。
 根可以包含 Graph，也可以只是一个 Leaf；子图通过 `Step(child_graph, label="child")` 显式挂载。

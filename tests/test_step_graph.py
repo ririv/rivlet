@@ -4,6 +4,7 @@ import pytest
 
 from rivlet import (
     Edge,
+    Execution,
     Graph,
     GraphError,
     GraphWiring,
@@ -188,7 +189,7 @@ def test_graph_wiring_wraps_graph_operand_without_expanding_it() -> None:
     before = Step(label="before", node=Leaf(action=_noop))
     after = Step(label="after", node=Leaf(action=_noop))
 
-    outer = (before >> Step(child) >> after).graph()
+    outer = (before >> child >> after).graph()
 
     assert len(outer.steps) == 3
     mounted_child = outer.steps[1]
@@ -207,7 +208,7 @@ def test_graph_wiring_wraps_unlabeled_graph_operand() -> None:
     child = Graph(steps=(Step(node=Leaf(action=_noop)),))
     after = Step(label="after", node=Leaf(action=_noop))
 
-    graph = (before >> Step(child) >> after).graph()
+    graph = (before >> child >> after).graph()
     compilation = compile_graph(graph, root_label="root")
 
     mounted_child = graph.steps[1]
@@ -215,6 +216,75 @@ def test_graph_wiring_wraps_unlabeled_graph_operand() -> None:
     assert mounted_child.node is child
     assert compilation.composites[0].graph_label == "1"
     assert compilation.steps[1].path.labels == ("1", "1.0")
+
+
+@pytest.mark.parametrize("left", (Step(_noop), Leaf(_noop), Graph()))
+@pytest.mark.parametrize("right", (Step(_noop), Leaf(_noop), Graph()))
+def test_graph_wiring_composes_each_node_kind(
+    left: Step | Leaf | Graph, right: Step | Leaf | Graph
+) -> None:
+    sequence = (left >> right).graph()
+    parallel = (left | right).graph()
+
+    for graph in (sequence, parallel):
+        assert len(graph.steps) == 2
+        for declared, mounted in zip((left, right), graph.steps, strict=True):
+            if isinstance(declared, Step):
+                assert mounted is declared
+            else:
+                assert mounted.node is declared
+                assert mounted.label is None
+                assert mounted.condition is None
+    assert sequence.edges == (Edge(*sequence.steps),)
+    assert parallel.edges == ()
+
+
+def test_repeated_bare_nodes_have_distinct_mounts_and_execute_each_time() -> None:
+    calls: list[str] = []
+    leaf = Leaf(lambda: calls.append("leaf"))
+    child = Graph(steps=(Step(lambda: calls.append("child")),))
+
+    graph = (leaf >> child >> leaf >> child).graph()
+
+    assert len({mounted.id for mounted in graph.steps}) == 4
+    assert tuple(mounted.node for mounted in graph.steps) == (leaf, child, leaf, child)
+    Execution(Step(graph)).run()
+    assert calls == ["leaf", "child", "leaf", "child"]
+
+
+def test_composing_normalized_wiring_preserves_existing_mounts() -> None:
+    leaf = Leaf(_noop)
+    child = Graph()
+    wiring = leaf >> child
+    finish = Step(_noop, label="finish")
+
+    combined = (wiring >> finish).graph()
+
+    assert combined.steps == (*wiring.steps, finish)
+    assert combined.edges == (*wiring.edges, Edge(wiring.steps[-1], finish))
+
+
+@pytest.mark.parametrize("enabled", (True, False))
+def test_graph_wiring_step_mounts_complete_graph_with_its_own_condition(
+    enabled: bool,
+) -> None:
+    calls: list[str] = []
+    prepare = Step(lambda: calls.append("prepare"), label="prepare")
+    cleanup = Leaf(lambda: calls.append("cleanup"))
+    wiring = prepare >> cleanup
+
+    root = wiring.step(label="pipeline", condition=lambda: enabled)
+    another_mount = wiring.step()
+
+    assert root.label == "pipeline"
+    assert isinstance(root.node, Graph)
+    assert root.node.steps == wiring.steps
+    assert root.node.edges == wiring.edges
+    assert root.id != another_mount.id
+    assert another_mount.label is None
+    assert another_mount.condition is None
+    Execution(root).run()
+    assert calls == (["prepare", "cleanup"] if enabled else [])
 
 
 def test_graph_from_wiring_accepts_composed_wiring() -> None:

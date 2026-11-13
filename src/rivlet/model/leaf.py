@@ -12,6 +12,8 @@ from ..errors import GraphError
 if TYPE_CHECKING:
     from ..option import Option
     from ..results import StepRunContext
+    from . import GraphWiringOperand
+    from .wiring import GraphWiring
 
 
 type LeafCallable = Callable[..., object]
@@ -92,6 +94,16 @@ class Leaf:
     @property
     def action(self) -> LeafCallable:
         return self._call.fn
+
+    def __rshift__(self, other: GraphWiringOperand) -> GraphWiring:
+        from .wiring import _sequence_wiring
+
+        return _sequence_wiring(self, other)
+
+    def __or__(self, other: GraphWiringOperand) -> GraphWiring:
+        from .wiring import _parallel_wiring
+
+        return _parallel_wiring(self, other)
 
     def validate_inputs(self, count: int) -> None:
         try:

@@ -174,6 +174,16 @@ Both return GraphWiring, explicitly materialized with `.graph()`:
 graph = (prepare >> (compile_a | compile_b) >> install).graph()
 ```
 
+To mount the whole composition directly, use `.step(label=..., condition=...)`:
+
+```python
+pipeline = (prepare >> child_graph >> cleanup).step(label="pipeline")
+```
+
+This is exactly `.graph().step(...)`, not a separate execution path. Every call
+creates a new enclosing Step and preserves the existing inner Steps. For graph
+interface or observation options, use `.graph(...).step(...)` explicitly.
+
 - `A >> B` connects every structural exit of A to every structural entry of B.
 - `A | B` combines nodes and edges without adding dependencies.
 - `A >> (B | C)` is fan-out; `(A | B) >> C` is fan-in.
@@ -181,15 +191,28 @@ graph = (prepare >> (compile_a | compile_b) >> install).graph()
 These are wiring boundaries, not named GraphInterface ports. The DSL does
 not automatically expose or bind ports.
 
-Mount a Graph explicitly before using it as an operand; composition never allocates
-an implicit node identity:
+Operands can be `Step`, `Leaf`, `Graph`, or an existing `GraphWiring`.
+Each occurrence of a bare Leaf or Graph is normalized to a fresh anonymous Step;
+an existing Step retains its identity. A Graph is mounted, not flattened:
+
+```python
+pipeline = (prepare >> child_graph >> Leaf(cleanup)).graph()
+two_mounts = (child_graph | child_graph).graph()
+```
+
+Both mounts in `two_mounts` share the structure but have distinct Step identities.
+Reusing normalized GraphWiring preserves its existing Steps instead of mounting them
+again. To set a label or condition, or reference a mount in explicit edges or ports,
+create its Step explicitly:
 
 ```python
 pipeline = (prepare >> Step(child_graph, label="child") >> install).graph()
 child_step = child_graph.step(label="build", condition=condition)
 ```
 
-Explicit `Graph.step()` and automatic DSL wrapping use the same semantics.
+The DSL does not accept raw callables; wrap them in Leaf or Step. NativeGraph
+still requires an explicit Step mount. These conveniences do not change
+`Graph.steps`, explicit wiring, or the execution entry point: they still use Step.
 
 ## Static selection during compilation
 

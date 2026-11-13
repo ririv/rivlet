@@ -39,7 +39,7 @@ type ConditionInput = (
     ConditionalEdgePredicate | tuple[ConditionalEdgePredicate, Step, *tuple[Step, ...]]
 )
 type StepPrerequisite = Step | ConditionalPrerequisite
-type GraphWiringOperand = Step | GraphWiring
+type GraphWiringOperand = Step | Leaf | Graph | GraphWiring
 type GraphWiringInput = tuple[StepWiring, ...] | GraphWiring
 
 __all__ = [

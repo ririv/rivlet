@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from ..interface import GraphInterfaceInput
     from ..static import StaticSelection
     from ..static_conditions import StaticConditions, StaticConditionsInput
-    from . import GraphWiringOperand, StepPrerequisite
+    from . import ConditionInput, GraphWiringOperand, StepPrerequisite
     from .edge import GraphEdge
     from .graph import Graph, GraphObservationMessages
     from .step import Step
@@ -109,8 +109,20 @@ class GraphWiring:
             static_selections=static_selections,
         )
 
+    def step(
+        self,
+        *,
+        label: str | None = None,
+        condition: ConditionInput | None = None,
+    ) -> Step:
+        """Materialize this wiring and mount the whole graph as one Step."""
+
+        return self.graph().step(label=label, condition=condition)
+
 
 def _as_graph_wiring(value: GraphWiringOperand) -> GraphWiring:
+    from .graph import Graph
+    from .leaf import Leaf
     from .step import Step
 
     match value:
@@ -118,10 +130,11 @@ def _as_graph_wiring(value: GraphWiringOperand) -> GraphWiring:
             return value
         case Step():
             return GraphWiring(steps=(value,))
+        case Leaf() | Graph():
+            # 每次出现裸节点都创建独立挂载；复用已归一化接线时保留原 Step。
+            return GraphWiring(steps=(Step(value),))
         case _:
-            raise TypeError(
-                "graph wiring requires Step or GraphWiring; mount structures with Step(graph)"
-            )
+            raise TypeError("graph wiring requires Step, Leaf, Graph or GraphWiring")
 
 
 def _sequence_wiring(
