@@ -6,8 +6,9 @@ from rivlet import (
     Execution,
     ExecutionState,
     Graph,
+    GraphStructure,
+    Leaf,
     ResultStore,
-    Step,
     export_graph,
 )
 from rivlet._native import _native_process_graph
@@ -30,10 +31,15 @@ def test_native_subgraph_exports_all_nodes_and_edges_without_process_details(
         ],
         [(0, 1)],
     )
-    graph = Graph(steps=(Step(native, label="native mount"),))
+    graph = Graph(
+        structure=GraphStructure(nodes=(Graph(structure=native, label="native mount"),))
+    )
     from rivlet import compile_graph
 
-    for subject in (graph, compile_graph(graph, root_label="native")):
+    for subject in (
+        graph.structure,
+        compile_graph(graph.structure, root_label="native"),
+    ):
         document = export_graph(subject)
         assert [node["id"] for node in document["nodes"]] == ["0", "0.0", "0.1"]
         assert [node["label"] for node in document["nodes"]] == [
@@ -65,10 +71,10 @@ def test_export_does_not_include_results_shared_state_or_callable_representation
             raise AssertionError("secret object was inspected")
 
     secret = Secret()
-    step = Step(lambda: secret, label="public label")
-    graph = Graph(steps=(step,))
+    step = Leaf(lambda: secret, label=("public label"))
+    graph = Graph(structure=GraphStructure(nodes=(step,)))
     execution = Execution(
-        Step(graph),
+        Graph(structure=graph.structure),
         shared=secret,
         execution_state=ExecutionState(results=ResultStore()),
     )
@@ -82,12 +88,15 @@ def test_export_does_not_include_results_shared_state_or_callable_representation
 
 
 def test_unused_invalid_selection_under_pruned_parent_is_never_evaluated() -> None:
-    from rivlet import Case, static
+    from rivlet import Case, Graph, GraphStructure, static
 
     unused = static.select(cases=()).graph()
     graph = static.select(
-        cases=(Case(False, Step(unused)), Case(True, Step(Graph())))
+        cases=(
+            Case(False, Graph(structure=unused.structure)),
+            Case(True, Graph(structure=GraphStructure())),
+        )
     ).graph()
-    document = export_graph(Execution(Step(graph)).compile())
+    document = export_graph(Execution(Graph(structure=graph.structure)).compile())
     assert document["excluded_nodes"] == ["0.0"]
     assert [node["id"] for node in document["nodes"]] == ["0", "0.1"]

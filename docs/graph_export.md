@@ -3,7 +3,7 @@
 English | [简体中文](./zh-CN/graph_export.md)
 
 `export_graph()` returns a detached, JSON-only inspection document from the actual
-`Graph`, root `Step`, or `GraphCompilation`. It does not parse rendered text, infer relationships
+`Graph`, root `Node`, or `GraphCompilation`. It does not parse rendered text, infer relationships
 from labels, execute actions, or include application state. The public schema is
 [`GraphDocument`](../src/rivlet/structure/schema.py), a discriminated TypedDict union.
 It has no HTTP, frontend, or Pydantic dependency and is not an executable input format.
@@ -12,14 +12,16 @@ It has no HTTP, frontend, or Pydantic dependency and is not an executable input 
 
 ```python
 import json
-from rivlet import Case, Execution, Step, export_graph, static
+from rivlet import Graph, Leaf, Case, Execution, export_graph, static
 
-graph = static.select(cases=(
-    Case(True, Step(lambda: "private result", label="keep")),
-    Case(False, Step(lambda: None, label="drop")),
-)).graph()
+graph = static.select(
+    cases=(
+        Case(True, Leaf(lambda: "private result", label=("keep"))),
+        Case(False, Leaf(lambda: None, label=("drop"))),
+    )
+).graph()
 
-root = Step(graph, label="choose")
+root = Graph(structure=(graph).structure, label=("choose"))
 declared = export_graph(root)  # no selection or static evaluator is run
 execution = Execution(root)
 prepared = execution.compile()  # static evaluation happens here, once
@@ -71,23 +73,28 @@ condition tuple at several sites can produce multiple compiled instances.
 
 ## Identities and composition boundaries
 
-- Node `id` is `str(StepPath)`, such as `0` or `2.1`. It identifies a mounted position,
+- Node `id` is `str(NodePath)`, such as `0` or `2.1`. It identifies a mounted position,
   not a label, function, process-global object address, or permanent business entity.
 - Reusing the same child Graph creates different mounted IDs, for example `0.0`
-  and `1.0`. Export and runtime events use the same mounted StepPath namespace.
-- Node `step_id` is the declaration's process-local integer identity. Repeated
+  and `1.0`. Export and runtime events use the same mounted NodePath namespace.
+- Node `node_id` is the declaration's process-local integer identity. Repeated
   mounts share it; recompiling the same declarations preserves it. It is not a
   persistent identity across process restarts or a cache key.
 - Keeping the same mounting layout preserves IDs when labels change. Changing
   ordering or composition can change IDs. Pair an ID with its frozen document/run,
   not a graph produced by another source revision.
 - `label_path` follows mount labels. The root scope has ID `graph:root`; each child
-  scope has `graph:<owner StepPath>`. Scope `owner` and local `nodes`, together with a
+  scope has `graph:<owner NodePath>`. Scope `owner` and local `nodes`, together with a
   subgraph node's `child_graph`, preserve composition rather than inventing no-op actions.
 - Interfaces retain their port names and exact input/output node references in `ports`.
   Port forwarding appears on the scope that explicitly exposes it.
 
-Mounted Step labels and port names are deliberately visible. Hosts must
+Node kinds are leaf/subgraph; an opaque Rust body's actions are also leaf nodes.
+A result edge through ports retains source/target component IDs and, as applicable,
+source_port/provider_node or target_port/consumer_nodes. Resolved fields identify
+actual internal endpoints, including forwarded ports.
+
+Mounted Node labels and port names are deliberately visible. Hosts must
 not put secrets in these display/contract names. Unnamed nodes use their positional
 IDs; the exporter never obtains a label from callable `repr()`.
 
@@ -150,10 +157,10 @@ still produces a fresh compilation and does not prepare another execution.
 
 Export reflects the supplied scope, not future work. A Graph returned by an action
 cannot be known before that action runs; when such a child is actually compiled,
-export that child compilation with its existing parent StepPath prefix. The root
+export that child compilation with its existing parent NodePath prefix. The root
 document is not silently rewritten or presented as an all-knowing execution history.
 For such a mounted export, `parent` names the external owner and `root` is
-`graph:<parent StepPath>`; that owner is outside this document's nodes. A standalone
+`graph:<parent NodePath>`; that owner is outside this document's nodes. A standalone
 root has `parent=null` and `root="graph:root"`. Scope and edge IDs therefore keep
 their mount namespace when independently exported child documents are correlated.
 

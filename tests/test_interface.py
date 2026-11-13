@@ -13,22 +13,24 @@ from rivlet import (
     GraphError,
     GraphInterface,
     GraphMode,
+    GraphStructure,
+    Leaf,
+    Node,
     ProviderSelection,
-    Step,
     ThreadRunOptions,
     resolve_port_requirements,
 )
 
 
-def _input_of(component: Step) -> str:
-    action = component.node
+def _input_of(component: Node) -> str:
+    action = component
     assert isinstance(action, Graph)
     return next(iter(action.interface.inputs))
 
 
 @pytest.mark.parametrize("name", ("", " ready", "ready "))
 def test_port_names_are_validated_at_declaration_boundaries(name: str) -> None:
-    step = Step(lambda: None)
+    step = Leaf(lambda: None)
     for declare in (
         lambda: GraphInterface(inputs={name: step}),
         lambda: GraphInterface(outputs={name: step}),
@@ -44,8 +46,8 @@ def test_port_names_are_validated_at_declaration_boundaries(name: str) -> None:
 def test_port_interface_copies_mappings_and_reuses_normalized_inputs() -> None:
     sdk = "sdk"
     library = "library"
-    configure = Step(lambda: None)
-    install = Step(lambda: None)
+    configure = Leaf(lambda: None)
+    install = Leaf(lambda: None)
     inputs = {sdk: configure}
     outputs = {library: install}
     shared = GraphInterface(inputs=inputs, outputs=outputs)
@@ -62,26 +64,34 @@ def test_graph_forwards_complete_or_selected_interface_without_flattening() -> N
     sdk = "sdk"
     library = "library"
     final = "final"
-    configure = Step(lambda: None)
-    install = Step(lambda: None)
-    finish = Step(lambda: None)
+    configure = Leaf(lambda: None)
+    install = Leaf(lambda: None)
+    finish = Leaf(lambda: None)
     child = (configure >> install).graph(
         interface=GraphInterface(inputs={sdk: configure}, outputs={library: install})
     )
-    forwarded = (Step(child) >> finish).graph(interface=child)
-    assert forwarded.interface is child.interface
-    assert forwarded.steps[0].node is child
-    custom = (Step(child) >> finish).graph(
+    forwarded = (child >> finish).graph(interface=child)
+    assert forwarded.interface.inputs[sdk].graph is forwarded
+    assert forwarded.interface.inputs[sdk].nodes == (configure,)
+    assert forwarded.structure.nodes[0] is child
+    custom = (child >> finish).graph(
         interface=GraphInterface(inputs=child, outputs={final: finish})
     )
-    assert custom.interface.inputs == child.interface.inputs
-    assert dict(custom.interface.outputs) == {final: finish}
-    outputs_only = Graph(steps=(child.step(),), interface=GraphInterface(outputs=child))
+    assert custom.interface.inputs[sdk].nodes == (configure,)
+    assert dict(custom.structure.interface.outputs) == {final: finish}
+    outputs_only = Graph(
+        structure=GraphStructure(
+            nodes=(child,), interface=GraphInterface(outputs=child)
+        )
+    )
     assert not outputs_only.interface.inputs
-    assert outputs_only.interface.outputs == child.interface.outputs
+    assert (
+        outputs_only.structure.interface.outputs[library]
+        == child.interface.outputs[library]
+    )
     # 不声明接口时，不自动暴露内部图的端口。
-    assert not (Step(child) >> finish).graph().interface.inputs
-    assert not (Step(child) >> finish).graph().interface.outputs
+    assert not (Graph(structure=child.structure) >> finish).graph().interface.inputs
+    assert not (Graph(structure=child.structure) >> finish).graph().interface.outputs
 
 
 @pytest.mark.parametrize("mode", ("compiled", "dynamic"))
@@ -106,26 +116,23 @@ def test_one_input_unlocks_multiple_independent_steps(mode: GraphMode) -> None:
         b_started.set()
         _require_event(a_started, "a input was serialized after b")
 
-    ready = Step(provide)
+    ready = Leaf(provide)
     provider = Graph(
-        steps=(ready,), interface=GraphInterface(outputs={sdk: ready})
-    ).step()
-    a, b = Step(configure_a), Step(configure_b)
-    consumer = (
-        ((Step(a_prepared.set) >> a) | (Step(b_prepared.set) >> b))
-        .graph(interface=GraphInterface(inputs={sdk: (a, b)}))
-        .step()
+        structure=GraphStructure(
+            nodes=(ready,), interface=GraphInterface(outputs={sdk: ready})
+        )
+    )
+    a, b = Leaf(configure_a), Leaf(configure_b)
+    consumer = ((Leaf(a_prepared.set) >> a) | (Leaf(b_prepared.set) >> b)).graph(
+        interface=GraphInterface(inputs={sdk: (a, b)})
     )
     bindings = resolve_port_requirements(
         (provider, consumer),
         (ExactProviderRequirement(consumer=consumer, provider=provider, port=sdk),),
     )
     Execution(
-        root=Step(
-            Graph(
-                steps=(provider, consumer),
-                edges=bindings,
-            ),
+        root=Graph(
+            structure=GraphStructure(nodes=(provider, consumer), edges=bindings),
             label="root",
         )
     ).run(ThreadRunOptions(workers=4), mode=mode)
@@ -134,18 +141,23 @@ def test_one_input_unlocks_multiple_independent_steps(mode: GraphMode) -> None:
 
 def test_interface_rejects_empty_input_and_unmounted_or_repeated_steps() -> None:
     sdk = "sdk"
-    step = Step(lambda: None)
+    step = Leaf(lambda: None)
     with pytest.raises(GraphError, match="at least one"):
         GraphInterface(inputs={sdk: ()})
     with pytest.raises(GraphError, match="duplicate steps"):
         GraphInterface(inputs={sdk: (step, step)})
     with pytest.raises(GraphError, match="outside this graph"):
-        Graph(interface=GraphInterface(inputs={sdk: step}))
-    child = Graph(steps=(step,))
+        Graph(structure=GraphStructure(interface=GraphInterface(inputs={sdk: step})))
+    child = Graph(structure=GraphStructure(nodes=(step,)))
     with pytest.raises(GraphError, match="mounted more than once"):
         Graph(
-            steps=(child.step(), child.step()),
-            interface=GraphInterface(inputs={sdk: step}),
+            structure=GraphStructure(
+                nodes=(
+                    Graph(structure=child.structure),
+                    Graph(structure=child.structure),
+                ),
+                interface=GraphInterface(inputs={sdk: step}),
+            )
         )
 
 
@@ -157,10 +169,10 @@ def _require_event(event: Event, message: str) -> None:
 def _component(
     label: str,
     *,
-    port_input: tuple[str, Step] | None = None,
-    port_output: tuple[str, Step] | None = None,
-    steps: tuple[Step, ...],
-) -> Step:
+    port_input: tuple[str, Node] | None = None,
+    port_output: tuple[str, Node] | None = None,
+    steps: tuple[Node, ...],
+) -> Node:
     graph = Graph.from_wiring(
         tuple(
             step.wire(after=() if index == 0 else (steps[index - 1],))
@@ -175,7 +187,7 @@ def _component(
             ),
         ),
     )
-    return graph.step(label=label)
+    return Graph(structure=graph.structure, label=label)
 
 
 def test_port_connection_unlocks_only_the_consumer_input() -> None:
@@ -184,24 +196,24 @@ def test_port_connection_unlocks_only_the_consumer_input() -> None:
     consumer_started = Event()
 
     provider_steps = (
-        Step(lambda: None, label="1"),
-        Step(lambda: None, label="2"),
-        Step(
+        Leaf(lambda: None, label=("1")),
+        Leaf(lambda: None, label=("2")),
+        Leaf(
             lambda: _require_event(consumer_prepared, "consumer did not prepare"),
-            label="3",
+            label=("3"),
         ),
-        Step(
+        Leaf(
             lambda: _require_event(consumer_started, "consumer did not start"),
-            label="4",
+            label=("4"),
         ),
-        Step(lambda: None, label="5"),
+        Leaf(lambda: None, label=("5")),
     )
     consumer_steps = (
-        Step(consumer_prepared.set, label="a"),
-        Step(consumer_started.set, label="b"),
-        Step(lambda: None, label="c"),
-        Step(lambda: None, label="d"),
-        Step(lambda: None, label="e"),
+        Leaf(consumer_prepared.set, label=("a")),
+        Leaf(consumer_started.set, label=("b")),
+        Leaf(lambda: None, label=("c")),
+        Leaf(lambda: None, label=("d")),
+        Leaf(lambda: None, label=("e")),
     )
     provider = _component(
         "A",
@@ -217,12 +229,9 @@ def test_port_connection_unlocks_only_the_consumer_input() -> None:
         (provider, consumer),
         (AnyProviderRequirement(consumer=consumer, port=_input_of(consumer)),),
     )
-    graph = Graph(
-        steps=(provider, consumer),
-        edges=bindings,
-    )
+    graph = Graph(structure=GraphStructure(nodes=(provider, consumer), edges=bindings))
 
-    Execution(root=Step(graph, label="port")).run(
+    Execution(root=Graph(structure=graph.structure, label="port")).run(
         ThreadRunOptions(workers=2),
         mode="compiled",
     )
@@ -252,46 +261,42 @@ def test_direct_connections_gate_each_named_port_independently(mode: GraphMode) 
         assert docs_generated.is_set()
         docs_used.set()
 
-    install = Step(installed.set, label="install-library")
-    docs = Step(generate_docs, label="generate-docs")
-    provider = (
-        (install >> docs)
-        .graph(
-            interface=GraphInterface(
-                outputs={library_ready: install, docs_ready: docs}
-            ),
-        )
-        .step(label="provider")
+    install = Leaf(installed.set, label=("install-library"))
+    docs = Leaf(generate_docs, label=("generate-docs"))
+    provider = (install >> docs).graph(
+        interface=GraphInterface(outputs={library_ready: install, docs_ready: docs}),
+        label=("provider"),
     )
 
-    compile_step = Step(use_library, label="compile-with-library")
-    package_step = Step(use_docs, label="package-with-docs")
-    consumer = (
-        (compile_step >> package_step)
-        .graph(
-            interface=GraphInterface(
-                inputs={library_ready: compile_step, docs_ready: package_step},
-            ),
-        )
-        .step(label="consumer")
+    compile_step = Leaf(use_library, label=("compile-with-library"))
+    package_step = Leaf(use_docs, label=("package-with-docs"))
+    consumer = (compile_step >> package_step).graph(
+        interface=GraphInterface(
+            inputs={library_ready: compile_step, docs_ready: package_step},
+        ),
+        label=("consumer"),
     )
 
     graph = Graph(
-        steps=(provider, consumer),
-        edges=(
-            Edge(source=provider, target=consumer, ports=library_ready),
-            Edge(source=provider, target=consumer, ports=docs_ready),
-        ),
+        structure=GraphStructure(
+            nodes=(provider, consumer),
+            edges=(
+                Edge(source=provider, target=consumer, ports=library_ready),
+                Edge(source=provider, target=consumer, ports=docs_ready),
+            ),
+        )
     )
-    Execution(Step(graph)).run(ThreadRunOptions(workers=2), mode=mode)
+    Execution(Graph(structure=graph.structure)).run(
+        ThreadRunOptions(workers=2), mode=mode
+    )
     assert docs_used.is_set()
 
 
 def test_exact_provider_requirement_selects_the_named_provider() -> None:
     port = "123"
-    a_ready = Step(lambda: None, label="ready")
-    c_ready = Step(lambda: None, label="ready")
-    b_needs = Step(lambda: None, label="needs")
+    a_ready = Leaf(lambda: None, label=("ready"))
+    c_ready = Leaf(lambda: None, label=("ready"))
+    b_needs = Leaf(lambda: None, label=("needs"))
     provider_a = _component(
         "A",
         port_output=(port, a_ready),
@@ -325,9 +330,9 @@ def test_exact_provider_requirement_selects_the_named_provider() -> None:
 
 def test_exact_requirements_allow_multiple_providers_for_one_input() -> None:
     port = "123"
-    a_ready = Step(lambda: None, label="ready")
-    c_ready = Step(lambda: None, label="ready")
-    b_needs = Step(lambda: None, label="needs")
+    a_ready = Leaf(lambda: None, label=("ready"))
+    c_ready = Leaf(lambda: None, label=("ready"))
+    b_needs = Leaf(lambda: None, label=("needs"))
     provider_a = _component(
         "A",
         port_output=(port, a_ready),
@@ -361,18 +366,22 @@ def test_exact_requirements_allow_multiple_providers_for_one_input() -> None:
 
 def test_port_port_can_explicitly_export_descendant_step() -> None:
     port = "123"
-    ready = Step(lambda: None, label="ready")
-    needs = Step(lambda: None, label="needs")
+    ready = Leaf(lambda: None, label=("ready"))
+    needs = Leaf(lambda: None, label=("needs"))
     provider_graph = Graph.from_wiring(
-        wiring=(Graph.from_wiring(wiring=(ready.wire(),)).step().wire(),),
+        wiring=(
+            Graph(structure=Graph.from_wiring(wiring=(ready.wire(),)).structure).wire(),
+        ),
         interface=GraphInterface(outputs={port: ready}),
     )
     consumer_graph = Graph.from_wiring(
-        wiring=(Graph.from_wiring(wiring=(needs.wire(),)).step().wire(),),
+        wiring=(
+            Graph(structure=Graph.from_wiring(wiring=(needs.wire(),)).structure).wire(),
+        ),
         interface=GraphInterface(inputs={port: needs}),
     )
-    provider = provider_graph.step(label="A")
-    consumer = consumer_graph.step(label="B")
+    provider = Graph(structure=provider_graph.structure, label="A")
+    consumer = Graph(structure=consumer_graph.structure, label="B")
     bindings = resolve_port_requirements(
         (provider, consumer),
         (
@@ -385,11 +394,8 @@ def test_port_port_can_explicitly_export_descendant_step() -> None:
     )
 
     Execution(
-        root=Step(
-            Graph(
-                steps=(provider, consumer),
-                edges=bindings,
-            ),
+        root=Graph(
+            structure=GraphStructure(nodes=(provider, consumer), edges=bindings),
             label="root",
         ),
     ).run(mode="compiled")
@@ -397,9 +403,9 @@ def test_port_port_can_explicitly_export_descendant_step() -> None:
 
 def test_any_provider_requirement_uses_explicit_selection_when_ambiguous() -> None:
     port = "123"
-    a_ready = Step(lambda: None)
-    c_ready = Step(lambda: None)
-    b_needs = Step(lambda: None)
+    a_ready = Leaf(lambda: None)
+    c_ready = Leaf(lambda: None)
+    b_needs = Leaf(lambda: None)
     provider_a = _component(
         "A",
         port_output=(port, a_ready),
@@ -443,8 +449,8 @@ def test_any_provider_requirement_uses_explicit_selection_when_ambiguous() -> No
 
 def test_port_connection_uses_unified_execution_path() -> None:
     port = "123"
-    ready = Step(lambda: None)
-    needs = Step(lambda: None)
+    ready = Leaf(lambda: None)
+    needs = Leaf(lambda: None)
     provider = _component(
         "A",
         port_output=(port, ready),
@@ -456,11 +462,13 @@ def test_port_connection_uses_unified_execution_path() -> None:
         steps=(needs,),
     )
     graph = Graph(
-        steps=(provider, consumer),
-        edges=resolve_port_requirements(
-            (provider, consumer),
-            (AnyProviderRequirement(consumer=consumer, port=_input_of(consumer)),),
-        ),
+        structure=GraphStructure(
+            nodes=(provider, consumer),
+            edges=resolve_port_requirements(
+                (provider, consumer),
+                (AnyProviderRequirement(consumer=consumer, port=_input_of(consumer)),),
+            ),
+        )
     )
 
-    Execution(root=Step(graph)).run()
+    Execution(root=Graph(structure=graph.structure)).run()

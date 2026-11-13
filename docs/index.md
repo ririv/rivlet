@@ -5,13 +5,12 @@ English | [简体中文](./zh-CN/index.md)
 `rivlet` is an explicit, composable DAG declaration and execution library:
 
 ```python
-from rivlet import Graph, Execution, Step
 ```
 
 ## Features
 
 - Directed topology and DAG validation.
-- Step and Graph declarations with explicit wiring.
+- Node and Graph declarations with explicit wiring.
 - Sequential `>>` and independent `|` composition.
 - Exactly-one static selection before graph construction.
 - Graph-internal static selection with exactly one true condition.
@@ -23,8 +22,8 @@ from rivlet import Graph, Execution, Step
 
 ## Design goals
 
-`Graph` describes structure; `Execution` owns one execution scope. Declarations
-refer directly to Step objects. Internal `StepPath` values are assigned to mounted
+Leaf and Graph are actual nodes; GraphStructure holds reusable structure.
+Execution owns one run. Declarations reference actual nodes. Internal `NodePath` values are assigned to mounted
 nodes, while labels serve presentation only.
 
 Dependencies, result edges, and port connections participate explicitly in
@@ -52,7 +51,7 @@ These records preserve measured workloads and results, not the current API or a
 performance guarantee for the latest release.
 
 - [Recipe-scale benchmark](./recipe_scale_benchmark.md)
-- [Step overhead benchmark](./step_overhead_benchmark.md)
+- [Node overhead benchmark](./step_overhead_benchmark.md)
 - [Workflow runtime and concurrency benchmark](./workflow_runtime_benchmark.md)
 
 ## Core boundaries
@@ -61,10 +60,10 @@ performance guarantee for the latest release.
 | --- | --- |
 | `Graph` | Declarative execution DAG |
 | `Execution` | A declaration and one execution scope |
-| `Step` | Optional label and condition; Python action, Python subgraph, or Rust-native subgraph |
+| `Node` | Optional label and condition; Python action, Python subgraph, or Rust-native subgraph |
 | `Graph.edges` | Explicit wiring |
-| `Step.wire(after=(Results(...),))` / `Edge.results(...)` | Ordered action results; conditions declare their own sources |
-| `StepWiring` / `GraphWiring` | Declaration-time composition |
+| `Node.wire(after=(Results(...),))` / `Edge.results(...)` | Ordered action results; conditions declare their own sources |
+| `NodeWiring` / `GraphWiring` | Declaration-time composition |
 | `GraphCompilation` | Runtime execution structure and composite boundaries |
 
 ## Outside Graph core
@@ -85,7 +84,7 @@ interfaces. There are no implicit branches for a particular host application.
 
 ## Languages
 
-Step failure provenance and event delivery rules are documented in
+Node failure provenance and event delivery rules are documented in
 [failure events](./failure_events.md).
 
 For distribution coverage and the PyPI workflow, see [releasing](./releasing.md).

@@ -23,39 +23,37 @@ the requirement and resolve its provider explicitly.
 
 A Graph may declare several input and output ports:
 
-- `GraphInterface.inputs` maps a port to one or more internal Steps
+- `GraphInterface.inputs` maps a port to one or more internal nodes
   where consumption begins.
-- `GraphInterface.outputs` maps a port to the single Step whose
+- `GraphInterface.outputs` maps a port to the single Node whose
   completion makes it ready.
 
-Ports reference real Steps. They do not create empty actions or synthetic event nodes.
+Ports reference real nodes. They do not create empty actions or synthetic event nodes.
 
 ```python
-from rivlet import GraphInterface
+from rivlet import Graph, GraphInterface
 
 port_123 = "123"
 
 a_graph = (a_1 >> a_2 >> a_3 >> a_4 >> a_5).graph(
-
     interface=GraphInterface(outputs={port_123: a_3}),
 )
 b_graph = (b_a >> b_b >> b_c >> b_d >> b_e).graph(
-
     interface=GraphInterface(inputs={port_123: b_b}),
 )
-a = a_graph.step(label="A")
-b = b_graph.step(label="B")
+a = Graph(structure=(a_graph).structure, label=("A"))
+b = Graph(structure=(b_graph).structure, label=("B"))
 ```
 
 An output is a stability promise: later steps must not destroy or replace what has
 already been exposed. If later work produces a different fact, expose another
 port.
 
-Ports may reference direct Steps or descendant Steps inside preserved Python
+Ports may reference direct nodes or descendant nodes inside preserved Python
 subgraphs. This allows wrapping a graph without losing its real readiness points:
 
 ```python
-wrapped = (prepare >> Step(child_graph) >> normalize).graph(
+wrapped = (prepare >> child_graph >> normalize).graph(
     interface=GraphInterface(
         inputs=child_graph,
         outputs={installed_runtime: normalize},
@@ -78,15 +76,17 @@ There is no API to overwrite, merge, or append ports after Graph construction.
 
 ## Forwarding and reuse
 
-Graph, Graph.from_wiring, and wiring.graph accept the same `interface` argument.
+GraphStructure, Graph.from_wiring, and wiring.graph accept the same `interface` declaration.
 Omitting it means an empty interface, not automatic exposure of inner ports.
 
 ```python
-# Forward the full interface without copying Steps or flattening the child.
-outer = (prepare >> Step(child_graph)).graph(interface=child_graph)
+# Forward the full interface without copying nodes or flattening the child.
+outer = (prepare >> child_graph).graph(
+    interface=child_graph
+)
 
 # Forward inputs only; publish a different output.
-outer = (Step(child_graph) >> normalize).graph(
+outer = (child_graph >> normalize).graph(
     interface=GraphInterface(
         inputs=child_graph,
         outputs={installed_runtime: normalize},
@@ -103,13 +103,13 @@ another = GraphInterface(inputs=shared.inputs)
 `inputs=graph` and `outputs=graph` forward only that direction, equivalent to
 passing `graph.interface.inputs` or `.outputs`. Construction copies mappings
 into read-only views; later changes to the caller's dictionary do not affect the
-declaration. Inputs normalize to nonempty Step tuples; each output remains one Step.
+declaration. Inputs normalize to nonempty Node tuples; each output remains one Node.
 
-Referenced Steps must be mounted exactly once in the resulting graph. Forwarding
-does not make an external or ambiguously mounted Step valid.
+Referenced nodes must be mounted exactly once in the resulting graph. Forwarding
+does not make an external or ambiguously mounted Node valid.
 
 A port occupies one dictionary key. Duplicate Python keys are overwritten
-before Graph sees them, so use a tuple to constrain multiple input Steps:
+before Graph sees them, so use a tuple to constrain multiple input nodes:
 
 ```python
 consumer = ((prepare_a >> configure_a) | (prepare_b >> configure_b)).graph(
@@ -122,7 +122,7 @@ consumer = ((prepare_a >> configure_a) | (prepare_b >> configure_b)).graph(
 Both preparations can start without the toolchain. Each configure waits for its
 own predecessor and the toolchain, not for the other configure. A single binding
 expands to both inputs, without an empty action or shared waiting node.
-Outputs do not accept several Steps: that would require an explicit all/any
+Outputs do not accept several nodes: that would require an explicit all/any
 readiness model.
 
 ## Direct connections
@@ -144,16 +144,52 @@ The fixed pair is `(source output, target input)`; a string normalizes to
 exist in the corresponding `GraphInterface`; source inputs and target outputs
 are never searched. Different names require no renaming wrapper graph.
 
-The condition controls only whether the internal input Steps wait for the output
-Step. It does not gate the whole consumer graph or skip either component. One
-condition instance is shared by all Steps in that input mapping, and its result
+The condition controls only whether the internal input nodes wait for the output
+Node. It does not gate the whole consumer graph or skip either component. One
+condition instance is shared by all nodes in that input mapping, and its result
 inputs are declared directly in `condition=(predicate, probe, ...)`, resolved in
 the consumer component's parent graph. Unrelated consumer preparation can run early.
 Static edge rules can also remove the connection during compilation.
 
-Ports still express readiness, not result transport. Graph-local `Edge.results()` and
-`Results(...)` in `wire(after=...)` bind `Option` arguments; there are no `.input()`/`.output()` or
-`.argument()` endpoint helpers in this API.
+Ordinary port edges express readiness. Result edges use Graph-owned interface
+endpoints to bind Option arguments; see [result transport](#result-transport).
+
+
+## Result transport
+
+GraphStructure.interface stores declarations; Graph.interface exposes read-only ports
+bound to that actual graph. Inputs return InputPort and outputs return OutputPort;
+Leaf has no interface. References preserve their owning graph without a
+(Step, "port") pair or a separate bind call. This example is independently runnable:
+
+```python
+from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Leaf
+
+plan = Leaf(lambda: "design", label="plan")
+producer = Graph(GraphStructure(
+    nodes=(plan,), interface=GraphInterface(outputs={"plan": plan}),
+), label="producer")
+work = Leaf(lambda ctx, value: print(value.unwrap()), label="work")
+consumer = Graph(GraphStructure(
+    nodes=(work,), interface=GraphInterface(inputs={"apply": work}),
+), label="consumer")
+root = Graph(GraphStructure(
+    nodes=(producer, consumer),
+    edges=Edge.results(
+        (producer.interface.outputs["plan"],), consumer.interface.inputs["apply"],
+    ),
+))
+Execution(root).run()
+```
+
+An exposed input may remain unbound until outer composition; final compilation validates
+each actual leaf's complete argument group. A fan-out input supplies that same ordered
+group to every receiver, whose signature must match. Aliased ports cannot install
+multiple groups on one action. Reuse GraphStructure through distinct Graph nodes and
+take ports from the intended instance. Forward with inputs=child/outputs=child or
+child.interface.inputs/outputs; forwarding preserves ownership.
+Runtime skip supplies Nothing; successful None supplies Some(None); failures block
+consumers. Interleaved components are checked for actual leaf-level cycles.
 
 ## Two requirement forms
 
@@ -198,14 +234,14 @@ An any-provider requirement resolves directly when only one provider exists.
 With both A and C, select explicitly:
 
 ```python
-# c is another graph-valued Step providing port_123.
+# c is another Graph node providing port_123.
 requirement = AnyProviderRequirement(consumer=b, port=port_123)
 bindings = resolve_port_requirements(
     (a, b, c),
     (requirement,),
     selections=(ProviderSelection(requirement=requirement, provider=a),),
 )
-graph = Graph( steps=(a, b, c), edges=bindings)
+graph = Graph(structure=GraphStructure(nodes=((a, b, c)), edges=(bindings)))
 ```
 
 Ambiguity without a selection is an error. There is no “first ready wins” policy
@@ -223,7 +259,7 @@ B only “I'm ready.” B does not need to know which internal step A reached.
 B continues from b while A continues with 4 and 5.
 
 If B also needs a different port from C, it can attach that input to a
-different internal Step. There is no single input that must gate every dependency;
+different internal Node. There is no single input that must gate every dependency;
 each port is attached where it is first consumed.
 
 ## Failures at interface ports
@@ -261,7 +297,7 @@ A: 1 → 2 [failed] → 3 [output: library-ready, blocked]
 B: a [can run] ──→ b [input, blocked] → c [blocked]
 ```
 
-The same applies when the output Step itself fails. Only the dependent portion
+The same applies when the output Node itself fails. Only the dependent portion
 of B is blocked. Blocked is not an explicit skip and cannot release downstream
 work as though it succeeded.
 
@@ -288,7 +324,9 @@ compensate for A's failure, while unrelated consumer work can still proceed.
 ### Waiting for a whole subgraph is different
 
 ```python
-graph = (Step(a_graph) >> Step(b_graph)).graph()
+graph = (
+    Graph(structure=(a_graph).structure) >> Graph(structure=(b_graph).structure)
+).graph()
 ```
 
 This waits for all of A to succeed before entering B:
@@ -317,13 +355,13 @@ Both subgraph boundaries remain. The compiler does not turn this into “all of 
 must finish before any of B starts.” Both public modes use the same lowering:
 
 ```python
-Execution(root=Step(graph)).run(mode="compiled")
-Execution(root=Step(graph)).run(mode="dynamic")
+Execution(root=Graph(structure=(graph).structure)).run(mode="compiled")
+Execution(root=Graph(structure=(graph).structure)).run(mode="dynamic")
 ```
 
 ## Language boundaries
 
-Python holds Step references and validates interface ownership. Components,
+Python holds Leaf/Graph references and validates interface ownership. Components,
 ports, requirements, and selections are encoded as integer IDs for one
 Rust provider-resolution call. The resolver validates uniqueness, ambiguity, and
 explicit selections without executing actions or providing failover.
@@ -331,11 +369,11 @@ explicit selections without executing actions or providing failover.
 Explicit bindings enter declaration compilation and lowering. Final DAG validation
 and scheduling live in Rust; Python does not maintain a second provider solver.
 
-Ports reference Python-declared Steps, not opaque NativeSteps inside a NativeGraph.
-To publish completion of an entire native graph, mount it in a Python Step and
-use that Step as an output. A dynamically returned graph cannot expose unknown
+Ports reference Python-declared nodes, not opaque Nativenodes inside a NativeGraphStructure.
+To publish completion of a native structure, compose it in a Graph and
+use that Graph node as an output. A dynamically returned graph cannot expose unknown
 internal ports before it exists.
 
-Provider components and their direct output Steps cannot use runtime `condition` to
+Provider components and their direct output nodes cannot use runtime `condition` to
 decide whether they exist. Provider selection is fixed before compilation; runtime
 skipping is not a mechanism for changing candidates.

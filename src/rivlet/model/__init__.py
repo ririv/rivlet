@@ -1,6 +1,5 @@
 """Public graph-model declarations, assembled from their owning modules."""
 
-from .._native import NativeGraph
 from .condition import (
     ConditionalEdgePredicate,
 )
@@ -9,60 +8,58 @@ from .edge import (
     ConditionalPrerequisite,
     Edge,
     GraphEdge,
-    prerequisite_step,
+    prerequisite_node,
 )
 from .edge import _condition_uses as _condition_uses
 from .graph import (
     Graph,
     GraphMode,
     GraphObservationMessages,
+    GraphStructure,
 )
-from .identity import StepId, StepPath
-from .leaf import Leaf, LeafCallable
-from .step import (
-    Step,
-    StepLabelPath,
-    resolve_step_label,
-    step,
-    step_paths_for_mount,
+from .identity import NodeId, NodePath
+from .leaf import Leaf, LeafCallable, leaf
+from .node import (
+    Node,
+    NodeLabelPath,
+    node_paths_for_mount,
+    resolve_node_label,
 )
 from .wiring import (
     GraphWiring,
+    NodeWiring,
     Results,
-    StepWiring,
 )
 
 # 跨模块的联合类型在装配入口定义一次。此时真实声明类型已加载，
 # 类型检查和运行时读取 TypeAliasType.__value__ 使用同一组类型身份。
-type Node = Leaf | Graph | NativeGraph
-type NodeInput = Node | LeafCallable
+type NodeKind = Leaf | Graph
 type ConditionInput = (
-    ConditionalEdgePredicate | tuple[ConditionalEdgePredicate, Step, *tuple[Step, ...]]
+    ConditionalEdgePredicate | tuple[ConditionalEdgePredicate, Node, *tuple[Node, ...]]
 )
-type StepPrerequisite = Step | ConditionalPrerequisite
-type GraphWiringOperand = Step | Leaf | Graph | GraphWiring
-type GraphWiringInput = tuple[StepWiring, ...] | GraphWiring
+type NodePrerequisite = Node | ConditionalPrerequisite
+type GraphWiringOperand = NodeKind | GraphWiring
+type GraphWiringInput = tuple[NodeWiring, ...] | GraphWiring
 
 __all__ = [
-    "StepId",
-    "StepPath",
-    "step_paths_for_mount",
-    "StepLabelPath",
+    "NodeId",
+    "NodePath",
+    "node_paths_for_mount",
+    "NodeLabelPath",
     "GraphMode",
     "GraphObservationMessages",
     "LeafCallable",
     "Leaf",
     "Node",
-    "NodeInput",
+    "NodeKind",
     "ConditionalEdgePredicate",
     "ConditionInput",
     "ConditionalPrerequisite",
-    "StepPrerequisite",
-    "prerequisite_step",
-    "Step",
-    "resolve_step_label",
-    "step",
-    "StepWiring",
+    "NodePrerequisite",
+    "prerequisite_node",
+    "resolve_node_label",
+    "leaf",
+    "NodeWiring",
     "Results",
     "Edge",
     "GraphEdge",
@@ -70,4 +67,5 @@ __all__ = [
     "GraphWiringOperand",
     "GraphWiringInput",
     "Graph",
+    "GraphStructure",
 ]

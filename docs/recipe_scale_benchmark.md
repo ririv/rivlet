@@ -4,7 +4,7 @@ English | [简体中文](./zh-CN/recipe_scale_benchmark.md)
 
 This is a historical measurement of the 2026-08-28 implementation, not current
 mainline performance. Later synchronous-action improvements are covered in the
-[Step overhead benchmark](./step_overhead_benchmark.md). Raw samples are preserved.
+[Node overhead benchmark](./step_overhead_benchmark.md). Raw samples are preserved.
 
 ## Purpose
 

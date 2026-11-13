@@ -13,13 +13,14 @@ from rivlet import (
     ExecutionState,
     Graph,
     GraphError,
+    GraphStructure,
+    Leaf,
+    NodeRunContext,
     Nothing,
     Option,
     Results,
     SerialGraphExecutor,
     Some,
-    Step,
-    StepRunContext,
     ThreadRunOptions,
     compile_graph,
 )
@@ -30,7 +31,7 @@ type Backend = Literal["serial", "thread", "async"]
 def execute(graph: Graph, backend: Backend) -> None:
     if backend == "serial":
         SerialGraphExecutor(ExecutionState()).execute(
-            compile_graph(graph, root_label="root")
+            compile_graph(graph.structure, root_label="root")
         )
     else:
         options = (
@@ -38,7 +39,7 @@ def execute(graph: Graph, backend: Backend) -> None:
             if backend == "thread"
             else AsyncRunOptions(concurrency=2)
         )
-        Execution(Step(graph)).run(options)
+        Execution(Graph(structure=graph.structure)).run(options)
 
 
 def test_option_preserves_none_and_false_values() -> None:
@@ -64,9 +65,9 @@ def test_inputs_distinguish_skipped_from_none_in_declared_order(
 ) -> None:
     seen: list[tuple[Option[object], ...]] = []
     calls: list[str] = []
-    skipped = Step(lambda: "unreachable", condition=lambda: False)
-    returned_none = Step(lambda: None)
-    returned_false = Step(lambda: False)
+    skipped = Leaf(lambda: "unreachable", condition=(lambda: False))
+    returned_none = Leaf(lambda: None)
+    returned_false = Leaf(lambda: False)
 
     def condition(
         missing: Option[object], present: Option[object], false: Option[object]
@@ -77,10 +78,12 @@ def test_inputs_distinguish_skipped_from_none_in_declared_order(
         )
 
     predicate = condition
-    prerequisite = Step(lambda: calls.append("prerequisite"))
-    consumer = Step(
+    prerequisite = Leaf(lambda: calls.append("prerequisite"))
+    consumer = Leaf(
         lambda _ctx, *_inputs: calls.append("consumer"),
-        condition=None if edge else (predicate, skipped, returned_none, returned_false),
+        condition=(
+            None if edge else (predicate, skipped, returned_none, returned_false)
+        ),
     )
     graph = Graph.from_wiring(
         (
@@ -123,16 +126,16 @@ def test_repeated_nested_graph_mounts_supply_their_own_results(
 ) -> None:
     seen: list[object] = []
 
-    def produce(ctx: StepRunContext) -> object:
-        return ctx.step_path
+    def produce(ctx: NodeRunContext) -> object:
+        return ctx.node_path
 
-    probe = Step(produce, label="probe")
+    probe = Leaf(produce, label=("probe"))
 
     def condition(result: Option[object]) -> bool:
         seen.append(result.unwrap())
         return True
 
-    consumer = Step(
+    consumer = Leaf(
         lambda _ctx, _result: None,
         condition=(_consumer_condition := (condition, probe)),
     )
@@ -142,32 +145,39 @@ def test_repeated_nested_graph_mounts_supply_their_own_results(
             probe.wire(),
         )
     )
-    nested = Graph(steps=(Step(child),))
-    execute(Graph(steps=(Step(nested), Step(nested))), backend)
+    nested = Graph(structure=GraphStructure(nodes=(Graph(structure=child.structure),)))
+    execute(
+        Graph(
+            structure=GraphStructure(
+                nodes=(
+                    Graph(structure=nested.structure),
+                    Graph(structure=nested.structure),
+                )
+            )
+        ),
+        backend,
+    )
     assert len(seen) == 2
     assert seen[0] != seen[1]
 
 
 def test_repeated_input_preserves_arguments_without_rewrapping() -> None:
-    probe = Step(lambda: None)
+    probe = Leaf(lambda: None)
     seen: list[tuple[Option[object], Option[object]]] = []
 
     def condition(first: Option[object], second: Option[object]) -> bool:
         seen.append((first, second))
         return True
 
-    consumer = Step(
+    consumer = Leaf(
         lambda _ctx, _first, _second: None,
         condition=(_consumer_condition := (condition, probe, probe)),
     )
     execution = Execution(
-        Step(
-            Graph.from_wiring(
-                (
-                    consumer.wire(after=(Results(probe, probe),)),
-                    probe.wire(),
-                )
-            )
+        Graph(
+            structure=Graph.from_wiring(
+                (consumer.wire(after=(Results(probe, probe),)), probe.wire())
+            ).structure
         )
     )
     execution.run()
@@ -187,15 +197,15 @@ def test_actions_and_conditions_share_explicit_result_bindings(
     async def produce() -> int:
         return 42
 
-    source = Step(produce)
-    skipped = Step(lambda: "unused", condition=lambda: False)
+    source = Leaf(produce)
+    skipped = Leaf(lambda: "unused", condition=(lambda: False))
 
     def allowed(value: Option[object], absent: Option[object]) -> bool:
         seen.append((value, absent))
         return True
 
     async def consume(
-        ctx: StepRunContext, value: Option[object], absent: Option[object]
+        ctx: NodeRunContext, value: Option[object], absent: Option[object]
     ) -> None:
         ctx.control.require_running()
         assert value is seen[0][0]
@@ -205,7 +215,7 @@ def test_actions_and_conditions_share_explicit_result_bindings(
         assert not hasattr(ctx, "view")
         seen.append((value, absent))
 
-    consumer = Step(
+    consumer = Leaf(
         consume, condition=(_consumer_condition := (allowed, source, skipped))
     )
     execute(
@@ -226,25 +236,35 @@ def test_action_only_inputs_enable_recording_and_bind_each_mount(
     backend: Backend,
 ) -> None:
     seen: list[object] = []
-    producer = Step(lambda ctx: ctx.step_path)
+    producer = Leaf(lambda ctx: ctx.node_path)
 
-    def consume(_ctx: StepRunContext, value: Option[object]) -> None:
+    def consume(_ctx: NodeRunContext, value: Option[object]) -> None:
         seen.append(value.unwrap())
 
     child = Graph.from_wiring(
         (
             producer.wire(),
-            Step(consume).wire(after=(Results(producer),)),
+            Leaf(consume).wire(after=(Results(producer),)),
         )
     )
-    execute(Graph(steps=(child.step(), child.step())), backend)
+    execute(
+        Graph(
+            structure=GraphStructure(
+                nodes=(
+                    Graph(structure=child.structure),
+                    Graph(structure=child.structure),
+                )
+            )
+        ),
+        backend,
+    )
     assert len(seen) == 2
     assert seen[0] != seen[1]
 
 
 def test_result_binding_validates_callable_boundary_before_execution() -> None:
-    source = Step(lambda: 42)
-    consumer = Step(lambda _ctx, _first, _second: None)
+    source = Leaf(lambda: 42)
+    consumer = Leaf(lambda _ctx, _first, _second: None)
     with pytest.raises(GraphError, match="signature"):
         Graph.from_wiring((source.wire(), consumer.wire(after=(Results(source),))))
 
@@ -252,10 +272,10 @@ def test_result_binding_validates_callable_boundary_before_execution() -> None:
 @pytest.mark.parametrize("backend", ["serial", "thread", "async"])
 def test_each_receiver_binds_its_own_results_on_each_mount(backend: Backend) -> None:
     seen: list[tuple[str, object]] = []
-    permission = Step(lambda: "permission")
-    check = Step(lambda: "edge")
-    design = Step(lambda ctx: ctx.step_path)
-    prepare = Step(lambda: seen.append(("prepare", None)))
+    permission = Leaf(lambda: "permission")
+    check = Leaf(lambda: "edge")
+    design = Leaf(lambda ctx: ctx.node_path)
+    prepare = Leaf(lambda: seen.append(("prepare", None)))
 
     def check_value(value: Option[object]) -> bool:
         seen.append(("check", value.unwrap()))
@@ -263,9 +283,9 @@ def test_each_receiver_binds_its_own_results_on_each_mount(backend: Backend) -> 
 
     node_condition = check_value
     edge_condition = check_value
-    consumer = Step(
+    consumer = Leaf(
         lambda _ctx, plan: seen.append(("action", plan.unwrap())),
-        condition=(node_condition, permission),
+        condition=((node_condition, permission)),
     )
     child = Graph.from_wiring(
         (
@@ -281,7 +301,17 @@ def test_each_receiver_binds_its_own_results_on_each_mount(backend: Backend) -> 
             ),
         )
     )
-    execute(Graph(steps=(child.step(), child.step())), backend)
+    execute(
+        Graph(
+            structure=GraphStructure(
+                nodes=(
+                    Graph(structure=child.structure),
+                    Graph(structure=child.structure),
+                )
+            )
+        ),
+        backend,
+    )
     checks = [value for kind, value in seen if kind == "check"]
     assert checks.count("permission") == 2
     assert checks.count("edge") == 2
@@ -302,18 +332,18 @@ def test_false_node_condition_does_not_wait_for_other_receiver_inputs() -> None:
         await asyncio.wait_for(decided.wait(), timeout=2)
         return "plan"
 
-    permission = Step(lambda: False)
-    action_input = Step(delayed)
-    edge_input = Step(delayed)
-    prepare = Step(lambda: None)
+    permission = Leaf(lambda: False)
+    action_input = Leaf(delayed)
+    edge_input = Leaf(delayed)
+    prepare = Leaf(lambda: None)
     condition = reject
 
     def edge_condition(_value):
         return pytest.fail("unused edge condition ran")
 
-    consumer = Step(
+    consumer = Leaf(
         lambda _ctx, _value: pytest.fail("skipped action ran"),
-        condition=(condition, permission),
+        condition=((condition, permission)),
     )
     graph = Graph.from_wiring(
         (
@@ -331,21 +361,21 @@ def test_false_node_condition_does_not_wait_for_other_receiver_inputs() -> None:
             ),
         )
     )
-    Execution(Step(graph)).run(AsyncRunOptions(concurrency=4))
+    Execution(Graph(structure=graph.structure)).run(AsyncRunOptions(concurrency=4))
     assert decided.is_set()
 
 
 @pytest.mark.parametrize("backend", ["serial", "thread", "async"])
 def test_one_condition_object_can_bind_two_conditional_edges(backend: Backend) -> None:
-    source = Step(lambda: False)
+    source = Leaf(lambda: False)
 
     def condition(value):
         return value.unwrap() is True
 
-    left = Step(lambda: None)
-    right = Step(lambda: None)
+    left = Leaf(lambda: None)
+    right = Leaf(lambda: None)
     seen: list[str] = []
-    consumer = Step(lambda: seen.append("ran"))
+    consumer = Leaf(lambda: seen.append("ran"))
     execute(
         Graph.from_wiring(
             (
@@ -366,10 +396,10 @@ def test_one_condition_object_can_bind_two_conditional_edges(backend: Backend) -
 
 
 def test_results_groups_are_reusable_and_combine_in_declaration_order() -> None:
-    first = Step(lambda: 1)
-    second = Step(lambda: 2)
+    first = Leaf(lambda: 1)
+    second = Leaf(lambda: 2)
     seen: list[tuple[object, object]] = []
-    consumer = Step(lambda _ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
+    consumer = Leaf(lambda _ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
     shared = Results(first)
     partial = consumer.wire(after=(shared,))
     complete = consumer.wire(after=(shared, first, Results(second)))
@@ -382,21 +412,31 @@ def test_results_groups_are_reusable_and_combine_in_declaration_order() -> None:
 
 
 def test_result_edge_group_is_complete_and_unique_per_action() -> None:
-    first = Step(lambda: 1)
-    second = Step(lambda: 2)
-    consumer = Step(lambda _ctx, *values: None)
+    first = Leaf(lambda: 1)
+    second = Leaf(lambda: 2)
+    consumer = Leaf(lambda _ctx, *values: None)
     connections = Edge.results((first, second), consumer)
     with pytest.raises(GraphError, match="included in full"):
-        Graph(steps=(first, second, consumer), edges=connections[:1])
+        Graph(
+            structure=GraphStructure(
+                nodes=(first, second, consumer), edges=connections[:1]
+            )
+        )
     with pytest.raises(GraphError, match="must not be repeated"):
-        Graph(steps=(first, second, consumer), edges=(*connections, connections[0]))
+        Graph(
+            structure=GraphStructure(
+                nodes=(first, second, consumer), edges=(*connections, connections[0])
+            )
+        )
     with pytest.raises(GraphError, match="one result connection group"):
         Graph(
-            steps=(first, second, consumer),
-            edges=(
-                *Edge.results((first,), consumer),
-                *Edge.results((second,), consumer),
-            ),
+            structure=GraphStructure(
+                nodes=(first, second, consumer),
+                edges=(
+                    *Edge.results((first,), consumer),
+                    *Edge.results((second,), consumer),
+                ),
+            )
         )
 
 
@@ -404,14 +444,16 @@ def test_result_edge_group_is_complete_and_unique_per_action() -> None:
 def test_result_edges_supply_ordered_values_without_extra_order_edges(
     backend: Backend,
 ) -> None:
-    first = Step(lambda: 1)
-    second = Step(lambda: 2)
+    first = Leaf(lambda: 1)
+    second = Leaf(lambda: 2)
     seen: list[tuple[object, object]] = []
-    consumer = Step(lambda _ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
+    consumer = Leaf(lambda _ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
     execute(
         Graph(
-            steps=(consumer, second, first),
-            edges=tuple(reversed(Edge.results((first, second), consumer))),
+            structure=GraphStructure(
+                nodes=(consumer, second, first),
+                edges=tuple(reversed(Edge.results((first, second), consumer))),
+            )
         ),
         backend,
     )
@@ -419,10 +461,14 @@ def test_result_edges_supply_ordered_values_without_extra_order_edges(
 
 
 def test_result_connections_require_local_producers_and_a_callable_target() -> None:
-    producer = Step(lambda: 1)
-    child = Graph(steps=(producer,)).step()
-    consumer = Step(lambda _ctx, value: None)
+    producer = Leaf(lambda: 1)
+    child = Graph(structure=GraphStructure(nodes=(producer,)))
+    consumer = Leaf(lambda _ctx, value: None)
     with pytest.raises(GraphError, match="unknown|outside"):
-        Graph(steps=(child, consumer), edges=Edge.results((producer,), consumer))
+        Graph(
+            structure=GraphStructure(
+                nodes=(child, consumer), edges=Edge.results((producer,), consumer)
+            )
+        )
     with pytest.raises(GraphError, match="callable action"):
         Edge.results((producer,), child)

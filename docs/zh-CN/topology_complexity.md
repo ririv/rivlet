@@ -37,7 +37,7 @@ Python 的 `DirectedTopology` 并不是 Rust topology 的逐方法 FFI 包装。
 
 这里定义：
 
-- V：本层 Graph 的 Step 数量。
+- V：本层 Graph 的 Node 数量。
 - E：本层显式普通边、条件边、结果边数量。
 - A：去重后的本层阻塞 arc 数量，A ≤ E。
 
@@ -48,7 +48,7 @@ Python 的 `DirectedTopology` 并不是 Rust topology 的逐方法 FFI 包装。
 当前 [validation.py](../../src/rivlet/model/validation.py) 的实际链路是：
 
 ```text
-验证 Step 并分配本层整数索引
+验证 Node 并分配本层整数索引
     ↓
 _validated_blocking_arcs：遍历显式边，去重并生成 Arc
     ↓
@@ -75,9 +75,13 @@ Rust collector 不进行逐节点、逐边静态查询；有规则时单次查�
 `Edge` 在声明阶段校验组件及端口，但不直接作为本层 composite 之间的
 阻塞 arc。实际依赖是“提供者内部出口 → 消费者内部入口”，必须在编译时定位并 lower。
 
-接口归属校验会遍历当前图的 Python 子图挂载结构，建立 Step 挂载次数索引，再验证
+接口归属校验会遍历当前图的 Python 子图挂载结构，建立 Node 挂载次数索引，再验证
 端口引用。若挂载节点数为 M、端口引用数为 R，则该项时间为 O(M + R)、空间为 O(M)；
 它不是上节本层 V 的一部分。重复挂载导致端口引用有歧义时直接报错。
+
+Rust 仅为声明端口的作用域建立后代引用索引。设 H 为节点与有端口祖先之间的关系数，
+建索引时间/空间 O(H)，查询平均 O(1) 加显式转发深度；最坏受全部挂载路径长度之和
+约束。无端口图不建立额外后代索引，避免 P 个端口各扫描 V 个节点。
 
 Rust 编译器随后校验完整执行 DAG，包括：
 
@@ -98,7 +102,7 @@ session，不能在构图前把它的规模算入已知静态图。
 G 个图作用域、V 个声明节点、C 个 composite 的可达性遍历时间为 O(G + V)，
 辅助空间为 O(G + C)。原实现每访问一个图扫描全部节点，最坏为 O(G × V)。
 
-完成校验和可达性检查后，根据完整声明选择路径，而不是只看根 Python Graph.static：
+完成校验和可达性检查后，根据完整声明选择路径，而不是只看根 Python GraphStructure.static：
 
 - 所有作用域可达、所有节点活跃、所有运行时条件均被引用：保留身份，直接将条件与
   端口边移动到层级编译，不生成裁剪映射、不复制条件 inputs。
@@ -140,7 +144,7 @@ Python 结果物化，不包含 Graph 构造、每轮计时前的 GC，也不执
 一次边界计算读取：
 
 - 显式普通边、条件边与结果边；
-- 本层 Step 顺序，用于返回有序边界。
+- 本层 Node 顺序，用于返回有序边界。
 
 时间为 O(V + E)，辅助空间为 O(V)。`entries` 与 `exits` 是独立属性，
 分别读取会分别计算；串行 DSL 通常读取左侧 exits 和右侧 entries。
@@ -153,4 +157,4 @@ Rust 并未降低上述线性算法的渐进复杂度。它的收益来自紧凑
 推断某张小图一定更快，也不能把 O(V + E) 理解为只执行一遍循环。
 
 历史测量见 [Recipe 规模基准](./recipe_scale_benchmark.md) 和
-[Step 开销基准](./step_overhead_benchmark.md)。测量覆盖的版本与负载以各文档为准。
+[Node 开销基准](./step_overhead_benchmark.md)。测量覆盖的版本与负载以各文档为准。

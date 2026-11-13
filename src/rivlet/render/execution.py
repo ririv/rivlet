@@ -4,12 +4,16 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from ..model import (
-    Graph,
+    Graph as GraphNode,
+)
+from ..model import (
     GraphMode,
-    Step,
-    StepPath,
-    resolve_step_label,
-    step_paths_for_mount,
+    GraphStructure,
+    Node,
+    NodeKind,
+    NodePath,
+    node_paths_for_mount,
+    resolve_node_label,
 )
 from .formatting import (
     render_execution_result_suffix,
@@ -39,16 +43,16 @@ class ExecutionRenderStatus(StrEnum):
 
 
 def render_execution(
-    root: Step,
+    root: NodeKind,
     state: ExecutionState,
     *,
     mode: GraphMode = "dynamic",
 ) -> str:
-    graph = Graph(steps=(root,))
+    graph = GraphStructure(nodes=(root,))
     return _render_execution_impl(
         graph,
         state,
-        root_label=resolve_step_label(root, StepPath((0,))),
+        root_label=resolve_node_label(root, NodePath((0,))),
         mode=mode,
         include_not_reached=True,
         title="execution",
@@ -56,25 +60,25 @@ def render_execution(
 
 
 def render_live_execution(
-    root: Step,
+    root: NodeKind,
     state: ExecutionState,
     *,
     mode: GraphMode = "dynamic",
 ) -> str:
-    graph = Graph(steps=(root,))
-    root_label = resolve_step_label(root, StepPath((0,)))
+    graph = GraphStructure(nodes=(root,))
+    root_label = resolve_node_label(root, NodePath((0,)))
     snapshot = state.snapshot()
     leaf_steps = collect_leaf_steps(graph)
     running_step_paths = deepest_running_step_paths(snapshot)
     running_labels = [
-        snapshot.step_label_paths[step_path] for step_path in running_step_paths
+        snapshot.step_label_paths[node_path] for node_path in running_step_paths
     ]
     remaining_count = sum(
         1
-        for step_path, _label_path in leaf_steps
-        if step_path not in snapshot.completed_steps
-        and step_path not in snapshot.skipped_steps
-        and step_path not in snapshot.node_failures
+        for node_path, _label_path in leaf_steps
+        if node_path not in snapshot.completed_steps
+        and node_path not in snapshot.skipped_steps
+        and node_path not in snapshot.node_failures
     )
     last_step_path = snapshot.executed_steps[-1] if snapshot.executed_steps else None
     running_text = _summarize_paths(running_labels, fallback="idle")
@@ -92,7 +96,7 @@ def render_live_execution(
 
 
 def _render_execution_impl(
-    graph: Graph,
+    graph: GraphStructure,
     state: ExecutionState,
     *,
     root_label: str,
@@ -111,7 +115,7 @@ def _render_execution_impl(
         snapshot=snapshot,
         active_step_paths=active_step_paths,
         label_path=(),
-        parent_step_path=None,
+        parent_node_path=None,
         ancestor_skipped=False,
         include_not_reached=include_not_reached,
         prefix="",
@@ -121,18 +125,18 @@ def _render_execution_impl(
 
 def append_execution_graph(
     lines: list[str],
-    graph: Graph,
+    graph: GraphStructure,
     *,
     snapshot: ExecutionSnapshot,
-    active_step_paths: set[StepPath],
+    active_step_paths: set[NodePath],
     label_path: tuple[str, ...],
-    parent_step_path: StepPath | None,
+    parent_node_path: NodePath | None,
     ancestor_skipped: bool,
     include_not_reached: bool,
     prefix: str,
 ) -> None:
-    graph_step_paths = step_paths_for_mount(graph, parent_step_path=parent_step_path)
-    for index, step in enumerate(graph.steps):
+    graph_node_paths = node_paths_for_mount(graph, parent_node_path=parent_node_path)
+    for index, step in enumerate(graph.nodes):
         append_execution_step(
             lines,
             graph,
@@ -140,34 +144,34 @@ def append_execution_graph(
             snapshot=snapshot,
             active_step_paths=active_step_paths,
             label_path=label_path,
-            graph_step_paths=graph_step_paths,
+            graph_node_paths=graph_node_paths,
             ancestor_skipped=ancestor_skipped,
             include_not_reached=include_not_reached,
-            is_last=index == len(graph.steps) - 1,
+            is_last=index == len(graph.nodes) - 1,
             prefix=prefix,
         )
 
 
 def append_execution_step(
     lines: list[str],
-    graph: Graph,
-    step: Step,
+    graph: GraphStructure,
+    step: Node,
     *,
     snapshot: ExecutionSnapshot,
-    active_step_paths: set[StepPath],
+    active_step_paths: set[NodePath],
     label_path: tuple[str, ...],
-    graph_step_paths: Mapping[Step, StepPath],
+    graph_node_paths: Mapping[Node, NodePath],
     ancestor_skipped: bool,
     include_not_reached: bool,
     is_last: bool,
     prefix: str,
 ) -> None:
-    step_path = graph_step_paths[step]
-    step_label = resolve_step_label(step, step_path)
+    node_path = graph_node_paths[step]
+    step_label = resolve_node_label(step, node_path)
     step_label_path = (*label_path, step_label)
     status = resolve_execution_status(
         step,
-        step_path=step_path,
+        node_path=node_path,
         snapshot=snapshot,
         active_step_paths=active_step_paths,
         ancestor_skipped=ancestor_skipped,
@@ -176,21 +180,21 @@ def append_execution_step(
         return
     branch = "└─ " if is_last else "├─ "
     child_prefix = prefix + ("   " if is_last else "│  ")
-    action = step.node
+    action = step.structure if isinstance(step, GraphNode) else step
     base = (
         f"{step_label} [graph]"
-        if isinstance(action, Graph)
-        else render_step_label(step, step_path=step_path)
+        if isinstance(action, GraphStructure)
+        else render_step_label(step, node_path=node_path)
     )
     lines.append(
         f"{prefix}{branch}{base}"
         f"{render_static_suffix(graph, step)}"
-        f"{render_execution_condition_suffix(step, step_path=step_path, condition_values=snapshot.runtime_condition_values)}"
+        f"{render_execution_condition_suffix(step, node_path=node_path, condition_values=snapshot.runtime_condition_values)}"
         f" [{status.value}]"
-        f"{render_execution_result_suffix(step_path, snapshot.results)}"
-        f"{render_graph_after_suffix(graph, step, step_paths=graph_step_paths)}"
+        f"{render_execution_result_suffix(node_path, snapshot.results)}"
+        f"{render_graph_after_suffix(graph, step, step_paths=graph_node_paths)}"
     )
-    if not isinstance(action, Graph):
+    if not isinstance(action, GraphStructure):
         return
     append_execution_graph(
         lines,
@@ -198,7 +202,7 @@ def append_execution_step(
         snapshot=snapshot,
         active_step_paths=active_step_paths,
         label_path=step_label_path,
-        parent_step_path=step_path,
+        parent_node_path=node_path,
         ancestor_skipped=(ancestor_skipped or status is ExecutionRenderStatus.SKIPPED),
         include_not_reached=include_not_reached,
         prefix=child_prefix,
@@ -206,46 +210,46 @@ def append_execution_step(
 
 
 def resolve_execution_status(
-    step: Step,
+    step: Node,
     *,
-    step_path: StepPath,
+    node_path: NodePath,
     snapshot: ExecutionSnapshot,
-    active_step_paths: set[StepPath],
+    active_step_paths: set[NodePath],
     ancestor_skipped: bool,
 ) -> ExecutionRenderStatus:
-    if failure := snapshot.node_failures.get(step_path):
+    if failure := snapshot.node_failures.get(node_path):
         return ExecutionRenderStatus(failure.value)
     if ancestor_skipped:
         return ExecutionRenderStatus.SKIPPED_BY_ANCESTOR
-    if step_path in snapshot.skipped_steps:
+    if node_path in snapshot.skipped_steps:
         return ExecutionRenderStatus.SKIPPED
-    if isinstance(step.node, Graph):
+    if isinstance(step, GraphNode) and isinstance(step.structure, GraphStructure):
         if (
-            step_path in snapshot.completed_composites
-            or step_path in snapshot.completed_steps
+            node_path in snapshot.completed_composites
+            or node_path in snapshot.completed_steps
         ):
             return ExecutionRenderStatus.COMPLETED
-        if step_path in snapshot.entered_composites or step_path in active_step_paths:
+        if node_path in snapshot.entered_composites or node_path in active_step_paths:
             return ExecutionRenderStatus.ENTERED
         return ExecutionRenderStatus.NOT_REACHED
-    if step_path in active_step_paths:
-        if step_path in snapshot.completed_steps:
+    if node_path in active_step_paths:
+        if node_path in snapshot.completed_steps:
             return ExecutionRenderStatus.EXECUTED
         return ExecutionRenderStatus.RUNNING
     return ExecutionRenderStatus.NOT_REACHED
 
 
 def render_execution_condition_suffix(
-    step: Step,
+    step: Node,
     *,
-    step_path: StepPath,
-    condition_values: Mapping[StepPath, bool],
+    node_path: NodePath,
+    condition_values: Mapping[NodePath, bool],
 ) -> str:
     """渲染 runtime 已记录的条件值，不在渲染阶段重新执行 predicate。"""
 
     if step.condition is None:
         return ""
-    value = condition_values.get(step_path)
+    value = condition_values.get(node_path)
     if value is None:
         return " [condition=pending]"
     return f" [condition={str(value).lower()}]"
@@ -253,15 +257,15 @@ def render_execution_condition_suffix(
 
 def active_execution_step_paths(
     snapshot: ExecutionSnapshot,
-) -> set[StepPath]:
-    active: set[StepPath] = set()
-    for step_path in [
+) -> set[NodePath]:
+    active: set[NodePath] = set()
+    for node_path in [
         *snapshot.executed_steps,
         *snapshot.entered_composites,
         *snapshot.skipped_steps,
         *snapshot.node_failures,
     ]:
-        current: StepPath | None = step_path
+        current: NodePath | None = node_path
         while current is not None:
             active.add(current)
             current = current.parent
@@ -270,77 +274,77 @@ def active_execution_step_paths(
 
 def deepest_running_step_paths(
     snapshot: ExecutionSnapshot,
-) -> tuple[StepPath, ...]:
+) -> tuple[NodePath, ...]:
     """返回当前未完成路径中最深的 step，避免同时展示其执行中祖先。"""
 
     running = [
-        step_path
-        for step_path in snapshot.executed_steps
-        if step_path not in snapshot.completed_steps
-        and step_path not in snapshot.skipped_steps
-        and step_path not in snapshot.node_failures
+        node_path
+        for node_path in snapshot.executed_steps
+        if node_path not in snapshot.completed_steps
+        and node_path not in snapshot.skipped_steps
+        and node_path not in snapshot.node_failures
     ]
     running_set = set(running)
-    ancestors_with_running_children: set[StepPath] = set()
-    for step_path in running:
-        current = step_path.parent
+    ancestors_with_running_children: set[NodePath] = set()
+    for node_path in running:
+        current = node_path.parent
         while current is not None:
             if current in running_set:
                 ancestors_with_running_children.add(current)
             current = current.parent
     return tuple(
-        step_path
-        for step_path in running
-        if step_path not in ancestors_with_running_children
+        node_path
+        for node_path in running
+        if node_path not in ancestors_with_running_children
     )
 
 
 def collect_step_labels(
-    graph: Graph,
+    graph: GraphStructure,
     *,
     label_path: tuple[str, ...] = (),
-    parent_step_path: StepPath | None = None,
-) -> tuple[tuple[StepPath, tuple[str, ...]], ...]:
-    out: list[tuple[StepPath, tuple[str, ...]]] = []
-    for step, step_path in step_paths_for_mount(
+    parent_node_path: NodePath | None = None,
+) -> tuple[tuple[NodePath, tuple[str, ...]], ...]:
+    out: list[tuple[NodePath, tuple[str, ...]]] = []
+    for step, node_path in node_paths_for_mount(
         graph,
-        parent_step_path=parent_step_path,
+        parent_node_path=parent_node_path,
     ).items():
-        step_label_path = (*label_path, resolve_step_label(step, step_path))
-        out.append((step_path, step_label_path))
-        if isinstance(step.node, Graph):
+        step_label_path = (*label_path, resolve_node_label(step, node_path))
+        out.append((node_path, step_label_path))
+        if isinstance(step, GraphNode) and isinstance(step.structure, GraphStructure):
             out.extend(
                 collect_step_labels(
-                    step.node,
+                    step.structure,
                     label_path=step_label_path,
-                    parent_step_path=step_path,
+                    parent_node_path=node_path,
                 )
             )
     return tuple(out)
 
 
 def collect_leaf_steps(
-    graph: Graph,
+    graph: GraphStructure,
     *,
     label_path: tuple[str, ...] = (),
-    parent_step_path: StepPath | None = None,
-) -> tuple[tuple[StepPath, tuple[str, ...]], ...]:
-    out: list[tuple[StepPath, tuple[str, ...]]] = []
-    for step, step_path in step_paths_for_mount(
+    parent_node_path: NodePath | None = None,
+) -> tuple[tuple[NodePath, tuple[str, ...]], ...]:
+    out: list[tuple[NodePath, tuple[str, ...]]] = []
+    for step, node_path in node_paths_for_mount(
         graph,
-        parent_step_path=parent_step_path,
+        parent_node_path=parent_node_path,
     ).items():
-        step_label_path = (*label_path, resolve_step_label(step, step_path))
-        if isinstance(step.node, Graph):
+        step_label_path = (*label_path, resolve_node_label(step, node_path))
+        if isinstance(step, GraphNode) and isinstance(step.structure, GraphStructure):
             out.extend(
                 collect_leaf_steps(
-                    step.node,
+                    step.structure,
                     label_path=step_label_path,
-                    parent_step_path=step_path,
+                    parent_node_path=node_path,
                 )
             )
             continue
-        out.append((step_path, step_label_path))
+        out.append((node_path, step_label_path))
     return tuple(out)
 
 

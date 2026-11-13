@@ -3,7 +3,7 @@
 [English](../recipe_scale_benchmark.md) | 简体中文
 
 本文保留 2026-08-28 版本的历史测量，不代表当前主线性能。后续同步 action 执行路径
-已有优化，见 [Step 开销基准](./step_overhead_benchmark.md)。原始样本不随实现更新改写。
+已有优化，见 [Node 开销基准](./step_overhead_benchmark.md)。原始样本不随实现更新改写。
 
 ## 目的
 

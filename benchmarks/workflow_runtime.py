@@ -13,7 +13,8 @@ from rivlet import (
     AsyncRunOptions,
     Execution,
     Graph,
-    Step,
+    GraphStructure,
+    Leaf,
     ThreadRunOptions,
 )
 
@@ -67,10 +68,16 @@ def main() -> None:
         def branch(depth: int, activity: Activity = activity) -> Graph:
             if depth == 0:
                 return Graph(
-                    steps=tuple(Step(activity.work) for _ in range(args.leaves))
+                    structure=GraphStructure(
+                        nodes=tuple(Leaf(activity.work) for _ in range(args.leaves))
+                    )
                 )
             return Graph(
-                steps=tuple(Step(lambda: branch(depth - 1)) for _ in range(args.width))
+                structure=GraphStructure(
+                    nodes=tuple(
+                        Leaf(lambda: branch(depth - 1)) for _ in range(args.width)
+                    )
+                )
             )
 
         graph = branch(args.depth)
@@ -80,7 +87,7 @@ def main() -> None:
             else ThreadRunOptions(workers=args.capacity)
         )
         start = time.perf_counter()
-        Execution(Step(graph)).run(options)
+        Execution(Graph(structure=graph.structure)).run(options)
         elapsed = time.perf_counter() - start
         if activity.completed != expected:
             raise RuntimeError(

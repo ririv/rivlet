@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 use action::{NativeActionHandle, ProcessAction};
-use native_graph::{NativeGraph as CoreNativeGraph, NativeStep};
+use native_graph::{NativeGraphStructure as CoreNativeGraph, NativeLeaf};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::{Arc as GraphArc, NodeId};
@@ -12,21 +12,21 @@ type ProcessDeclaration = (String, String, Vec<String>, String, HashMap<String, 
 /// Python-visible opaque ownership of one complete Rust declaration graph.
 #[pyclass(frozen, module = "rivlet._native", skip_from_py_object)]
 #[derive(Clone)]
-pub(crate) struct NativeGraph {
+pub(crate) struct NativeGraphStructure {
     graph: CoreNativeGraph,
 }
 
-impl NativeGraph {
+impl NativeGraphStructure {
     pub(crate) const fn graph(&self) -> &CoreNativeGraph {
         &self.graph
     }
 }
 
 #[pymethods]
-impl NativeGraph {
-    fn step_ids(&self) -> Vec<u64> {
+impl NativeGraphStructure {
+    fn node_ids(&self) -> Vec<u64> {
         self.graph
-            .steps()
+            .leaves()
             .iter()
             .map(|step| step.id().value())
             .collect()
@@ -36,7 +36,7 @@ impl NativeGraph {
     fn structure(&self) -> (Vec<String>, Vec<(usize, usize)>) {
         (
             self.graph
-                .steps()
+                .leaves()
                 .iter()
                 .map(|step| step.label().to_owned())
                 .collect(),
@@ -57,11 +57,11 @@ impl NativeGraph {
 pub(crate) fn native_process_graph(
     processes: Vec<ProcessDeclaration>,
     arcs: Vec<(usize, usize)>,
-) -> PyResult<NativeGraph> {
+) -> PyResult<NativeGraphStructure> {
     let steps = processes
         .into_iter()
         .map(|(label, program, arguments, cwd, environment)| {
-            NativeStep::new(
+            NativeLeaf::new(
                 label,
                 NativeActionHandle::new(ProcessAction::new(
                     program,
@@ -77,6 +77,6 @@ pub(crate) fn native_process_graph(
         .into_iter()
         .map(|(source, target)| GraphArc::new(NodeId::new(source), NodeId::new(target)));
     CoreNativeGraph::new(steps, arcs)
-        .map(|graph| NativeGraph { graph })
+        .map(|graph| NativeGraphStructure { graph })
         .map_err(|error| PyValueError::new_err(error.to_string()))
 }

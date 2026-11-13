@@ -49,9 +49,9 @@ Use a new execution for fresh static decisions. See [structural export](./graph_
 This version does not add JavaScript, Swift, or Java bindings, cross-language
 action orchestration, or browser support.
 
-Version 0.2.0 adds typed direct failure and blockage sources. Step event consumers
+Version 0.2.0 adds typed direct failure and blockage sources. Node event consumers
 must replace `event.phase` with `event.state` and `StepExecutionPhase` with
-`StepExecutionState`. Event construction uses `state_detail=`; its value also
+`NodeExecutionState`. Event construction uses `state_detail=`; its value also
 determines the read-only `state`. There are no old-name aliases. See
 [failure events](./failure_events.md) for the complete model and migration boundary.
 This release adds no checkpoint restoration, automatic retry, or event numbering.

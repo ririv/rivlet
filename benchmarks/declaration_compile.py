@@ -12,9 +12,11 @@ from typing import Literal
 from rivlet import (
     Edge,
     Graph,
+    GraphStructure,
+    Leaf,
+    Node,
     StaticCondition,
     StaticConditions,
-    Step,
     compile_graph,
 )
 
@@ -26,35 +28,39 @@ def declaration(case: Case, recipes: int, steps: int) -> Graph:
         pass
 
     if case == "flat":
-        leaves = tuple(Step(noop) for _ in range(recipes * steps))
-        return Graph(steps=leaves)
-    children: list[Step] = []
+        leaves = tuple(Leaf(noop) for _ in range(recipes * steps))
+        return Graph(structure=GraphStructure(nodes=leaves))
+    children: list[Node] = []
     for _ in range(recipes):
-        leaves = tuple(Step(noop) for _ in range(steps))
+        leaves = tuple(Leaf(noop) for _ in range(steps))
         if case == "runtime":
             leaves = (
                 leaves[0],
-                Step(
+                Leaf(
                     lambda _ctx, _result: None,
-                    condition=(lambda _result: True, leaves[0]),
+                    condition=((lambda _result: True, leaves[0])),
                 ),
                 *leaves[2:],
             )
         child = Graph(
-            steps=leaves,
-            edges=tuple(
-                edge
-                for index, (left, right) in enumerate(
-                    zip(leaves, leaves[1:], strict=False)
-                )
-                for edge in (
-                    Edge.results((left,), right)
-                    if case == "runtime" and index == 0
-                    else (Edge(left, right),)
-                )
-            ),
+            structure=GraphStructure(
+                nodes=leaves,
+                edges=tuple(
+                    (
+                        edge
+                        for index, (left, right) in enumerate(
+                            zip(leaves, leaves[1:], strict=False)
+                        )
+                        for edge in (
+                            Edge.results((left,), right)
+                            if case == "runtime" and index == 0
+                            else (Edge(left, right),)
+                        )
+                    )
+                ),
+            )
         )
-        children.append(child.step())
+        children.append(Graph(structure=child.structure))
     static = ()
     if case == "pruned":
         static = (
@@ -66,7 +72,7 @@ def declaration(case: Case, recipes: int, steps: int) -> Graph:
                 },
             ),
         )
-    return Graph(steps=tuple(children), static=static)
+    return Graph(structure=GraphStructure(nodes=tuple(children), static=static))
 
 
 def main() -> None:
@@ -79,14 +85,14 @@ def main() -> None:
         parser.error("recipes/repeats must be positive and steps must be >= 2")
     for case in ("flat", "subgraphs", "pruned", "runtime"):
         graph = declaration(case, args.recipes, args.steps)
-        compiled = compile_graph(graph, root_label="benchmark")
+        compiled = compile_graph(graph.structure, root_label="benchmark")
         samples: list[float] = []
         for _ in range(args.repeats):
             # 每轮先清理上一轮投影，避免两份投影同时存活和 GC 时机影响比较。
             del compiled
             gc.collect()
             started = perf_counter()
-            compiled = compile_graph(graph, root_label="benchmark")
+            compiled = compile_graph(graph.structure, root_label="benchmark")
             samples.append((perf_counter() - started) * 1000)
         print(
             json.dumps(

@@ -31,7 +31,7 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
         )
     index = index_declaration(
         compilation.source_graph,
-        parent=origins.parent_step_path,
+        parent=origins.parent_node_path,
         label=compilation.label,
         label_path=compilation.root_label_path,
     )
@@ -55,7 +55,7 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
         if not isinstance(origin, NodeConditionOrigin):
             edge_conditions[(str(origin.target), origin.edge_index)] = f"condition:{i}"
     disabled = {
-        edge_id(origins.parent_step_path if owner is None else owner, edge)
+        edge_id(origins.parent_node_path if owner is None else owner, edge)
         for owner, edge in origins.disabled_edges
     }
     exported_edges: list[EdgeDocument] = []

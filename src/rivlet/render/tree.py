@@ -3,12 +3,17 @@ from __future__ import annotations
 from ..compile import GraphCompilation
 from ..errors import GraphError
 from ..model import (
-    Graph,
+    Graph as GraphNode,
+)
+from ..model import (
     GraphMode,
-    Step,
-    StepPath,
-    resolve_step_label,
-    step_paths_for_mount,
+    GraphStructure,
+    Leaf,
+    Node,
+    NodeKind,
+    NodePath,
+    node_paths_for_mount,
+    resolve_node_label,
 )
 from .formatting import (
     ensure_compilation,
@@ -24,11 +29,13 @@ from .formatting import (
 
 
 def render_graph(
-    subject: Graph | GraphCompilation,
+    subject: GraphStructure | NodeKind | GraphCompilation,
     *,
     root_label: str,
     mode: GraphMode = "dynamic",
 ) -> str:
+    if isinstance(subject, (Leaf, GraphNode)):
+        subject = GraphStructure(nodes=(subject,))
     match mode:
         case "compiled":
             return render_graph_compilation(
@@ -45,17 +52,17 @@ def render_graph(
             raise GraphError(f"unsupported graph render mode: {mode}")
 
 
-def render_graph_structure(graph: Graph, *, root_label: str) -> str:
+def render_graph_structure(graph: GraphStructure, *, root_label: str) -> str:
     lines = [root_label]
-    step_paths = step_paths_for_mount(graph)
-    for index, step in enumerate(graph.steps):
+    step_paths = node_paths_for_mount(graph)
+    for index, step in enumerate(graph.nodes):
         append_tree_step(
             lines,
             graph,
             step,
-            step_path=step_paths[step],
+            node_path=step_paths[step],
             step_paths=step_paths,
-            is_last=index == len(graph.steps) - 1,
+            is_last=index == len(graph.nodes) - 1,
             prefix="",
         )
     return "\n".join(lines)
@@ -101,38 +108,38 @@ def render_graph_compilation(
 
 def append_tree_step(
     lines: list[str],
-    graph: Graph,
-    step: Step,
+    graph: GraphStructure,
+    step: Node,
     *,
-    step_path: StepPath,
-    step_paths: dict[Step, StepPath],
+    node_path: NodePath,
+    step_paths: dict[Node, NodePath],
     is_last: bool,
     prefix: str,
 ) -> None:
     branch = "└─ " if is_last else "├─ "
     child_prefix = prefix + ("   " if is_last else "│  ")
-    action = step.node
-    step_label = resolve_step_label(step, step_path)
-    if isinstance(action, Graph):
+    action = step.structure if isinstance(step, GraphNode) else step
+    step_label = resolve_node_label(step, node_path)
+    if isinstance(action, GraphStructure):
         lines.append(
             f"{prefix}{branch}{step_label} [graph]{render_static_suffix(graph, step)}{render_condition_suffix(step)}"
             f"{render_graph_after_suffix(graph, step, step_paths=step_paths)}"
             f"{render_graph_port_suffix(graph, step)}"
         )
-        child_step_paths = step_paths_for_mount(action, parent_step_path=step_path)
-        for index, child_step in enumerate(action.steps):
+        child_step_paths = node_paths_for_mount(action, parent_node_path=node_path)
+        for index, child_step in enumerate(action.nodes):
             append_tree_step(
                 lines,
                 action,
                 child_step,
-                step_path=child_step_paths[child_step],
+                node_path=child_step_paths[child_step],
                 step_paths=child_step_paths,
-                is_last=index == len(action.steps) - 1,
+                is_last=index == len(action.nodes) - 1,
                 prefix=child_prefix,
             )
         return
     lines.append(
-        f"{prefix}{branch}{render_step_label(step, step_path=step_path)}"
+        f"{prefix}{branch}{render_step_label(step, node_path=node_path)}"
         f"{render_static_suffix(graph, step)}"
         f"{render_condition_suffix(step)}"
         f"{render_graph_after_suffix(graph, step, step_paths=step_paths)}"

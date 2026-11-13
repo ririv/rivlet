@@ -7,17 +7,17 @@ Python 动作、原生动作、端口边、静态子图和动作返回的动态�
 
 ## 事件模型
 
-`StepExecutionEvent` 包含声明 `step_id`、挂载 `step_path` 和 `state_detail`。
-展示标签通过 `step_path.labels` 读取；重复挂载共享声明 ID，但不共享事件位置。只读属性
+`NodeExecutionEvent` 包含声明 `node_id`、挂载 `node_path` 和 `state_detail`。
+展示标签通过 `node_path.labels` 读取；重复挂载共享声明 ID，但不共享事件位置。只读属性
 `state` 从 `state_detail` 派生，不与原因各保存一份可能矛盾的事实。它表示这次事件
-记录的状态，不是步骤的实时状态快照。`StepExecutionStateDetail` 是生命周期状态
+记录的状态，不是步骤的实时状态快照。`NodeExecutionStateDetail` 是生命周期状态
 与具体失败／阻断原因组成的和类型。
 
 | state_detail | state | 含义 |
 | --- | --- | --- |
-| `StepExecutionState.STARTED` | STARTED | 节点已开始 |
-| `StepExecutionState.COMPLETED` | COMPLETED | 节点已完成 |
-| `StepExecutionState.SKIPPED` | SKIPPED | 节点被跳过 |
+| `NodeExecutionState.STARTED` | STARTED | 节点已开始 |
+| `NodeExecutionState.COMPLETED` | COMPLETED | 节点已完成 |
+| `NodeExecutionState.SKIPPED` | SKIPPED | 节点被跳过 |
 | `ActionFailed()` | FAILED | 当前节点的 Python 或原生动作失败 |
 | `SubgraphFailed(source)` | FAILED | 一个实际子节点失败或被阻断 |
 | `BlockedByDependency(source)` | BLOCKED | 实际需要的前置节点失败或被阻断 |
@@ -27,43 +27,43 @@ Python 动作、原生动作、端口边、静态子图和动作返回的动态�
 
 `condition` 是和类型：`NodeConditionSite(condition_index)` 表示节点自身条件，
 `EdgeConditionSite(condition_index, prerequisite)` 表示一条入边的条件。索引只属于
-当前执行 session，不是跨运行的持久条件 ID。消费者位置由事件的完整挂载 `step_path`
-给出；`source`、`prerequisite` 同样是完整挂载 `StepPath`，重复挂载不会串用另一份实例。
+当前执行 session，不是跨运行的持久条件 ID。消费者位置由事件的完整挂载 `node_path`
+给出；`source`、`prerequisite` 同样是完整挂载 `NodePath`，重复挂载不会串用另一份实例。
 
 ```python
 from rivlet import (
-    Step,
+    Graph,
     ActionFailed,
     BlockedByCondition,
     BlockedByConditionInput,
     BlockedByDependency,
     BlockedByParent,
     Execution,
-    StepExecutionEvent,
+    NodeExecutionEvent,
     SubgraphFailed,
 )
 
 
 class Events:
-    def emit(self, event: StepExecutionEvent) -> None:
+    def emit(self, event: NodeExecutionEvent) -> None:
         match event.state_detail:
             case ActionFailed():
-                print(event.step_path, "action failed")
+                print(event.node_path, "action failed")
             case SubgraphFailed(source=source):
-                print(event.step_path, "child failed:", source)
+                print(event.node_path, "child failed:", source)
             case BlockedByDependency(source=source):
-                print(event.step_path, "blocked by predecessor:", source)
+                print(event.node_path, "blocked by predecessor:", source)
             case BlockedByCondition(condition=site):
-                print(event.step_path, "predicate failed:", site)
+                print(event.node_path, "predicate failed:", site)
             case BlockedByConditionInput(condition=site, source=source):
-                print(event.step_path, "predicate input failed:", site, source)
+                print(event.node_path, "predicate input failed:", site, source)
             case BlockedByParent(source=source):
-                print(event.step_path, "parent blocked:", source)
+                print(event.node_path, "parent blocked:", source)
             case _:
-                print(event.step_path, event.state)
+                print(event.node_path, event.state)
 
 
-Execution(Step(graph), events=Events()).run()
+Execution(Graph(structure=(graph).structure), events=Events()).run()
 ```
 
 ## 直接原因
@@ -99,7 +99,7 @@ Execution(Step(graph), events=Events()).run()
 ## 构造兼容性
 
 相对 0.1.0，订阅方改用 `event.state`，替代 `event.phase`；枚举改为
-`StepExecutionState`，替代 `StepExecutionPhase`。手工构造事件时，使用
+`NodeExecutionState`，替代 `StepExecutionPhase`。手工构造事件时，使用
 `state_detail=`，替代旧的 `phase=` 构造字段，不保留旧名称别名。
 FAILED、BLOCKED 只能通过相应的和类型表达，不另外提供可能与 state 矛盾的可选原因。
 这影响事件读取、构造和 dataclass 序列化，

@@ -36,13 +36,13 @@ None，之后返回该对象。编译异常不提交半成品。重新求静态�
 - 普通值直接进入结果记录；不为同步 action 创建 asyncio 事件循环。
 - awaitable 在当前执行线程的新事件循环中完成等待；支持 coroutine function、
   同步函数返回的 coroutine，以及自定义 awaitable。
-- 返回 `Graph` 时仍执行动态子图，完成后再结束当前 Step。
+- 返回 `Graph` 时仍执行动态子图，完成后再结束当前 Node。
 
 不能只根据 `async def` 判断是否需要等待，因为普通函数也可以返回 awaitable。
 异步执行器在 `arun()` 中使用调用方已有事件循环，同步 action 通过 `asyncio.to_thread()` 执行，
-不受这条同步快速路径影响。日志作用域、异常传播、结果存储和 Step 生命周期保持不变。
+不受这条同步快速路径影响。日志作用域、异常传播、结果存储和 Node 生命周期保持不变。
 
-各项开销的分离测量见 [Step 开销基准](./step_overhead_benchmark.md)。
+各项开销的分离测量见 [Node 开销基准](./step_overhead_benchmark.md)。
 
 ## 条件执行
 
@@ -115,7 +115,9 @@ None，之后返回该对象。编译异常不提交半成品。重新求静态�
 已有事件循环时使用：
 
 ```python
-state = await Execution(Step(graph)).arun(AsyncRunOptions(concurrency=8))
+state = await Execution(Graph(structure=(graph).structure)).arun(
+    AsyncRunOptions(concurrency=8)
+)
 ```
 
 同步 `run(AsyncRunOptions(...))` 与 `arun()` 复用同一异步实现。
@@ -133,7 +135,7 @@ control 是一次性的执行作用域：一旦收到停止请求，就不会恢
 `Execution` 默认创建独享 control：
 
 ```python
-execution = Execution(root=Step(graph))
+execution = Execution(root=Graph(structure=(graph).structure))
 ```
 
 独立使用 Graph 时，不会触碰宿主的进程级停止状态。若宿主把多个顺序 Execution 视为同一
@@ -141,9 +143,11 @@ execution = Execution(root=Step(graph))
 
 ```python
 control = ExecutionControl()
-first_execution = Execution(root=Step(first_graph), execution_control=control)
+first_execution = Execution(
+    root=Graph(structure=(first_graph).structure), execution_control=control
+)
 second_execution = Execution(
-    root=Step(second_graph),
+    root=Graph(structure=(second_graph).structure),
     execution_control=control,
 )
 ```
@@ -161,9 +165,9 @@ action 可以调用 `ctx.control.stop_requested()` 或 `ctx.control.require_runn
 
 ## 步骤执行事件
 
-通过 `Execution(events=...)` 显式传入 `StepEventSink`，接收包含声明 step_id、
-挂载 step_path（标签由 .labels 读取）、
-结构化 `state_detail` 及派生 `state: StepExecutionState` 的 `StepExecutionEvent`：
+通过 `Execution(events=...)` 显式传入 `NodeEventSink`，接收包含声明 node_id、
+挂载 node_path（标签由 .labels 读取）、
+结构化 `state_detail` 及派生 `state: NodeExecutionState` 的 `NodeExecutionEvent`：
 `STARTED`、`COMPLETED`、`FAILED`、
 `BLOCKED`、`SKIPPED`。静态子图、动态子图和原生动作使用同一接口。通知发生在状态
 提交之后，组合边界的事件不依赖展示模式。回调同步、串行执行；回调失败以
@@ -172,7 +176,7 @@ action 可以调用 `ctx.control.stop_requested()` 或 `ctx.control.require_runn
 
 ## 失败传播
 
-普通 Step 失败只阻断真正依赖它的后续节点，无关分支继续执行，最终整图仍报告失败：
+普通 Node 失败只阻断真正依赖它的后续节点，无关分支继续执行，最终整图仍报告失败：
 
 ```text
 A（失败）→ B（blocked，不执行）
@@ -254,11 +258,11 @@ action 日志端口。需要日志或执行视图时，宿主必须显式传入�
 
 ## DAG 约束
 
-`Graph` 在构造阶段就会校验：
+Leaf/Graph 校验自身元信息；GraphStructure 在构造阶段校验结构：
 
 - 显式提供的 graph label 非空；省略 label 合法
-- `steps` 只包含 Step
-- 同一个 Step 对象没有重复挂载
+- GraphStructure.nodes 只包含 Leaf 或 Graph
+- 同一个 Node 对象没有重复挂载
 - edge 的 source / target 都属于当前图
 - 无环
 
@@ -269,7 +273,7 @@ Graph 将本层显式边和运行时条件读取投影为整数节点与阻塞�
 
 ## 子图语义
 
-父图中的 `Step(subgraph)` 是声明态组合节点，其内容保存在 `step.node`。
+Graph 自身是声明态复合节点，内部可复用结构保存在 graph.structure；不再用 Step 包装。
 
 Rust compiler 会转换所有声明期已知子图：
 
@@ -319,8 +323,8 @@ Rust compiler 会转换所有声明期已知子图：
 - 异步后端不会取消已经创建并开始运行的 task
 - 运行期返回图通过嵌套 compilation/session 执行
 
-不要依赖两个互不相干 Step 的隐式顺序；如果顺序有业务意义，必须通过
-`Step.wire(after=...)`、Graph edge 或 `>>` 显式声明。
+不要依赖两个互不相干 Node 的隐式顺序；如果顺序有业务意义，必须通过
+`Node.wire(after=...)`、Graph edge 或 `>>` 显式声明。
 
 ## 并发边界
 

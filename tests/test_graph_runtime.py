@@ -25,7 +25,10 @@ from rivlet import (
     GraphMode,
     GraphObservationEvent,
     GraphObservationMessages,
+    GraphStructure,
     Leaf,
+    NodePath,
+    NodeRunContext,
     Option,
     Results,
     ResultStore,
@@ -33,15 +36,12 @@ from rivlet import (
     StaticCondition,
     StaticConditionEvaluator,
     StaticConditions,
-    Step,
-    StepPath,
-    StepRunContext,
     ThreadRunOptions,
     TreeFileExecutionOutput,
     render_execution,
     render_live_execution,
 )
-from rivlet._native import NativeGraph, _native_process_graph
+from rivlet._native import NativeGraphStructure, _native_process_graph
 from rivlet.compile import compile_graph
 from rivlet.runtime.compiled import CompiledExecutionHost
 
@@ -64,7 +64,7 @@ def _process_graph(
     program: str,
     arguments: list[str],
     cwd: Path,
-) -> NativeGraph:
+) -> NativeGraphStructure:
     """Build a native process graph through the private adapter test boundary."""
 
     return _native_process_graph(
@@ -74,10 +74,13 @@ def _process_graph(
 
 
 def test_compiled_host_forwards_only_new_skip_requests() -> None:
-    first = Step(lambda: None, label="first")
-    second = Step(lambda: None, label="second")
-    compilation = compile_graph(Graph(steps=(first, second)), root_label="root")
-    state = ExecutionState(initial_skip_requests={StepPath((0,))})
+    first = Leaf(lambda: None, label=("first"))
+    second = Leaf(lambda: None, label=("second"))
+    compilation = compile_graph(
+        Graph(structure=GraphStructure(nodes=(first, second))).structure,
+        root_label="root",
+    )
+    state = ExecutionState(initial_skip_requests={NodePath((0,))})
     host = CompiledExecutionHost(
         compilation,
         state,
@@ -88,7 +91,7 @@ def test_compiled_host_forwards_only_new_skip_requests() -> None:
     assert host.skipped_nodes() == [0]
     assert host.skipped_nodes() == []
 
-    state.request_skip(StepPath((1,)))
+    state.request_skip(NodePath((1,)))
     assert host.skipped_nodes() == [1]
     assert host.skipped_nodes() == []
 
@@ -133,10 +136,10 @@ def test_execution_rejects_pre_stopped_execution_control() -> None:
     control = ExecutionControl()
     control.request_stop()
     plan = Execution(
-        root=Step(
-            Graph.from_wiring(
-                wiring=(Step(node=lambda: calls.append("run")).wire(),),
-            ),
+        root=Graph(
+            structure=Graph.from_wiring(
+                wiring=(Leaf(lambda: calls.append("run")).wire(),)
+            ).structure,
             label="root",
         ),
         execution_control=control,
@@ -152,49 +155,47 @@ def test_execution_executes_python_and_native_actions_in_one_graph(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "mixed.txt"
-    prepare = Step(lambda: output.write_text("python\n"), label="prepare")
-    native = Step(
-        _process_graph(
+    prepare = Leaf(lambda: output.write_text("python\n"), label=("prepare"))
+    native = Graph(
+        structure=_process_graph(
             label="native-process",
             program=sys.executable,
             arguments=[
                 "-c",
-                "from pathlib import Path; import sys; "
-                "p = Path(sys.argv[1]); p.write_text(p.read_text() + 'rust\\n')",
+                "from pathlib import Path; import sys; p = Path(sys.argv[1]); p.write_text(p.read_text() + 'rust\\n')",
                 str(output),
             ],
             cwd=tmp_path,
         ),
         label="native",
     )
-    verify = Step(
-        lambda: output.read_text().splitlines(),
-        label="verify",
-    )
+    verify = Leaf(lambda: output.read_text().splitlines(), label=("verify"))
     plan = Execution(
-        root=Step((prepare >> native >> verify).graph(), label="mixed"),
+        root=Graph(
+            structure=(prepare >> native >> verify).graph().structure, label="mixed"
+        ),
         execution_state=ExecutionState(results=ResultStore()),
     )
 
     state = plan.run(ThreadRunOptions(workers=2))
 
     assert plan.require_result(verify).value == ["python", "rust"]
-    assert state.completed_steps == {StepPath((0,))} | frozenset(
+    assert state.completed_steps == {NodePath((0,))} | frozenset(
         {
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
                 )
             ),
-            StepPath(
+            NodePath(
                 (
                     0,
                     1,
                 )
             ),
-            StepPath((0, 1, 0)),
-            StepPath(
+            NodePath((0, 1, 0)),
+            NodePath(
                 (
                     0,
                     2,
@@ -206,8 +207,8 @@ def test_execution_executes_python_and_native_actions_in_one_graph(
 
 def test_native_action_writes_to_bound_component_log(tmp_path: Path) -> None:
     log_path = tmp_path / "component.log"
-    native = Step(
-        _process_graph(
+    native = Graph(
+        structure=_process_graph(
             label="native-process",
             program=sys.executable,
             arguments=[
@@ -219,15 +220,10 @@ def test_native_action_writes_to_bound_component_log(tmp_path: Path) -> None:
         ),
         label="native",
     )
-    component = Graph(steps=(native,)).step(label="component")
+    component = Graph(structure=GraphStructure(nodes=(native,)), label="component")
     plan = Execution(
-        root=Step(
-            Graph(
-                steps=(component,),
-            ),
-            label="native-log",
-        ),
-        step_log_paths={component: log_path},
+        root=Graph(structure=GraphStructure(nodes=(component,)), label="native-log"),
+        node_log_paths={component: log_path},
     )
 
     plan.run()
@@ -236,19 +232,14 @@ def test_native_action_writes_to_bound_component_log(tmp_path: Path) -> None:
 
 
 def test_step_log_paths_resolve_at_construction(tmp_path: Path) -> None:
-    first = Step(lambda: None, label="first")
-    second = Step(lambda: None, label="second")
+    first = Leaf(lambda: None, label=("first"))
+    second = Leaf(lambda: None, label=("second"))
     first_log = tmp_path / "first.log"
     second_log = tmp_path / "second.log"
 
     plan = Execution(
-        root=Step(
-            Graph(
-                steps=(first, second),
-            ),
-            label="logs",
-        ),
-        step_log_paths={
+        root=Graph(structure=GraphStructure(nodes=(first, second)), label="logs"),
+        node_log_paths={
             first: first_log,
             second: second_log,
         },
@@ -256,7 +247,7 @@ def test_step_log_paths_resolve_at_construction(tmp_path: Path) -> None:
 
     assert (
         plan.execution_state.get_step_log_path(
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
@@ -267,7 +258,7 @@ def test_step_log_paths_resolve_at_construction(tmp_path: Path) -> None:
     )
     assert (
         plan.execution_state.get_step_log_path(
-            StepPath(
+            NodePath(
                 (
                     0,
                     1,
@@ -279,8 +270,8 @@ def test_step_log_paths_resolve_at_construction(tmp_path: Path) -> None:
 
 
 def test_native_action_failure_is_a_graph_action_failure(tmp_path: Path) -> None:
-    native = Step(
-        _process_graph(
+    native = Graph(
+        structure=_process_graph(
             label="native-process",
             program=sys.executable,
             arguments=["-c", "raise SystemExit(7)"],
@@ -291,11 +282,8 @@ def test_native_action_failure_is_a_graph_action_failure(tmp_path: Path) -> None
 
     with pytest.raises(RuntimeError, match=r"exited with status .*7"):
         Execution(
-            root=Step(
-                Graph(
-                    steps=(native,),
-                ),
-                label="native-failure",
+            root=Graph(
+                structure=GraphStructure(nodes=(native,)), label="native-failure"
             )
         ).run()
 
@@ -304,8 +292,8 @@ def test_async_graph_executor_runs_native_action_without_blocking_model_changes(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "async-native.txt"
-    native = Step(
-        _process_graph(
+    native = Graph(
+        structure=_process_graph(
             label="native-process",
             program=sys.executable,
             arguments=[
@@ -319,12 +307,7 @@ def test_async_graph_executor_runs_native_action_without_blocking_model_changes(
     )
 
     Execution(
-        root=Step(
-            Graph(
-                steps=(native,),
-            ),
-            label="async-native",
-        )
+        root=Graph(structure=GraphStructure(nodes=(native,)), label="async-native")
     ).run(AsyncRunOptions(concurrency=1))
 
     assert output.read_text() == "async"
@@ -332,25 +315,16 @@ def test_async_graph_executor_runs_native_action_without_blocking_model_changes(
 
 def test_execution_run_executes_nested_graphs_in_topological_order() -> None:
     calls: list[str] = []
-    configure = Step(
-        label="configure",
-        node=Leaf(action=lambda _ctx: calls.append("configure")),
-    )
-    build = Step(
-        label="build",
-        node=Leaf(action=lambda _ctx: calls.append("build")),
-    )
+    configure = Leaf(lambda _ctx: calls.append("configure"), label=("configure"))
+    build = Leaf(lambda _ctx: calls.append("build"), label=("build"))
     nested = Graph.from_wiring(
         wiring=(
             configure.wire(),
             build.wire(after=(configure,)),
         ),
     )
-    prepare = Step(
-        label="prepare",
-        node=Leaf(action=lambda _ctx: calls.append("prepare")),
-    )
-    stage = Step(label="stage", node=nested)
+    prepare = Leaf(lambda _ctx: calls.append("prepare"), label=("prepare"))
+    stage = Graph(structure=nested.structure, label="stage")
     root = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -359,32 +333,32 @@ def test_execution_run_executes_nested_graphs_in_topological_order() -> None:
     )
 
     state = Execution(
-        root=Step(root, label="root"),
+        root=Graph(structure=root.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1))
 
     assert calls == ["prepare", "configure", "build"]
     assert state.executed_steps == [
-        StepPath((0,)),
-        StepPath(
+        NodePath((0,)),
+        NodePath(
             (
                 0,
                 0,
             )
         ),
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
             )
         ),
-        StepPath((0, 1, 0)),
-        StepPath((0, 1, 1)),
+        NodePath((0, 1, 0)),
+        NodePath((0, 1, 1)),
     ]
 
 
 def test_execution_state_cannot_be_reused() -> None:
-    plan = Execution(root=Step(Graph(), label="root"))
+    plan = Execution(root=Graph(structure=GraphStructure(), label="root"))
 
     plan.run()
 
@@ -399,15 +373,10 @@ def test_step_action_preserves_default_argument_capture() -> None:
         captured.append(value)
 
     Execution(
-        root=Step(
-            Graph.from_wiring(
-                wiring=(
-                    Step(
-                        label="capture",
-                        node=_capture,
-                    ).wire(),
-                ),
-            ),
+        root=Graph(
+            structure=Graph.from_wiring(
+                wiring=(Leaf(_capture, label="capture").wire(),)
+            ).structure,
             label="root",
         ),
     ).run()
@@ -417,14 +386,8 @@ def test_step_action_preserves_default_argument_capture() -> None:
 
 def test_execution_run_skips_marked_steps() -> None:
     calls: list[str] = []
-    prepare = Step(
-        label="prepare",
-        node=Leaf(action=lambda _ctx: calls.append("prepare")),
-    )
-    build = Step(
-        label="build",
-        node=Leaf(action=lambda _ctx: calls.append("build")),
-    )
+    prepare = Leaf(lambda _ctx: calls.append("prepare"), label=("prepare"))
+    build = Leaf(lambda _ctx: calls.append("build"), label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -434,7 +397,7 @@ def test_execution_run_skips_marked_steps() -> None:
 
     state = ExecutionState(
         initial_skip_requests={
-            StepPath(
+            NodePath(
                 (
                     0,
                     1,
@@ -444,14 +407,14 @@ def test_execution_run_skips_marked_steps() -> None:
         results=ResultStore(),
     )
     Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=state,
     ).run(options=ThreadRunOptions(workers=1))
 
     assert calls == ["prepare"]
     assert state.executed_steps == [
-        StepPath((0,)),
-        StepPath(
+        NodePath((0,)),
+        NodePath(
             (
                 0,
                 0,
@@ -459,7 +422,7 @@ def test_execution_run_skips_marked_steps() -> None:
         ),
     ]
     assert state.skipped_steps == {
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
@@ -469,14 +432,14 @@ def test_execution_run_skips_marked_steps() -> None:
 
 
 def test_execution_rejects_unknown_initial_skip_request() -> None:
-    graph = Graph(steps=(Step(lambda: None, label="build"),))
+    graph = Graph(structure=GraphStructure(nodes=(Leaf(lambda: None, label="build"),)))
 
     with pytest.raises(RuntimeError, match="unknown graph skip requests: 0.1"):
         Execution(
-            root=Step(graph),
+            root=Graph(structure=graph.structure),
             execution_state=ExecutionState(
                 initial_skip_requests={
-                    StepPath(
+                    NodePath(
                         (
                             0,
                             1,
@@ -489,33 +452,28 @@ def test_execution_rejects_unknown_initial_skip_request() -> None:
 
 def test_execution_state_rejects_skip_after_step_start() -> None:
     state = ExecutionState()
-    step_path = StepPath((0,))
-    state.record_step(step_path, ("root", "build"))
+    node_path = NodePath((0,))
+    state.record_step(node_path, ("root", "build"))
 
     with pytest.raises(RuntimeError, match="cannot skip an already started step: 0"):
-        state.request_skip(step_path)
+        state.request_skip(node_path)
 
 
 def test_execution_run_uses_provided_state() -> None:
     calls: list[str] = []
     graph = Graph.from_wiring(
-        wiring=(
-            Step(
-                label="build",
-                node=Leaf(action=lambda _ctx: calls.append("build")),
-            ).wire(),
-        ),
+        wiring=(Leaf(lambda _ctx: calls.append("build"), label=("build")).wire(),),
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run()
 
     assert calls == ["build"]
     assert state.executed_steps == [
-        StepPath((0,)),
-        StepPath(
+        NodePath((0,)),
+        NodePath(
             (
                 0,
                 0,
@@ -525,11 +483,8 @@ def test_execution_run_uses_provided_state() -> None:
 
 
 def test_execution_run_records_sync_step_results() -> None:
-    prepare = Step(label="prepare", node=Leaf(action=lambda _ctx: "prepared"))
-    build = Step(
-        label="build",
-        node=Leaf(action=lambda _ctx, result: f"{result.unwrap()}:built"),
-    )
+    prepare = Leaf(lambda _ctx: "prepared", label=("prepare"))
+    build = Leaf(lambda _ctx, result: f"{result.unwrap()}:built", label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -538,14 +493,14 @@ def test_execution_run_records_sync_step_results() -> None:
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1))
 
     assert state.results is not None
     assert (
         state.results.get(
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
@@ -556,7 +511,7 @@ def test_execution_run_records_sync_step_results() -> None:
     )
     assert (
         state.results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
@@ -567,7 +522,7 @@ def test_execution_run_records_sync_step_results() -> None:
     )
     assert (
         state.results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     1,
@@ -579,27 +534,22 @@ def test_execution_run_records_sync_step_results() -> None:
 
 
 def test_execution_run_records_async_step_results() -> None:
-    async def _build(_run_ctx: StepRunContext) -> str:
+    async def _build(_run_ctx: NodeRunContext) -> str:
         return "built"
 
     graph = Graph.from_wiring(
-        wiring=(
-            Step(
-                label="build",
-                node=Leaf(action=_build),
-            ).wire(),
-        ),
+        wiring=(Leaf(_build, label=("build")).wire(),),
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1))
 
     assert state.results is not None
     assert (
         state.results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
@@ -612,22 +562,17 @@ def test_execution_run_records_async_step_results() -> None:
 
 def test_execution_run_records_none_result() -> None:
     graph = Graph.from_wiring(
-        wiring=(
-            Step(
-                label="build",
-                node=Leaf(action=lambda _ctx: None),
-            ).wire(),
-        ),
+        wiring=(Leaf(lambda _ctx: None, label=("build")).wire(),),
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run()
 
     assert state.results is not None
     assert state.results.has(
-        StepPath(
+        NodePath(
             (
                 0,
                 0,
@@ -636,7 +581,7 @@ def test_execution_run_records_none_result() -> None:
     )
     assert (
         state.results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
@@ -649,16 +594,11 @@ def test_execution_run_records_none_result() -> None:
 
 def test_execution_run_does_not_record_results_for_skipped_steps() -> None:
     graph = Graph.from_wiring(
-        wiring=(
-            Step(
-                label="build",
-                node=Leaf(action=lambda _ctx: "built"),
-            ).wire(),
-        ),
+        wiring=(Leaf(lambda _ctx: "built", label=("build")).wire(),),
     )
     state = ExecutionState(
         initial_skip_requests={
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
@@ -669,13 +609,13 @@ def test_execution_run_does_not_record_results_for_skipped_steps() -> None:
     )
 
     Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=state,
     ).run()
 
     assert state.results is not None
     assert not state.results.has(
-        StepPath(
+        NodePath(
             (
                 0,
                 0,
@@ -685,22 +625,17 @@ def test_execution_run_does_not_record_results_for_skipped_steps() -> None:
 
 
 def test_execution_run_does_not_record_results_for_failed_steps() -> None:
-    def _fail(_run_ctx: StepRunContext) -> object:
+    def _fail(_run_ctx: NodeRunContext) -> object:
         raise RuntimeError("boom")
 
     graph = Graph.from_wiring(
-        wiring=(
-            Step(
-                label="build",
-                node=Leaf(action=_fail),
-            ).wire(),
-        ),
+        wiring=(Leaf(_fail, label=("build")).wire(),),
     )
 
     state = ExecutionState(results=ResultStore())
     try:
         Execution(
-            root=Step(graph, label="root"),
+            root=Graph(structure=graph.structure, label="root"),
             execution_state=state,
         ).run()
     except RuntimeError as exc:
@@ -710,7 +645,7 @@ def test_execution_run_does_not_record_results_for_failed_steps() -> None:
 
     assert state.results is not None
     assert not state.results.has(
-        StepPath(
+        NodePath(
             (
                 0,
                 0,
@@ -723,30 +658,24 @@ def test_parallel_graph_failure_does_not_request_global_stop() -> None:
     execution_control = ExecutionControl()
     survivor_completed = threading.Event()
 
-    def _fail(_run_ctx: StepRunContext) -> object:
+    def _fail(_run_ctx: NodeRunContext) -> object:
         raise RuntimeError("boom")
 
-    def _survive(_run_ctx: StepRunContext) -> object:
+    def _survive(_run_ctx: NodeRunContext) -> object:
         assert not execution_control.stop_requested()
         survivor_completed.set()
         return None
 
     graph = Graph.from_wiring(
         wiring=(
-            Step(
-                label="fail",
-                node=Leaf(action=_fail),
-            ).wire(),
-            Step(
-                label="wait",
-                node=Leaf(action=_survive),
-            ).wire(),
+            Leaf(_fail, label=("fail")).wire(),
+            Leaf(_survive, label=("wait")).wire(),
         ),
     )
 
     with pytest.raises(RuntimeError, match="boom"):
         Execution(
-            root=Step(graph, label="root"),
+            root=Graph(structure=graph.structure, label="root"),
             execution_state=ExecutionState(results=ResultStore()),
             execution_control=execution_control,
         ).run(options=ThreadRunOptions(workers=2))
@@ -771,12 +700,12 @@ def test_async_graph_failure_waits_for_started_steps() -> None:
 
     graph = Graph.from_wiring(
         wiring=(
-            Step(label="fail", node=_fail).wire(),
-            Step(label="survive", node=_survive).wire(),
+            Leaf(_fail, label=("fail")).wire(),
+            Leaf(_survive, label=("survive")).wire(),
         ),
     )
 
-    plan = Execution(root=Step(graph, label="root"))
+    plan = Execution(root=Graph(structure=graph.structure, label="root"))
     with pytest.raises(RuntimeError, match="boom"):
         plan.run(options=AsyncRunOptions(concurrency=2))
 
@@ -802,8 +731,8 @@ def test_execution_stop_does_not_dispatch_ready_successor(
         calls.append("first")
         execution_control.request_stop()
 
-    first = Step(label="first", node=_request_stop)
-    second = Step(label="second", node=lambda: calls.append("second"))
+    first = Leaf(_request_stop, label=("first"))
+    second = Leaf(lambda: calls.append("second"), label=("second"))
     graph = Graph.from_wiring(
         wiring=(
             first.wire(),
@@ -813,7 +742,7 @@ def test_execution_stop_does_not_dispatch_ready_successor(
 
     with pytest.raises(ExecutionStopped):
         Execution(
-            root=Step(graph),
+            root=Graph(structure=graph.structure),
             execution_control=execution_control,
         ).run(options=options)
 
@@ -828,19 +757,17 @@ def test_step_failure_does_not_cancel_shared_execution_control() -> None:
         raise RuntimeError("boom")
 
     first_plan = Execution(
-        root=Step(
-            Graph.from_wiring(
-                wiring=(Step(node=_fail).wire(),),
-            ),
+        root=Graph(
+            structure=Graph.from_wiring(wiring=(Leaf(_fail).wire(),)).structure,
             label="build",
         ),
         execution_control=execution_control,
     )
     second_plan = Execution(
-        root=Step(
-            Graph.from_wiring(
-                wiring=(Step(node=lambda: calls.append("package")).wire(),),
-            ),
+        root=Graph(
+            structure=Graph.from_wiring(
+                wiring=(Leaf(lambda: calls.append("package")).wire(),)
+            ).structure,
             label="package",
         ),
         execution_control=execution_control,
@@ -854,20 +781,20 @@ def test_step_failure_does_not_cancel_shared_execution_control() -> None:
 
 
 def test_execution_reads_nested_result_by_step_ref() -> None:
-    def _nested(_run_ctx: StepRunContext) -> str:
+    def _nested(_run_ctx: NodeRunContext) -> str:
         return "nested-value"
 
-    nested_step = Step(label="nested", node=Leaf(action=_nested))
+    nested_step = Leaf(_nested, label=("nested"))
     nested = Graph.from_wiring(
         wiring=(nested_step.wire(),),
     )
-    stage = Step(label="stage", node=nested)
+    stage = Graph(structure=nested.structure, label="stage")
     root = Graph.from_wiring(
         wiring=(stage.wire(),),
     )
 
     plan = Execution(
-        root=Step(root, label="root"),
+        root=Graph(structure=root.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     )
     plan.run()
@@ -879,20 +806,17 @@ def test_execution_reads_nested_result_by_step_ref() -> None:
 def test_reused_subgraph_mounts_have_distinct_step_instances(
     mode: GraphMode,
 ) -> None:
-    shared_step = Step(
-        label="shared",
-        node=lambda run_ctx: str(run_ctx.step_path),
-    )
+    shared_step = Leaf(lambda run_ctx: str(run_ctx.node_path), label=("shared"))
     shared_graph = Graph.from_wiring(
         wiring=(shared_step.wire(),),
     )
-    first = Step(label="first", node=shared_graph)
-    second = Step(label="second", node=shared_graph)
+    first = Graph(structure=shared_graph.structure, label="first")
+    second = Graph(structure=shared_graph.structure, label="second")
     root = Graph.from_wiring(
         wiring=(first.wire(), second.wire()),
     )
     plan = Execution(
-        root=Step(root, label="root"),
+        root=Graph(structure=root.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     )
 
@@ -902,25 +826,25 @@ def test_reused_subgraph_mounts_have_distinct_step_instances(
     )
 
     assert state.results is not None
-    assert state.results.require(StepPath((0, 0, 0))).value == "0.0.0"
-    assert state.results.require(StepPath((0, 1, 0))).value == "0.1.0"
+    assert state.results.require(NodePath((0, 0, 0))).value == "0.0.0"
+    assert state.results.require(NodePath((0, 1, 0))).value == "0.1.0"
     with pytest.raises(RuntimeError, match="mounted more than once"):
         plan.require_result(shared_step)
 
 
 def test_dynamic_subgraph_captures_explicit_result_input() -> None:
-    def _prepare(_run_ctx: StepRunContext) -> str:
+    def _prepare(_run_ctx: NodeRunContext) -> str:
         return "prepared"
 
-    prepare = Step(label="prepare", node=Leaf(action=_prepare))
+    prepare = Leaf(_prepare, label=("prepare"))
 
-    def expand(_ctx: StepRunContext, result: Option[object]) -> Graph:
-        nested_step = Step(label="nested", node=lambda: f"nested:{result.unwrap()}")
+    def expand(_ctx: NodeRunContext, result: Option[object]) -> GraphStructure:
+        nested_step = Leaf(lambda: f"nested:{result.unwrap()}", label=("nested"))
         return Graph.from_wiring(
             (nested_step.wire(),),
-        )
+        ).structure
 
-    stage = Step(label="stage", node=expand)
+    stage = Leaf(expand, label=("stage"))
     root = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -929,26 +853,20 @@ def test_dynamic_subgraph_captures_explicit_result_input() -> None:
     )
 
     state = Execution(
-        root=Step(root, label="root"),
+        root=Graph(structure=root.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run()
 
     assert state.results is not None
-    assert state.results.require(StepPath((0, 1, 0))).value == "nested:prepared"
+    assert state.results.require(NodePath((0, 1, 0))).value == "nested:prepared"
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_runtime_condition_true_waits_for_source_step(mode: GraphMode) -> None:
-    probe = Step(label="probe", node=Leaf(action=lambda _ctx: "miss"))
-    setup = Step(label="setup", node=Leaf(action=lambda _ctx: "setup"))
-    configure = Step(
-        label="configure",
-        node=Leaf(action=lambda _ctx: "configured"),
-    )
-    build = Step(
-        label="build",
-        node=Leaf(action=lambda _ctx, result: f"{result.unwrap()}:built"),
-    )
+    probe = Leaf(lambda _ctx: "miss", label=("probe"))
+    setup = Leaf(lambda _ctx: "setup", label=("setup"))
+    configure = Leaf(lambda _ctx: "configured", label=("configure"))
+    build = Leaf(lambda _ctx, result: f"{result.unwrap()}:built", label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -957,7 +875,7 @@ def test_runtime_condition_true_waits_for_source_step(mode: GraphMode) -> None:
             build.wire(
                 after=(
                     ConditionalPrerequisite(
-                        step=configure,
+                        node=configure,
                         condition=(
                             _edge_condition_764 := (
                                 lambda result: result.unwrap() == "miss",
@@ -972,14 +890,14 @@ def test_runtime_condition_true_waits_for_source_step(mode: GraphMode) -> None:
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1), mode=mode)
 
     assert state.results is not None
     assert (
         state.results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     3,
@@ -989,14 +907,14 @@ def test_runtime_condition_true_waits_for_source_step(mode: GraphMode) -> None:
         == "miss:built"
     )
     assert state.executed_steps.index(
-        StepPath(
+        NodePath(
             (
                 0,
                 2,
             )
         )
     ) < state.executed_steps.index(
-        StepPath(
+        NodePath(
             (
                 0,
                 3,
@@ -1014,13 +932,13 @@ def test_runtime_step_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
         evaluations += 1
         return True
 
-    probe = Step(label="probe", node=lambda: "ready")
-    first = Step(label="first", node=lambda: None)
-    second = Step(label="second", node=lambda: None)
-    target = Step(
-        label="target",
+    probe = Leaf(lambda: "ready", label=("probe"))
+    first = Leaf(lambda: None, label=("first"))
+    second = Leaf(lambda: None, label=("second"))
+    target = Leaf(
+        lambda _ctx, *_inputs: None,
+        label=("target"),
         condition=(_target_condition := (_condition, probe)),
-        node=lambda _ctx, *_inputs: None,
     )
     graph = Graph.from_wiring(
         wiring=(
@@ -1037,7 +955,7 @@ def test_runtime_step_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
         ),
     )
 
-    Execution(root=Step(graph, label="root")).run(
+    Execution(root=Graph(structure=graph.structure, label="root")).run(
         options=ThreadRunOptions(workers=1),
         mode=mode,
     )
@@ -1054,11 +972,11 @@ def test_runtime_edge_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
         evaluations += 1
         return True
 
-    probe = Step(label="probe", node=lambda: None)
-    first = Step(label="first", node=lambda: None)
-    second = Step(label="second", node=lambda: None)
-    source = Step(label="source", node=lambda: None)
-    target = Step(label="target", node=lambda _ctx, *_inputs: None)
+    probe = Leaf(lambda: None, label=("probe"))
+    first = Leaf(lambda: None, label=("first"))
+    second = Leaf(lambda: None, label=("second"))
+    source = Leaf(lambda: None, label=("source"))
+    target = Leaf(lambda _ctx, *_inputs: None, label=("target"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1070,7 +988,7 @@ def test_runtime_edge_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
                     first,
                     second,
                     ConditionalPrerequisite(
-                        step=source,
+                        node=source,
                         condition=(_edge_condition_848 := (_condition, probe)),
                     ),
                     Results(probe),
@@ -1079,7 +997,7 @@ def test_runtime_edge_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
         ),
     )
 
-    Execution(root=Step(graph, label="root")).run(
+    Execution(root=Graph(structure=graph.structure, label="root")).run(
         options=ThreadRunOptions(workers=1),
         mode=mode,
     )
@@ -1096,19 +1014,13 @@ def test_execution_render_does_not_reevaluate_runtime_condition() -> None:
         return True
 
     graph = Graph.from_wiring(
-        wiring=(
-            Step(
-                label="target",
-                condition=_condition,
-                node=lambda: None,
-            ).wire(),
-        ),
+        wiring=(Leaf(lambda: None, label=("target"), condition=(_condition)).wire(),),
     )
-    plan = Execution(root=Step(graph, label="root"))
+    plan = Execution(root=Graph(structure=graph.structure, label="root"))
 
     state = plan.run()
     rendered = render_execution(
-        Step(graph, label="root"),
+        Graph(structure=graph.structure, label="root"),
         state,
     )
 
@@ -1120,16 +1032,10 @@ def test_execution_render_does_not_reevaluate_runtime_condition() -> None:
 def test_runtime_condition_false_does_not_require_source_result(
     mode: GraphMode,
 ) -> None:
-    probe = Step(label="probe", node=Leaf(action=lambda _ctx: "hit"))
-    setup = Step(label="setup", node=Leaf(action=lambda _ctx: "setup"))
-    configure = Step(
-        label="configure",
-        node=Leaf(action=lambda _ctx: "configured"),
-    )
-    build = Step(
-        label="build",
-        node=Leaf(action=lambda _ctx, result: result.unwrap()),
-    )
+    probe = Leaf(lambda _ctx: "hit", label=("probe"))
+    setup = Leaf(lambda _ctx: "setup", label=("setup"))
+    configure = Leaf(lambda _ctx: "configured", label=("configure"))
+    build = Leaf(lambda _ctx, result: result.unwrap(), label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1138,7 +1044,7 @@ def test_runtime_condition_false_does_not_require_source_result(
             build.wire(
                 after=(
                     ConditionalPrerequisite(
-                        step=configure,
+                        node=configure,
                         condition=(
                             _edge_condition_917 := (
                                 lambda result: result.unwrap() == "miss",
@@ -1153,14 +1059,14 @@ def test_runtime_condition_false_does_not_require_source_result(
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1), mode=mode)
 
     assert state.results is not None
     assert (
         state.results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     3,
@@ -1180,13 +1086,13 @@ def test_runtime_condition_false_does_not_wait_for_source(mode: GraphMode) -> No
             raise AssertionError("build incorrectly waited for configure")
         return "configured"
 
-    def _build(_ctx: StepRunContext, _result: Option[object]) -> str:
+    def _build(_ctx: NodeRunContext, _result: Option[object]) -> str:
         build_started.set()
         return "built"
 
-    probe = Step(label="probe", node=lambda: "hit")
-    configure = Step(label="configure", node=_configure)
-    build = Step(label="build", node=_build)
+    probe = Leaf(lambda: "hit", label=("probe"))
+    configure = Leaf(_configure, label=("configure"))
+    build = Leaf(_build, label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1194,7 +1100,7 @@ def test_runtime_condition_false_does_not_wait_for_source(mode: GraphMode) -> No
             build.wire(
                 after=(
                     ConditionalPrerequisite(
-                        step=configure,
+                        node=configure,
                         condition=(
                             _edge_condition_961 := (
                                 lambda result: result.unwrap() == "miss",
@@ -1209,7 +1115,7 @@ def test_runtime_condition_false_does_not_wait_for_source(mode: GraphMode) -> No
     )
 
     Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(
         options=ThreadRunOptions(workers=3),
@@ -1233,23 +1139,23 @@ def test_parent_waits_for_all_steps_in_conditionally_connected_child(
         if not source_finished.is_set():
             raise AssertionError("parent completed before all child steps")
 
-    source = Step(label="source", node=_source)
-    target = Step(label="target", node=lambda: None)
+    source = Leaf(_source, label=("source"))
+    target = Leaf(lambda: None, label=("target"))
     child = Graph.from_wiring(
         wiring=(
             source.wire(),
             target.wire(
                 after=(
                     ConditionalPrerequisite(
-                        step=source,
+                        node=source,
                         condition=lambda: False,
                     ),
                 )
             ),
         ),
     )
-    child_step = Step(label="child", node=child)
-    package = Step(label="package", node=_package)
+    child_step = Graph(structure=child.structure, label="child")
+    package = Leaf(_package, label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             child_step.wire(),
@@ -1257,7 +1163,7 @@ def test_parent_waits_for_all_steps_in_conditionally_connected_child(
         ),
     )
 
-    Execution(root=Step(graph, label="root")).run(
+    Execution(root=Graph(structure=graph.structure, label="root")).run(
         options=ThreadRunOptions(workers=4),
         mode=mode,
     )
@@ -1277,23 +1183,23 @@ def test_parent_prerequisite_blocks_all_conditionally_connected_child_steps(
         if not prepare_finished.is_set():
             raise AssertionError("child step bypassed parent prerequisite")
 
-    source = Step(label="source", node=lambda: None)
-    target = Step(label="target", node=_target)
+    source = Leaf(lambda: None, label=("source"))
+    target = Leaf(_target, label=("target"))
     child = Graph.from_wiring(
         wiring=(
             source.wire(),
             target.wire(
                 after=(
                     ConditionalPrerequisite(
-                        step=source,
+                        node=source,
                         condition=lambda: False,
                     ),
                 )
             ),
         ),
     )
-    prepare = Step(label="prepare", node=_prepare)
-    child_step = Step(label="child", node=child)
+    prepare = Leaf(_prepare, label=("prepare"))
+    child_step = Graph(structure=child.structure, label="child")
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -1301,7 +1207,7 @@ def test_parent_prerequisite_blocks_all_conditionally_connected_child_steps(
         ),
     )
 
-    Execution(root=Step(graph, label="root")).run(
+    Execution(root=Graph(structure=graph.structure, label="root")).run(
         options=ThreadRunOptions(workers=4),
         mode=mode,
     )
@@ -1327,18 +1233,18 @@ def test_empty_child_graph_preserves_parent_dependency_boundary(
     timer = threading.Timer(0.05, release_prepare.set)
     timer.start()
     try:
-        prepare = Step(label="prepare", node=_prepare)
-        empty_stage = Step(label="empty_stage", node=Graph())
-        package = Step(label="package", node=_package)
+        prepare = Leaf(_prepare, label=("prepare"))
+        empty_stage = Graph(structure=GraphStructure(), label="empty_stage")
+        package = Leaf(_package, label=("package"))
         Execution(
-            root=Step(
-                Graph.from_wiring(
+            root=Graph(
+                structure=Graph.from_wiring(
                     wiring=(
                         prepare.wire(),
                         empty_stage.wire(after=(prepare,)),
                         package.wire(after=(empty_stage,)),
-                    ),
-                ),
+                    )
+                ).structure,
                 label="root",
             ),
         ).run(options=ThreadRunOptions(workers=2), mode=mode)
@@ -1359,9 +1265,9 @@ def test_compiled_skipped_composite_preserves_prerequisite_boundary() -> None:
         if not prepare_completed.is_set():
             raise AssertionError("skipped composite bypassed its prerequisite")
 
-    prepare = Step(label="prepare", node=_prepare)
-    stage = Step(label="stage", node=Graph())
-    package = Step(label="package", node=_package)
+    prepare = Leaf(_prepare, label=("prepare"))
+    stage = Graph(structure=GraphStructure(), label="stage")
+    package = Leaf(_package, label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -1370,10 +1276,10 @@ def test_compiled_skipped_composite_preserves_prerequisite_boundary() -> None:
         ),
     )
     Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(
             initial_skip_requests={
-                StepPath(
+                NodePath(
                     (
                         0,
                         1,
@@ -1401,13 +1307,9 @@ def test_parent_waits_for_all_steps_in_child_with_disabled_step(
         if not source_finished.is_set():
             raise AssertionError("parent completed before disabled-step child")
 
-    source = Step(label="source", node=_source)
-    disabled = Step(
-        label="disabled",
-        condition=lambda: False,
-        node=lambda: None,
-    )
-    target = Step(label="target", node=lambda: None)
+    source = Leaf(_source, label=("source"))
+    disabled = Leaf(lambda: None, label=("disabled"), condition=(lambda: False))
+    target = Leaf(lambda: None, label=("target"))
     child = Graph.from_wiring(
         wiring=(
             source.wire(),
@@ -1415,8 +1317,8 @@ def test_parent_waits_for_all_steps_in_child_with_disabled_step(
             target.wire(after=(disabled,)),
         ),
     )
-    child_step = Step(label="child", node=child)
-    package = Step(label="package", node=_package)
+    child_step = Graph(structure=child.structure, label="child")
+    package = Leaf(_package, label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             child_step.wire(),
@@ -1424,7 +1326,7 @@ def test_parent_waits_for_all_steps_in_child_with_disabled_step(
         ),
     )
 
-    Execution(root=Step(graph, label="root")).run(
+    Execution(root=Graph(structure=graph.structure, label="root")).run(
         options=ThreadRunOptions(workers=4),
         mode=mode,
     )
@@ -1449,21 +1351,21 @@ def test_child_graph_observation_is_preserved(
             events.append((event.graph_label, event.graph_label_path, event.phase))
 
     child = Graph.from_wiring(
-        wiring=(Step(label="run", node=lambda: None).wire(),),
+        wiring=(Leaf(lambda: None, label=("run")).wire(),),
         observation=GraphObservationMessages(
             before="before child",
             after_success="after child",
         ),
     )
     graph = Graph.from_wiring(
-        wiring=(Step(label="child", node=child).wire(),),
+        wiring=(Graph(structure=child.structure, label="child").wire(),),
         observation=GraphObservationMessages(
             before="before root",
             after_success="after root",
         ),
     )
 
-    Execution(root=Step(graph, label="root")).run(
+    Execution(root=Graph(structure=graph.structure, label="root")).run(
         options=replace(options, observer=_Observer()),
         mode=mode,
     )
@@ -1480,24 +1382,22 @@ def test_serial_executor_runs_compiled_composite() -> None:
     calls: list[str] = []
     graph = Graph.from_wiring(
         wiring=(
-            Step(
+            Graph(
+                structure=Graph.from_wiring(
+                    wiring=(Leaf(lambda: calls.append("run"), label="run").wire(),)
+                ).structure,
                 label="stage",
-                node=Graph.from_wiring(
-                    wiring=(
-                        Step(label="run", node=lambda: calls.append("run")).wire(),
-                    ),
-                ),
             ).wire(),
         ),
     )
     state = SerialGraphExecutor().execute(
-        Execution(root=Step(graph, label="root")).compile()
+        Execution(root=Graph(structure=graph.structure, label="root")).compile()
     )
 
     assert calls == ["run"]
-    assert state.executed_steps == [StepPath((0, 0, 0))]
-    assert state.completed_composites == {StepPath((0,))} | {
-        StepPath(
+    assert state.executed_steps == [NodePath((0, 0, 0))]
+    assert state.completed_composites == {NodePath((0,))} | {
+        NodePath(
             (
                 0,
                 0,
@@ -1508,19 +1408,14 @@ def test_serial_executor_runs_compiled_composite() -> None:
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
-    prepare = Step(label="prepare", node=lambda: "prepared")
+    prepare = Leaf(lambda: "prepared", label=("prepare"))
 
-    def _make_child(_ctx: StepRunContext, result: Option[object]) -> Graph:
+    def _make_child(_ctx: NodeRunContext, result: Option[object]) -> GraphStructure:
         return Graph.from_wiring(
-            wiring=(
-                Step(
-                    label="consume",
-                    node=lambda: result.unwrap(),
-                ).wire(),
-            ),
-        )
+            wiring=(Leaf(lambda: result.unwrap(), label=("consume")).wire(),),
+        ).structure
 
-    stage = Step(label="stage", node=_make_child)
+    stage = Leaf(_make_child, label=("stage"))
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -1529,7 +1424,7 @@ def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(
         options=ThreadRunOptions(workers=1),
@@ -1537,29 +1432,31 @@ def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
     )
 
     assert state.results is not None
-    assert state.results.require(StepPath((0, 1, 0))).value == "prepared"
+    assert state.results.require(NodePath((0, 1, 0))).value == "prepared"
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_live_render_uses_runtime_path_for_action_returned_graph(
     mode: GraphMode,
 ) -> None:
-    stage = Step(
-        label="stage",
-        node=lambda: Graph.from_wiring(
-            wiring=(Step(label="consume", node=lambda: None).wire(),),
-        ),
+    stage = Leaf(
+        lambda: Graph.from_wiring(
+            wiring=(Leaf(lambda: None, label=("consume")).wire(),),
+        ).structure,
+        label=("stage"),
     )
     graph = Graph.from_wiring(wiring=(stage.wire(),))
     state = ExecutionState(results=ResultStore())
 
-    Execution(root=Step(graph, label="root"), execution_state=state).run(
+    Execution(
+        root=Graph(structure=graph.structure, label="root"), execution_state=state
+    ).run(
         options=ThreadRunOptions(workers=1),
         mode=mode,
     )
 
     assert render_live_execution(
-        Step(graph, label="root"),
+        Graph(structure=graph.structure, label="root"),
         state,
     ) == ("graph=root mode=dynamic running=idle last=root/stage/consume remaining=0")
 
@@ -1573,12 +1470,12 @@ def test_async_runtime_condition_false_does_not_wait_for_source(
     async def _configure() -> None:
         await asyncio.wait_for(build_started.wait(), timeout=1)
 
-    async def _build(_ctx: StepRunContext, _result: Option[object]) -> None:
+    async def _build(_ctx: NodeRunContext, _result: Option[object]) -> None:
         build_started.set()
 
-    probe = Step(label="probe", node=lambda: "hit")
-    configure = Step(label="configure", node=_configure)
-    build = Step(label="build", node=_build)
+    probe = Leaf(lambda: "hit", label=("probe"))
+    configure = Leaf(_configure, label=("configure"))
+    build = Leaf(_build, label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1586,7 +1483,7 @@ def test_async_runtime_condition_false_does_not_wait_for_source(
             build.wire(
                 after=(
                     ConditionalPrerequisite(
-                        step=configure,
+                        node=configure,
                         condition=(
                             _edge_condition_1343 := (
                                 lambda result: result.unwrap() == "miss",
@@ -1601,7 +1498,7 @@ def test_async_runtime_condition_false_does_not_wait_for_source(
     )
 
     Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(
         options=AsyncRunOptions(concurrency=3),
@@ -1626,12 +1523,12 @@ def test_async_executor_runs_independent_sync_steps_concurrently(
 
     graph = Graph.from_wiring(
         wiring=(
-            Step(label="wait", node=_wait_for_peer).wire(),
-            Step(label="release", node=_release_peer).wire(),
+            Leaf(_wait_for_peer, label=("wait")).wire(),
+            Leaf(_release_peer, label=("release")).wire(),
         ),
     )
 
-    Execution(root=Step(graph, label="root")).run(
+    Execution(root=Graph(structure=graph.structure, label="root")).run(
         options=AsyncRunOptions(concurrency=2),
         mode=mode,
     )
@@ -1656,26 +1553,24 @@ def test_returned_graph_inherits_step_log_path(
     observed_paths: list[Path | None] = []
     action_log = _RecordingActionLog()
 
-    def _make_child() -> Graph:
+    def _make_child() -> GraphStructure:
         return Graph.from_wiring(
             wiring=(
-                Step(
-                    label="write",
-                    node=lambda: observed_paths.append(action_log.active_path),
+                Leaf(
+                    lambda: observed_paths.append(action_log.active_path),
+                    label=("write"),
                 ).wire(),
             ),
-        )
+        ).structure
 
-    component = Step(label="component", node=_make_child)
+    component = Leaf(_make_child, label=("component"))
     plan = Execution(
-        root=Step(
-            Graph.from_wiring(
-                wiring=(component.wire(),),
-            ),
+        root=Graph(
+            structure=Graph.from_wiring(wiring=(component.wire(),)).structure,
             label="root",
         ),
         action_log=action_log,
-        step_log_paths={component: step_log_path},
+        node_log_paths={component: step_log_path},
     )
     plan.run(options=options, mode=mode)
 
@@ -1690,26 +1585,23 @@ def test_static_component_graph_inherits_bound_log_path(
     step_log_path = tmp_path / "component.log"
     observed_paths: list[Path | None] = []
     action_log = _RecordingActionLog()
-    component = Step(
-        label="component",
-        node=Graph.from_wiring(
+    component = Graph(
+        structure=Graph.from_wiring(
             wiring=(
-                Step(
-                    label="build",
-                    node=lambda: observed_paths.append(action_log.active_path),
+                Leaf(
+                    lambda: observed_paths.append(action_log.active_path), label="build"
                 ).wire(),
-            ),
-        ),
+            )
+        ).structure,
+        label="component",
     )
     plan = Execution(
-        root=Step(
-            Graph.from_wiring(
-                wiring=(component.wire(),),
-            ),
+        root=Graph(
+            structure=Graph.from_wiring(wiring=(component.wire(),)).structure,
             label="root",
         ),
         action_log=action_log,
-        step_log_paths={component: step_log_path},
+        node_log_paths={component: step_log_path},
     )
 
     plan.run(mode=mode)
@@ -1719,19 +1611,14 @@ def test_static_component_graph_inherits_bound_log_path(
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_run_freezes_static_conditions_before_execution(mode: GraphMode) -> None:
-    prepare = Step(label="prepare", node=Leaf(action=lambda _ctx: "prepare"))
-    android_shim = Step(
-        label="android_shim",
-        node=Leaf(action=lambda _ctx: "shim"),
-    )
-    archive = Step(
-        label="archive",
-        node=Leaf(
-            action=lambda _ctx, prepared, shim: (
-                prepared.unwrap(),
-                shim.unwrap(),
-            )
+    prepare = Leaf(lambda _ctx: "prepare", label=("prepare"))
+    android_shim = Leaf(lambda _ctx: "shim", label=("android_shim"))
+    archive = Leaf(
+        lambda _ctx, prepared, shim: (
+            prepared.unwrap(),
+            shim.unwrap(),
         ),
+        label=("archive"),
     )
     graph = Graph.from_wiring(
         wiring=(
@@ -1746,13 +1633,13 @@ def test_run_freezes_static_conditions_before_execution(mode: GraphMode) -> None
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1), mode=mode)
 
     assert state.results is not None
     assert state.results.require(
-        StepPath(
+        NodePath(
             (
                 0,
                 2,
@@ -1765,18 +1652,15 @@ def test_run_freezes_static_conditions_before_execution(mode: GraphMode) -> None
 def test_step_when_false_skips_step_and_allows_downstream_continue(
     mode: GraphMode,
 ) -> None:
-    probe = Step(label="probe", node=Leaf(action=lambda _ctx: False))
-    optional = Step(
-        label="optional",
+    probe = Leaf(lambda _ctx: False, label=("probe"))
+    optional = Leaf(
+        lambda _ctx, *_inputs: "optional",
+        label=("optional"),
         condition=(
             _optional_condition := (lambda result: bool(result.unwrap()), probe)
         ),
-        node=Leaf(action=lambda _ctx, *_inputs: "optional"),
     )
-    package = Step(
-        label="package",
-        node=Leaf(action=lambda _ctx: "packaged"),
-    )
+    package = Leaf(lambda _ctx: "packaged", label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1786,18 +1670,18 @@ def test_step_when_false_skips_step_and_allows_downstream_continue(
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1), mode=mode)
 
-    assert state.executed_steps == ([StepPath((0,))] if mode == "dynamic" else []) + [
-        StepPath(
+    assert state.executed_steps == ([NodePath((0,))] if mode == "dynamic" else []) + [
+        NodePath(
             (
                 0,
                 0,
             )
         ),
-        StepPath(
+        NodePath(
             (
                 0,
                 2,
@@ -1806,7 +1690,7 @@ def test_step_when_false_skips_step_and_allows_downstream_continue(
     ]
     assert state.results is not None
     assert not state.results.has(
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
@@ -1815,7 +1699,7 @@ def test_step_when_false_skips_step_and_allows_downstream_continue(
     )
     assert (
         state.results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     2,
@@ -1828,19 +1712,14 @@ def test_step_when_false_skips_step_and_allows_downstream_continue(
 
 def test_dynamic_step_when_false_skips_graph_step() -> None:
     nested_calls: list[str] = []
-    probe = Step(label="probe", node=Leaf(action=lambda _ctx: False))
-    configure = Step(
-        label="configure",
-        node=Leaf(action=lambda _ctx: nested_calls.append("configure")),
-    )
-    stage = Step(
+    probe = Leaf(lambda _ctx: False, label=("probe"))
+    configure = Leaf(lambda _ctx: nested_calls.append("configure"), label=("configure"))
+    stage = Graph(
+        structure=Graph.from_wiring(wiring=(configure.wire(),)).structure,
         label="stage",
         condition=(_stage_condition := (lambda result: bool(result.unwrap()), probe)),
-        node=Graph.from_wiring(
-            wiring=(configure.wire(),),
-        ),
     )
-    package = Step(label="package", node=Leaf(action=lambda _ctx: "packaged"))
+    package = Leaf(lambda _ctx: "packaged", label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1852,20 +1731,20 @@ def test_dynamic_step_when_false_skips_graph_step() -> None:
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1))
 
     assert nested_calls == []
     assert state.executed_steps == [
-        StepPath((0,)),
-        StepPath(
+        NodePath((0,)),
+        NodePath(
             (
                 0,
                 0,
             )
         ),
-        StepPath(
+        NodePath(
             (
                 0,
                 2,
@@ -1873,10 +1752,10 @@ def test_dynamic_step_when_false_skips_graph_step() -> None:
         ),
     ]
     assert state.results is not None
-    assert not state.results.has(StepPath((0, 1, 0)))
+    assert not state.results.has(NodePath((0, 1, 0)))
     assert (
         state.results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     2,
@@ -1888,14 +1767,14 @@ def test_dynamic_step_when_false_skips_graph_step() -> None:
 
 
 def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
-    probe = Step(label="probe", node=Leaf(action=lambda _ctx: False))
-    configure = Step(label="configure", node=Leaf(action=lambda _ctx: "cfg"))
-    stage = Step(
+    probe = Leaf(lambda _ctx: False, label=("probe"))
+    configure = Leaf(lambda _ctx: "cfg", label=("configure"))
+    stage = Graph(
+        structure=Graph.from_wiring(wiring=(configure.wire(),)).structure,
         label="stage",
         condition=(_stage_condition := (lambda result: bool(result.unwrap()), probe)),
-        node=Graph.from_wiring(wiring=(configure.wire(),)),
     )
-    package = Step(label="package", node=Leaf(action=lambda _ctx: "packaged"))
+    package = Leaf(lambda _ctx: "packaged", label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1907,18 +1786,18 @@ def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1), mode="compiled")
 
     assert state.executed_steps == [
-        StepPath(
+        NodePath(
             (
                 0,
                 0,
             )
         ),
-        StepPath(
+        NodePath(
             (
                 0,
                 2,
@@ -1926,10 +1805,10 @@ def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
         ),
     ]
     assert state.results is not None
-    assert not state.results.has(StepPath((0, 1, 0)))
+    assert not state.results.has(NodePath((0, 1, 0)))
     assert (
         state.results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     2,
@@ -1941,15 +1820,12 @@ def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
 
 
 def test_compiled_runtime_when_true_activates_composite() -> None:
-    probe = Step(label="probe", node=Leaf(action=lambda _ctx: "prepared"))
-    configure = Step(
-        label="configure",
-        node=Leaf(action=lambda: "configured"),
-    )
-    stage = Step(
+    probe = Leaf(lambda _ctx: "prepared", label=("probe"))
+    configure = Leaf(lambda: "configured", label=("configure"))
+    stage = Graph(
+        structure=Graph.from_wiring(wiring=(configure.wire(),)).structure,
         label="stage",
         condition=(_stage_condition := (lambda result: bool(result.unwrap()), probe)),
-        node=Graph.from_wiring(wiring=(configure.wire(),)),
     )
     graph = Graph.from_wiring(
         wiring=(
@@ -1961,29 +1837,29 @@ def test_compiled_runtime_when_true_activates_composite() -> None:
     )
 
     state = Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1), mode="compiled")
 
     assert state.executed_steps == [
-        StepPath(
+        NodePath(
             (
                 0,
                 0,
             )
         ),
-        StepPath((0, 1, 0)),
+        NodePath((0, 1, 0)),
     ]
-    assert state.entered_composites == {StepPath((0,))} | {
-        StepPath(
+    assert state.entered_composites == {NodePath((0,))} | {
+        NodePath(
             (
                 0,
                 1,
             )
         )
     }
-    assert state.completed_composites == {StepPath((0,))} | {
-        StepPath(
+    assert state.completed_composites == {NodePath((0,))} | {
+        NodePath(
             (
                 0,
                 1,
@@ -1991,20 +1867,20 @@ def test_compiled_runtime_when_true_activates_composite() -> None:
         )
     }
     assert state.results is not None
-    assert state.results.require(StepPath((0, 1, 0))).value == "configured"
+    assert state.results.require(NodePath((0, 1, 0))).value == "configured"
 
 
 def test_execution_run_logs_step_skip_by_condition(
     caplog: LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.DEBUG, logger="rivlet.runtime.compiled")
-    probe = Step(label="probe", node=Leaf(action=lambda _ctx: True))
-    build = Step(
-        label="build",
+    probe = Leaf(lambda _ctx: True, label=("probe"))
+    build = Leaf(
+        lambda _ctx, *_inputs: "built",
+        label=("build"),
         condition=(
             _build_condition := (lambda result: not bool(result.unwrap()), probe)
         ),
-        node=Leaf(action=lambda _ctx, *_inputs: "built"),
     )
     graph = Graph.from_wiring(
         wiring=(
@@ -2014,7 +1890,7 @@ def test_execution_run_logs_step_skip_by_condition(
     )
 
     Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     ).run(options=ThreadRunOptions(workers=1))
 
@@ -2024,13 +1900,13 @@ def test_execution_run_logs_step_skip_by_condition(
 def test_execution_run_writes_execution_render_to_run_log_dir(
     tmp_path: Path,
 ) -> None:
-    probe = Step(label="probe", node=Leaf(action=lambda _ctx: True))
-    build = Step(
-        label="build",
+    probe = Leaf(lambda _ctx: True, label=("probe"))
+    build = Leaf(
+        lambda _ctx, *_inputs: None,
+        label=("build"),
         condition=(
             _build_condition := (lambda result: not bool(result.unwrap()), probe)
         ),
-        node=Leaf(action=lambda _ctx, *_inputs: None),
     )
     graph = Graph.from_wiring(
         wiring=(
@@ -2040,7 +1916,7 @@ def test_execution_run_writes_execution_render_to_run_log_dir(
     )
 
     Execution(
-        root=Step(graph, label="root"),
+        root=Graph(structure=graph.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
         execution_output=TreeFileExecutionOutput(tmp_path),
     ).run(options=ThreadRunOptions(workers=1))

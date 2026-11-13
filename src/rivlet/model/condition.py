@@ -10,7 +10,7 @@ from ..errors import GraphError
 
 if TYPE_CHECKING:
     from . import ConditionInput
-    from .step import Step
+    from .node import Node
 
 
 # 参数按声明顺序接收 Option[object]，不按类型标注猜测调用约定。
@@ -22,7 +22,7 @@ class _RuntimeCondition:
     """Normalized predicate and its ordered, graph-local result sources."""
 
     when: ConditionalEdgePredicate
-    inputs: tuple[Step, ...]
+    inputs: tuple[Node, ...]
 
     def as_input(self) -> ConditionInput:
         if not self.inputs:
@@ -35,11 +35,12 @@ def _normalize_condition(condition: ConditionInput) -> _RuntimeCondition:
         return _RuntimeCondition(when=condition, inputs=())
     if not isinstance(condition, tuple) or len(condition) < 2:
         raise GraphError("condition must be a predicate or (predicate, step, ...)")
-    from .step import Step
+    from .graph import Graph
+    from .leaf import Leaf
 
     predicate, *inputs = condition
     if not callable(predicate) or any(
-        not isinstance(source, Step) for source in inputs
+        not isinstance(source, (Leaf, Graph)) for source in inputs
     ):
         raise GraphError("condition must be a predicate or (predicate, step, ...)")
     return _RuntimeCondition(when=predicate, inputs=tuple(inputs))

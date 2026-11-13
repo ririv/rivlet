@@ -5,13 +5,12 @@
 `rivlet` 是一个显式、可组合的 Python DAG 声明与执行库。Python 导入入口为：
 
 ```python
-from rivlet import Graph, Execution, Step
 ```
 
 库本身提供：
 
 - 纯有向拓扑与 DAG 校验
-- Step、Graph 和声明期接线
+- Node、Graph 和声明期接线
 - `>>` 串行与 `|` 并列组合
 - 构图前要求恰好一个结果的静态选择
 - 保留在图声明中、编译时要求唯一成立的静态选择
@@ -23,8 +22,8 @@ from rivlet import Graph, Execution, Step
 
 ## 设计目标
 
-- `Graph` 只表达声明结构，单次执行状态由 `Execution` 持有
-- 声明期直接引用 Step 对象，挂载后才分配内部 `StepPath`
+- Leaf/Graph 是实际节点；GraphStructure 保存可复用结构，Execution 持有单次执行状态
+- 声明期直接引用 Node 对象，挂载后才分配内部 `NodePath`
 - 依赖、条件读取和端口绑定全部显式参与拓扑校验
 - 子图可以组合，但不会被声明 DSL 隐式展开
 - 宿主日志、终端、请求状态和领域流程通过公开端口接入
@@ -40,7 +39,7 @@ from rivlet import Graph, Execution, Step
 - [失败事件与直接原因](./failure_events.md)
 - [Python 图与 Rust 原生图](./native-graphs.md)
 - [条件边](./conditional_edges.md)
-- [条件 Step](./conditional_steps.md)
+- [条件 Node](./conditional_steps.md)
 - [端口依赖与子图端口](./interfaces.md)
 - [Rust 架构与语言边界](./rust-architecture.md)
 - [本地开发与检查](./development.md)
@@ -50,7 +49,7 @@ from rivlet import Graph, Execution, Step
 以下记录保留测量负载与结果，不属于当前 API 说明，也不承诺最新版本的性能。
 
 - [大规模 Recipe 图基准](./recipe_scale_benchmark.md)
-- [Step 开销基准](./step_overhead_benchmark.md)
+- [Node 开销基准](./step_overhead_benchmark.md)
 - [工作流运行与并发基准](./workflow_runtime_benchmark.md)
 
 ## 核心边界
@@ -59,19 +58,19 @@ from rivlet import Graph, Execution, Step
   - 声明态 DAG 结构
 - `Execution`
   - 声明图与一次执行作用域
-- `Step`
+- `Node`
   - 可选展示 label、条件，以及 Python action、Python 子图或完整 Rust 原生子图
 - `Graph.edges`
   - 显式接线关系
-- `Step.wire(after=(Results(...),))` / `Edge.results(...)`
+- `Node.wire(after=(Results(...),))` / `Edge.results(...)`
   - 按顺序绑定 action 参数的结果依赖；条件独立声明自己的来源
-- `StepWiring` / `GraphWiring`
+- `NodeWiring` / `GraphWiring`
   - 声明期组合结构
 - `GraphCompilation`
   - 正式 runtime 使用的执行结构与 composite 边界
 
-声明期身份、展示 label 与运行时 `StepPath` 是三层不同语义。调度和结果定位使用
-`StepPath`；label 只用于展示。
+声明期身份、展示 label 与运行时 `NodePath` 是三层不同语义。调度和结果定位使用
+`NodePath`；label 只用于展示。
 
 ## 不属于 Graph core 的内容
 

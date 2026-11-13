@@ -5,10 +5,10 @@ from enum import StrEnum
 from typing import TYPE_CHECKING, Literal, Protocol, assert_never
 
 if TYPE_CHECKING:
-    from .model import StepId, StepPath
+    from .model import NodeId, NodePath
 
 
-class StepExecutionState(StrEnum):
+class NodeExecutionState(StrEnum):
     STARTED = "started"
     COMPLETED = "completed"
     FAILED = "failed"
@@ -25,21 +25,21 @@ class ActionFailed:
 class SubgraphFailed:
     """An actual child failure prevented this subgraph from completing."""
 
-    source: StepPath
+    source: NodePath
 
 
 @dataclass(frozen=True, slots=True)
 class BlockedByDependency:
     """One required predecessor failed or was blocked."""
 
-    source: StepPath
+    source: NodePath
 
 
 @dataclass(frozen=True, slots=True)
 class NodeConditionSite:
     """The runtime guard of the event's own mounted node."""
 
-    # 所属执行 session 内的条件索引；与事件的挂载 step_path 一起定位，不用于跨运行恢复。
+    # 所属执行 session 内的条件索引；与事件的挂载 node_path 一起定位，不用于跨运行恢复。
     condition_index: int
 
 
@@ -48,7 +48,7 @@ class EdgeConditionSite:
     """A runtime guard on an edge entering the event's node."""
 
     condition_index: int
-    prerequisite: StepPath
+    prerequisite: NodePath
 
 
 type ConditionSite = NodeConditionSite | EdgeConditionSite
@@ -66,59 +66,59 @@ class BlockedByConditionInput:
     """A predicate could not run because one of its inputs failed."""
 
     condition: ConditionSite
-    source: StepPath
+    source: NodePath
 
 
 @dataclass(frozen=True, slots=True)
 class BlockedByParent:
     """An unentered parent subgraph was blocked."""
 
-    source: StepPath
+    source: NodePath
 
 
-type StepFailureCause = ActionFailed | SubgraphFailed
-type StepBlockCause = (
+type NodeFailureCause = ActionFailed | SubgraphFailed
+type NodeBlockCause = (
     BlockedByDependency | BlockedByCondition | BlockedByConditionInput | BlockedByParent
 )
 type StepLifecycleState = Literal[
-    StepExecutionState.STARTED, StepExecutionState.COMPLETED, StepExecutionState.SKIPPED
+    NodeExecutionState.STARTED, NodeExecutionState.COMPLETED, NodeExecutionState.SKIPPED
 ]
-type StepExecutionStateDetail = StepLifecycleState | StepFailureCause | StepBlockCause
+type NodeExecutionStateDetail = StepLifecycleState | NodeFailureCause | NodeBlockCause
 
 
 @dataclass(frozen=True, slots=True)
-class StepExecutionEvent:
+class NodeExecutionEvent:
     """One committed step execution state with its typed details."""
 
-    step_id: StepId
-    step_path: StepPath
-    state_detail: StepExecutionStateDetail
+    node_id: NodeId
+    node_path: NodePath
+    state_detail: NodeExecutionStateDetail
 
     @property
-    def state(self) -> StepExecutionState:
+    def state(self) -> NodeExecutionState:
         """Derive this event's state, not a live snapshot of the step."""
         match self.state_detail:
             case (
-                StepExecutionState.STARTED
-                | StepExecutionState.COMPLETED
-                | StepExecutionState.SKIPPED
+                NodeExecutionState.STARTED
+                | NodeExecutionState.COMPLETED
+                | NodeExecutionState.SKIPPED
             ):
                 return self.state_detail
             case ActionFailed() | SubgraphFailed():
-                return StepExecutionState.FAILED
+                return NodeExecutionState.FAILED
             case (
                 BlockedByDependency()
                 | BlockedByCondition()
                 | BlockedByConditionInput()
                 | BlockedByParent()
             ):
-                return StepExecutionState.BLOCKED
+                return NodeExecutionState.BLOCKED
             case _:
                 assert_never(self.state_detail)
 
 
-class StepEventSink(Protocol):
-    def emit(self, event: StepExecutionEvent) -> None: ...
+class NodeEventSink(Protocol):
+    def emit(self, event: NodeExecutionEvent) -> None: ...
 
 
 class EventDeliveryError(RuntimeError):

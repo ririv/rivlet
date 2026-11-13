@@ -6,7 +6,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 
-from ..model import Graph, StepLabelPath
+from ..model import Graph, GraphStructure, NodeLabelPath
 from ..observe import GraphObservationEvent, GraphObservationPhase, GraphObserver
 
 if TYPE_CHECKING:
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 
     from ..model import Leaf
     from ..option import Option
-    from ..results import ResultView, StepRunContext
+    from ..results import NodeRunContext, ResultView
     from .action_log import ActionLog
     from .run import CompiledGraphRun
     from .state import ExecutionState
@@ -40,7 +40,7 @@ async def _await_result(result: Awaitable[object]) -> object:
 
 def invoke_sync_action(
     action: Leaf,
-    ctx: StepRunContext,
+    ctx: NodeRunContext,
     step_log_path: Path | None,
     action_log: ActionLog,
     inputs: tuple[Option[object], ...] = (),
@@ -53,15 +53,17 @@ def invoke_sync_action(
 
 def as_graph_result(
     value: object,
-) -> Graph | None:
+) -> GraphStructure | None:
     """识别 action 在运行期返回的声明图。"""
 
     if isinstance(value, Graph):
+        return GraphStructure(nodes=(value,))
+    if isinstance(value, GraphStructure):
         return value
     return None
 
 
-def step_thread_name(label_path: StepLabelPath) -> str:
+def step_thread_name(label_path: NodeLabelPath) -> str:
     current = threading.current_thread().name
     if not label_path:
         return current
@@ -84,7 +86,7 @@ def emit_graph_observation(
     observer: GraphObserver | None,
     state: ExecutionState,
     graph: CompiledGraphRun,
-    label_path: StepLabelPath,
+    label_path: NodeLabelPath,
     phase: GraphObservationPhase,
 ) -> None:
     if observer is None:
@@ -103,7 +105,7 @@ def emit_graph_observation(
             source_graph=graph.source_graph,
             graph_label=graph.label,
             graph_label_path=label_path,
-            graph_step_paths=graph.observation_step_paths,
+            graph_node_paths=graph.observation_step_paths,
             results=make_graph_observation_results(state),
         )
     )

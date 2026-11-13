@@ -15,7 +15,7 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 提供不回调 Python 的进程 action
   - 不依赖 PyO3、Tokio 或 Graph core
 - `crates/native-graph`
-  - 持有 `NativeStep`、graph-owned arcs 与完整 `NativeGraph`
+  - 持有 `NativeLeaf`、graph-owned arcs 与完整 `NativeGraphStructure`
   - 原生 adapter 以整图为边界接入，不向 Python 暴露单个 action
 - `crates/topology`
   - 只依赖 Rust 标准库，持有整数节点、邻接索引和 DAG 算法
@@ -59,6 +59,11 @@ executor adapter crate
 
 ## 当前执行边界
 
+Leaf/Graph 是真实节点，Node 只是协议，不是包装；GraphStructure 保存复用结构。
+PyO3 直接收集节点并 lower 到现有 Rust leaf/composite 和类型，不增加第二套调度器
+或实现继承。Rust NodeIdentity 是进程内声明身份，整数 NodeId 是编译/拓扑索引。
+NativeGraphStructure 持有 NativeLeaf 动作，混合语言时由 Python Graph 节点组合。
+
 所有正式执行路径共享同一套 Rust 声明编译器和 execution session 实现：
 
 ```text
@@ -87,7 +92,7 @@ Rust ExecutionSession
     │                   ├── 任意 Python callable
     │                   ├── ThreadPoolExecutor
     │                   └── asyncio task
-    └── NativeGraph 中的 Rust action → Rust worker 直接执行 NativeAction
+    └── NativeGraphStructure 中的 Rust action → Rust worker 直接执行 NativeAction
                         └── 完成进入 Rust completion queue
 ```
 
@@ -96,7 +101,7 @@ Python 在有状态变化时通过 `start/advance` 与 session
 交换一批数据：
 
 - Rust 只把 ready 的 Python action、待求值 predicate 和生命周期 event 批量返回 Python
-- `NativeGraph` 在声明编译时一次接入；内部 action handle 留在 Rust
+- `NativeGraphStructure` 在声明编译时一次接入；内部 action handle 留在 Rust
 - driver 只把 Python action 的完成节点、predicate 结果和显式 skip 批量交回 Rust
 - 混合 driver 批量取走 Rust completion，再和 Python 完成节点一起推进同一 session
 - 没有 timer polling；没有工作时，线程或 asyncio executor 等待实际 action 完成
@@ -161,7 +166,7 @@ requirement 与 selection 映射成连续整数 ID。provider 索引、任意 pr
 
 - 静态条件叶子和运行时条件 predicate 是 Python callable
 - Python action、结果对象、observe、日志路径和展示 label 是 Python 对象
-- Rust action 是 `NativeGraph` 内部的独立和类型分支；当前成功结果固定为 `None`，不会
+- Rust action 是 `NativeGraphStructure` 内部的独立和类型分支；当前成功结果固定为 `None`，不会
   携带任意 Python 对象，也不作为单个 Python API 暴露
 - PyO3 adapter 在一次编译调用中遍历声明对象；静态 predicate 的业务求值仍调用 Python
 - Python `GraphCompilation` 只恢复 action、predicate、observe、label path 与结果作用域侧表

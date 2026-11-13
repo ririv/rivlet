@@ -1,4 +1,4 @@
-"""验证根 Step 与内部节点共用身份、条件、生命周期及日志规则。"""
+"""验证根 Node 与内部节点共用身份、条件、生命周期及日志规则。"""
 
 from __future__ import annotations
 
@@ -17,14 +17,14 @@ from rivlet import (
     Graph,
     GraphError,
     GraphMode,
+    GraphStructure,
     Leaf,
+    NodeExecutionEvent,
+    NodeExecutionState,
+    NodePath,
+    NodeRunContext,
     ResultStore,
     SerialGraphExecutor,
-    Step,
-    StepExecutionEvent,
-    StepExecutionState,
-    StepPath,
-    StepRunContext,
     SubgraphFailed,
     ThreadRunOptions,
     export_graph,
@@ -51,9 +51,9 @@ def execute(execution: Execution, backend: Backend, mode: GraphMode) -> None:
 
 class Events:
     def __init__(self) -> None:
-        self.items: list[StepExecutionEvent] = []
+        self.items: list[NodeExecutionEvent] = []
 
-    def emit(self, event: StepExecutionEvent) -> None:
+    def emit(self, event: NodeExecutionEvent) -> None:
         self.items.append(event)
 
 
@@ -62,13 +62,13 @@ class Events:
 def test_leaf_root_is_the_executed_declaration(
     backend: Backend, mode: GraphMode
 ) -> None:
-    contexts: list[StepRunContext] = []
+    contexts: list[NodeRunContext] = []
 
-    def action(ctx: StepRunContext) -> int:
+    def action(ctx: NodeRunContext) -> int:
         contexts.append(ctx)
         return 42
 
-    root = Step(Leaf(action), label="single action", condition=lambda: True)
+    root = Leaf(action, label=("single action"), condition=(lambda: True))
     events = Events()
     execution = Execution(
         root,
@@ -81,12 +81,12 @@ def test_leaf_root_is_the_executed_declaration(
     assert compilation.steps[0].id == root.id
     execute(execution, backend, mode)
     assert execution.require_result(root).unwrap() == 42
-    assert contexts[0].step_id == root.id
-    assert contexts[0].step_path == StepPath((0,))
-    assert contexts[0].step_path.labels == ("single action",)
-    assert [(event.step_id, event.state) for event in events.items] == [
-        (root.id, StepExecutionState.STARTED),
-        (root.id, StepExecutionState.COMPLETED),
+    assert contexts[0].node_id == root.id
+    assert contexts[0].node_path == NodePath((0,))
+    assert contexts[0].node_path.labels == ("single action",)
+    assert [(event.node_id, event.state) for event in events.items] == [
+        (root.id, NodeExecutionState.STARTED),
+        (root.id, NodeExecutionState.COMPLETED),
     ]
 
 
@@ -96,8 +96,12 @@ def test_false_root_condition_skips_the_entire_graph(
     backend: Backend, mode: GraphMode
 ) -> None:
     calls: list[str] = []
-    child = Step(lambda: calls.append("child"), label="child")
-    root = Step(Graph(steps=(child,)), label="pipeline", condition=lambda: False)
+    child = Leaf(lambda: calls.append("child"), label=("child"))
+    root = Graph(
+        structure=GraphStructure(nodes=(child,)),
+        label="pipeline",
+        condition=lambda: False,
+    )
     events = Events()
     execution = Execution(root, events=events)
     compiled = execution.compile()
@@ -106,11 +110,11 @@ def test_false_root_condition_skips_the_entire_graph(
     execute(execution, backend, mode)
     assert not calls
     assert execution.execution_state.skipped_steps == {
-        StepPath((0,)),
-        StepPath((0, 0)),
+        NodePath((0,)),
+        NodePath((0, 0)),
     }
     assert any(
-        event.step_id == root.id and event.state is StepExecutionState.SKIPPED
+        event.node_id == root.id and event.state is NodeExecutionState.SKIPPED
         for event in events.items
     )
     rendered = render_execution(root, execution.execution_state)
@@ -123,38 +127,41 @@ def test_root_failure_keeps_its_direct_child_as_the_witness(backend: Backend) ->
     def fail() -> None:
         raise ValueError("failure")
 
-    child = Step(fail, label="child")
-    root = Step(Graph(steps=(child,)), label="pipeline")
+    child = Leaf(fail, label=("child"))
+    root = Graph(structure=GraphStructure(nodes=(child,)), label="pipeline")
     events = Events()
     execution = Execution(root, events=events)
     with pytest.raises(ValueError, match="failure"):
         execute(execution, backend, "compiled")
     causes = {
-        event.step_path: event.state_detail
+        event.node_path: event.state_detail
         for event in events.items
-        if event.state is StepExecutionState.FAILED
+        if event.state is NodeExecutionState.FAILED
     }
     assert causes == {
-        StepPath((0, 0)): ActionFailed(),
-        StepPath((0,)): SubgraphFailed(StepPath((0, 0))),
+        NodePath((0, 0)): ActionFailed(),
+        NodePath((0,)): SubgraphFailed(NodePath((0, 0))),
     }
 
 
 def test_root_condition_cannot_wait_for_its_own_descendant() -> None:
-    child = Step(lambda: True)
-    root = Step(Graph(steps=(child,)), condition=(lambda value: value.unwrap(), child))
+    child = Leaf(lambda: True)
+    root = Graph(
+        structure=GraphStructure(nodes=(child,)),
+        condition=(lambda value: value.unwrap(), child),
+    )
     with pytest.raises(GraphError, match="outside this graph"):
         Execution(root)
 
 
 def test_root_identity_is_preserved_in_declaration_and_compiled_exports() -> None:
-    root = Step(Graph(), label="empty")
+    root = Graph(structure=GraphStructure(), label="empty")
     execution = Execution(root)
     declaration = export_graph(root)
     compiled = export_graph(execution.compile())
     assert declaration["nodes"] == compiled["nodes"]
     assert len(compiled["nodes"]) == 1
-    assert compiled["nodes"][0]["step_id"] == root.id.value
+    assert compiled["nodes"][0]["node_id"] == root.id.value
     assert compiled["nodes"][0]["label"] == "empty"
     assert execution.compile().steps == ()
     assert len(execution.compile().composites) == 1
@@ -168,7 +175,7 @@ def test_async_leaf_root_runs_in_the_callers_loop() -> None:
             assert asyncio.get_running_loop() is loop
             return loop
 
-        root = Step(action)
+        root = Leaf(action)
         execution = Execution(
             root, execution_state=ExecutionState(results=ResultStore())
         )
@@ -179,20 +186,23 @@ def test_async_leaf_root_runs_in_the_callers_loop() -> None:
 
 
 def test_runtime_graph_returned_by_leaf_root_keeps_the_same_root_identity() -> None:
-    contexts: list[StepRunContext] = []
-    child = Step(lambda ctx: contexts.append(ctx), label="child")
-    root = Step(lambda: Graph(steps=(child,)), label="expand")
+    contexts: list[NodeRunContext] = []
+    child = Leaf(lambda ctx: contexts.append(ctx), label=("child"))
+    root = Leaf(
+        lambda: Graph(structure=GraphStructure(nodes=(child,))).structure,
+        label=("expand"),
+    )
     events = Events()
     execution = Execution(root, events=events)
     assert len(execution.compile().steps) == 1
     assert execution.compile().composites == ()
     execution.run()
-    assert contexts[0].step_id == child.id
-    assert contexts[0].step_path == StepPath((0, 0))
-    assert contexts[0].step_path.labels == ("expand", "child")
-    assert [event.state for event in events.items if event.step_id == root.id] == [
-        StepExecutionState.STARTED,
-        StepExecutionState.COMPLETED,
+    assert contexts[0].node_id == child.id
+    assert contexts[0].node_path == NodePath((0, 0))
+    assert contexts[0].node_path.labels == ("expand", "child")
+    assert [event.state for event in events.items if event.node_id == root.id] == [
+        NodeExecutionState.STARTED,
+        NodeExecutionState.COMPLETED,
     ]
 
 
@@ -219,7 +229,7 @@ def test_native_graph_root_uses_the_outer_steps_condition_and_label(
         ],
         [],
     )
-    root = Step(native, label="native root", condition=lambda: enabled)
+    root = Graph(structure=native, label="native root", condition=lambda: enabled)
     execution = Execution(root)
     assert execution.compile().composites[0].id == root.id
     assert execution.compile().composites[0].graph_label == "native root"
@@ -228,7 +238,7 @@ def test_native_graph_root_uses_the_outer_steps_condition_and_label(
 
 
 def test_log_binding_can_reference_the_root_declaration(tmp_path: Path) -> None:
-    root = Step(lambda: None, label="root")
+    root = Leaf(lambda: None, label=("root"))
     log_path = tmp_path / "root.log"
-    execution = Execution(root, step_log_paths={root: log_path})
-    assert execution.execution_state.get_step_log_path(StepPath((0,))) == log_path
+    execution = Execution(root, node_log_paths={root: log_path})
+    assert execution.execution_state.get_step_log_path(NodePath((0,))) == log_path

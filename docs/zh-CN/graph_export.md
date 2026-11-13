@@ -2,7 +2,7 @@
 
 [English](../graph_export.md) | 简体中文
 
-`export_graph()` 直接读取实际的 `Graph`、根 `Step` 或 `GraphCompilation`，返回独立的纯 JSON 数据。
+`export_graph()` 直接读取实际的 `Graph`、根 `Node` 或 `GraphCompilation`，返回独立的纯 JSON 数据。
 它不反向解析 Mermaid 或文本、不根据标签猜依赖，也不执行 Action。公开 schema 是
 [`GraphDocument`](../../src/rivlet/structure/schema.py)：按 `view` 区分的 TypedDict 联合类型，
 没有 HTTP、前端样式或 Pydantic 依赖，不是另一套可执行图模型或反序列化执行入口。
@@ -11,14 +11,16 @@
 
 ```python
 import json
-from rivlet import Case, Execution, Step, export_graph, static
+from rivlet import Graph, Leaf, Case, Execution, export_graph, static
 
-graph = static.select(cases=(
-    Case(True, Step(lambda: "private result", label="keep")),
-    Case(False, Step(lambda: None, label="drop")),
-)).graph()
+graph = static.select(
+    cases=(
+        Case(True, Leaf(lambda: "private result", label=("keep"))),
+        Case(False, Leaf(lambda: None, label=("drop"))),
+    )
+).graph()
 
-root = Step(graph, label="choose")
+root = Graph(structure=(graph).structure, label=("choose"))
 declared = export_graph(root)  # 不选择分支，不调用静态求值器
 execution = Execution(root)
 prepared = execution.compile()  # 在这里求静态条件，成功后固定本次结构
@@ -66,15 +68,15 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 
 ## 身份与组合边界
 
-- 节点 `id` 等于 `str(StepPath)`，例如 `0`、`2.1`，表示挂载位置，不是标签、函数身份、
+- 节点 `id` 等于 `str(NodePath)`，例如 `0`、`2.1`，表示挂载位置，不是标签、函数身份、
   进程对象地址或永久业务身份。
-- 同一子图挂载两次会得到 `0.0`、`1.0` 等不同 ID；导出和运行事件使用同一个 StepPath 命名空间。
-- 节点 `step_id` 是声明的进程内整数身份；重复挂载共享它，同一声明重新编译也保持不变。
+- 同一子图挂载两次会得到 `0.0`、`1.0` 等不同 ID；导出和运行事件使用同一个 NodePath 命名空间。
+- 节点 `node_id` 是声明的进程内整数身份；重复挂载共享它，同一声明重新编译也保持不变。
   它不是跨进程持久身份，也不作为缓存键。
 - 挂载结构不变时，改标签不改变 ID；调整节点顺序或组合结构可能改变 ID。必须结合当次冻结
   的图文档或 run 身份使用，不能拿另一版源码生成的图来解释旧事件。
 - `label_path` 表示挂载标签路径。根作用域 ID 为 `graph:root`，子作用域为
-  `graph:<owner StepPath>`。作用域的 `owner`、本地 `nodes` 和组合节点的 `child_graph`
+  `graph:<owner NodePath>`。作用域的 `owner`、本地 `nodes` 和组合节点的 `child_graph`
   共同保留子图边界，不伪造 no-op Action。
 - `ports` 明确记录端口名称及 input/output 对应的内部节点；显式转发的端口记录在公开它的
   那个作用域，不自动展开或转发。
@@ -83,6 +85,10 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 名称。未命名节点使用位置 ID；导出不会调用 callable 的 `repr()` 猜名字。
 
 ## 边的语义
+
+节点 kind 为 leaf/subgraph，原生结构动作也属于 leaf。跨端口结果边保留外层
+source/target，并按方向包含 source_port/provider_node 或 target_port/consumer_nodes，
+这些解析字段指向真实内部端点，转发不会丢失归属。
 
 两种视图保留声明边 ID，明确区分：
 
@@ -130,8 +136,8 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 ## 范围与交付
 
 导出只描述所给作用域，不能预知未来工作。Action 返回的动态子图必须等它实际产生并编译后，
-再按已有父 StepPath 前缀单独导出；根文档不会被悄悄重写成“预知全部动态工作”的历史。
-这类挂载导出的 `parent` 标识文档外的拥有者，`root` 为 `graph:<parent StepPath>`；拥有者本身
+再按已有父 NodePath 前缀单独导出；根文档不会被悄悄重写成“预知全部动态工作”的历史。
+这类挂载导出的 `parent` 标识文档外的拥有者，`root` 为 `graph:<parent NodePath>`；拥有者本身
 不在该子文档的节点表中。独立根图的 `parent=null`、`root="graph:root"`。这样单独导出的
 子文档在关联时，作用域与边 ID 也保留挂载命名空间，不只节点 ID 带前缀。
 

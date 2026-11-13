@@ -6,24 +6,24 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from ..events import EventDeliveryError, StepExecutionEvent, StepExecutionState
+from ..events import EventDeliveryError, NodeExecutionEvent, NodeExecutionState
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
     from pathlib import Path
 
     from ..events import (
-        StepBlockCause,
-        StepEventSink,
-        StepExecutionStateDetail,
-        StepFailureCause,
+        NodeBlockCause,
+        NodeEventSink,
+        NodeExecutionStateDetail,
+        NodeFailureCause,
     )
-    from ..model import StepId, StepLabelPath, StepPath
+    from ..model import NodeId, NodeLabelPath, NodePath
     from ..results import ResultStore, ResultView
 
 
-def _is_same_or_descendant(step_path: StepPath, ancestor: StepPath) -> bool:
-    return step_path.segments[: len(ancestor.segments)] == ancestor.segments
+def _is_same_or_descendant(node_path: NodePath, ancestor: NodePath) -> bool:
+    return node_path.segments[: len(ancestor.segments)] == ancestor.segments
 
 
 class GraphNodeFailure(StrEnum):
@@ -35,8 +35,8 @@ class GraphNodeFailure(StrEnum):
 
 @dataclass(slots=True)
 class _StepEvents:
-    sink: StepEventSink
-    paths: dict[StepPath, tuple[StepId, StepPath]] = field(default_factory=dict)
+    sink: NodeEventSink
+    paths: dict[NodePath, tuple[NodeId, NodePath]] = field(default_factory=dict)
     lock: threading.RLock = field(default_factory=threading.RLock)
 
 
@@ -49,18 +49,18 @@ class ExecutionState:
     同一步同时进入互斥终态。
     """
 
-    _skip_requests: set[StepPath]
-    _matched_skip_requests: set[StepPath]
-    _skipped_steps: set[StepPath]
-    _executed_steps: list[StepPath]
-    _completed_steps: set[StepPath]
-    _entered_composites: set[StepPath]
-    _completed_composites: set[StepPath]
-    _step_label_paths: dict[StepPath, StepLabelPath]
+    _skip_requests: set[NodePath]
+    _matched_skip_requests: set[NodePath]
+    _skipped_steps: set[NodePath]
+    _executed_steps: list[NodePath]
+    _completed_steps: set[NodePath]
+    _entered_composites: set[NodePath]
+    _completed_composites: set[NodePath]
+    _step_label_paths: dict[NodePath, NodeLabelPath]
     _results: ResultStore | None
-    _step_log_paths: Mapping[StepPath, Path]
-    _runtime_condition_values: dict[StepPath, bool]
-    _node_failures: dict[StepPath, GraphNodeFailure]
+    _step_log_paths: Mapping[NodePath, Path]
+    _runtime_condition_values: dict[NodePath, bool]
+    _node_failures: dict[NodePath, GraphNodeFailure]
     _lock: threading.Lock
     _started: bool
     _skip_revision: int
@@ -69,7 +69,7 @@ class ExecutionState:
     def __init__(
         self,
         *,
-        initial_skip_requests: Iterable[StepPath] = (),
+        initial_skip_requests: Iterable[NodePath] = (),
         results: ResultStore | None = None,
     ) -> None:
         self._skip_requests = set(initial_skip_requests)
@@ -89,7 +89,7 @@ class ExecutionState:
         self._skip_revision = 0
         self._events = None
 
-    def _register_event_paths(self, paths: Iterable[tuple[StepPath, StepId]]) -> None:
+    def _register_event_paths(self, paths: Iterable[tuple[NodePath, NodeId]]) -> None:
         if self._events is not None:
             with self._lock:
                 self._events.paths.update(
@@ -105,16 +105,16 @@ class ExecutionState:
                 self._results = ResultStore()
 
     def _emit(
-        self, step_path: StepPath, state_detail: StepExecutionStateDetail
+        self, node_path: NodePath, state_detail: NodeExecutionStateDetail
     ) -> None:
         if self._events is None:
             return
         # 未订阅时只执行上面的 O(1) 分支，不构造事件或读取标签映射。
         with self._events.lock:
             with self._lock:
-                identity, path = self._events.paths[step_path]
+                identity, path = self._events.paths[node_path]
             try:
-                self._events.sink.emit(StepExecutionEvent(identity, path, state_detail))
+                self._events.sink.emit(NodeExecutionEvent(identity, path, state_detail))
             except Exception as error:
                 raise EventDeliveryError("step event delivery failed") from error
 
@@ -128,32 +128,32 @@ class ExecutionState:
             return self._skip_revision
 
     @property
-    def skipped_steps(self) -> frozenset[StepPath]:
+    def skipped_steps(self) -> frozenset[NodePath]:
         with self._lock:
             return frozenset(self._skipped_steps)
 
     @property
-    def executed_steps(self) -> list[StepPath]:
+    def executed_steps(self) -> list[NodePath]:
         with self._lock:
             return list(self._executed_steps)
 
     @property
-    def completed_steps(self) -> frozenset[StepPath]:
+    def completed_steps(self) -> frozenset[NodePath]:
         with self._lock:
             return frozenset(self._completed_steps)
 
     @property
-    def entered_composites(self) -> frozenset[StepPath]:
+    def entered_composites(self) -> frozenset[NodePath]:
         with self._lock:
             return frozenset(self._entered_composites)
 
     @property
-    def completed_composites(self) -> frozenset[StepPath]:
+    def completed_composites(self) -> frozenset[NodePath]:
         with self._lock:
             return frozenset(self._completed_composites)
 
     @property
-    def node_failures(self) -> dict[StepPath, GraphNodeFailure]:
+    def node_failures(self) -> dict[NodePath, GraphNodeFailure]:
         with self._lock:
             return dict(self._node_failures)
 
@@ -181,7 +181,7 @@ class ExecutionState:
                 node_failures=dict(self._node_failures),
             )
 
-    def request_skip(self, step_path: StepPath) -> None:
+    def request_skip(self, node_path: NodePath) -> None:
         """请求 runtime 跳过尚未开始的节点或组合边界。"""
 
         with self._lock:
@@ -190,19 +190,19 @@ class ExecutionState:
                 *self._entered_composites,
                 *self._completed_composites,
             )
-            if any(_is_same_or_descendant(item, step_path) for item in started):
-                raise RuntimeError(f"cannot skip an already started step: {step_path}")
-            if step_path not in self._skip_requests:
-                self._skip_requests.add(step_path)
+            if any(_is_same_or_descendant(item, node_path) for item in started):
+                raise RuntimeError(f"cannot skip an already started step: {node_path}")
+            if node_path not in self._skip_requests:
+                self._skip_requests.add(node_path)
                 self._skip_revision += 1
 
-    def request_skips(self, step_paths: Iterable[StepPath]) -> None:
-        for step_path in step_paths:
-            self.request_skip(step_path)
+    def request_skips(self, step_paths: Iterable[NodePath]) -> None:
+        for node_path in step_paths:
+            self.request_skip(node_path)
 
-    def is_skip_requested(self, step_path: StepPath) -> bool:
+    def is_skip_requested(self, node_path: NodePath) -> bool:
         with self._lock:
-            current: StepPath | None = step_path
+            current: NodePath | None = node_path
             while current is not None:
                 if current in self._skip_requests:
                     self._matched_skip_requests.add(current)
@@ -210,19 +210,19 @@ class ExecutionState:
                 current = current.parent
             return False
 
-    def skip_request_ids(self) -> frozenset[StepPath]:
+    def skip_request_ids(self) -> frozenset[NodePath]:
         """返回尚未限定到某张编译图的 skip 请求快照。"""
 
         with self._lock:
             return frozenset(self._skip_requests)
 
-    def match_skip_request(self, step_path: StepPath) -> None:
+    def match_skip_request(self, node_path: NodePath) -> None:
         """记录某张编译图已经识别该 skip 请求。"""
 
         with self._lock:
-            if step_path not in self._skip_requests:
-                raise RuntimeError(f"unknown graph skip request: {step_path}")
-            self._matched_skip_requests.add(step_path)
+            if node_path not in self._skip_requests:
+                raise RuntimeError(f"unknown graph skip request: {node_path}")
+            self._matched_skip_requests.add(node_path)
 
     def require_skip_requests_resolved(self) -> None:
         """拒绝没有对应到本次执行中任何节点的 skip 请求。"""
@@ -230,143 +230,143 @@ class ExecutionState:
         with self._lock:
             unresolved = self._skip_requests - self._matched_skip_requests
         if unresolved:
-            rendered = ", ".join(str(step_path) for step_path in sorted(unresolved))
+            rendered = ", ".join(str(node_path) for node_path in sorted(unresolved))
             raise RuntimeError(f"unknown graph skip requests: {rendered}")
 
-    def record_skipped_step(self, step_path: StepPath) -> None:
+    def record_skipped_step(self, node_path: NodePath) -> None:
         with self._lock:
-            self._require_not_failed(step_path)
+            self._require_not_failed(node_path)
             if (
-                step_path in self._step_label_paths
-                or step_path in self._completed_steps
+                node_path in self._step_label_paths
+                or node_path in self._completed_steps
             ):
-                raise RuntimeError(f"cannot skip an already executed step: {step_path}")
-            self._skipped_steps.add(step_path)
+                raise RuntimeError(f"cannot skip an already executed step: {node_path}")
+            self._skipped_steps.add(node_path)
         if self._events is not None:
-            self._emit(step_path, StepExecutionState.SKIPPED)
+            self._emit(node_path, NodeExecutionState.SKIPPED)
 
-    def record_step(self, step_path: StepPath, label_path: StepLabelPath) -> None:
+    def record_step(self, node_path: NodePath, label_path: NodeLabelPath) -> None:
         """记录 step 已开始执行及其实际挂载路径。"""
 
         with self._lock:
-            self._require_not_failed(step_path)
-            if step_path in self._skipped_steps:
-                raise RuntimeError(f"cannot execute a skipped step: {step_path}")
-            existing_path = self._step_label_paths.get(step_path)
+            self._require_not_failed(node_path)
+            if node_path in self._skipped_steps:
+                raise RuntimeError(f"cannot execute a skipped step: {node_path}")
+            existing_path = self._step_label_paths.get(node_path)
             if existing_path is not None:
                 if existing_path != label_path:
                     raise RuntimeError(
-                        f"step {step_path} was recorded with inconsistent label paths"
+                        f"step {node_path} was recorded with inconsistent label paths"
                     )
-                raise RuntimeError(f"step was executed more than once: {step_path}")
-            self._step_label_paths[step_path] = label_path
-            self._executed_steps.append(step_path)
+                raise RuntimeError(f"step was executed more than once: {node_path}")
+            self._step_label_paths[node_path] = label_path
+            self._executed_steps.append(node_path)
         if self._events is not None:
-            self._emit(step_path, StepExecutionState.STARTED)
+            self._emit(node_path, NodeExecutionState.STARTED)
 
-    def complete_step(self, step_path: StepPath) -> None:
+    def complete_step(self, node_path: NodePath) -> None:
         """记录 step 的 action 或完整子图已经成功完成。"""
 
         with self._lock:
-            self._require_not_failed(step_path)
-            if step_path not in self._step_label_paths:
+            self._require_not_failed(node_path)
+            if node_path not in self._step_label_paths:
                 raise RuntimeError(
-                    f"cannot complete a step that was not started: {step_path}"
+                    f"cannot complete a step that was not started: {node_path}"
                 )
-            if step_path in self._completed_steps:
-                raise RuntimeError(f"step was completed more than once: {step_path}")
-            self._completed_steps.add(step_path)
+            if node_path in self._completed_steps:
+                raise RuntimeError(f"step was completed more than once: {node_path}")
+            self._completed_steps.add(node_path)
         if self._events is not None:
-            self._emit(step_path, StepExecutionState.COMPLETED)
+            self._emit(node_path, NodeExecutionState.COMPLETED)
 
-    def enter_composite(self, step_path: StepPath) -> None:
+    def enter_composite(self, node_path: NodePath) -> None:
         """记录非执行组合边界已经激活。"""
 
         with self._lock:
-            self._require_not_failed(step_path)
-            if step_path in self._skipped_steps:
-                raise RuntimeError(f"cannot enter a skipped composite: {step_path}")
-            if step_path in self._entered_composites:
-                raise RuntimeError(f"composite was entered more than once: {step_path}")
-            self._entered_composites.add(step_path)
-            emit = self._events is not None and step_path not in self._step_label_paths
+            self._require_not_failed(node_path)
+            if node_path in self._skipped_steps:
+                raise RuntimeError(f"cannot enter a skipped composite: {node_path}")
+            if node_path in self._entered_composites:
+                raise RuntimeError(f"composite was entered more than once: {node_path}")
+            self._entered_composites.add(node_path)
+            emit = self._events is not None and node_path not in self._step_label_paths
         if emit:
-            self._emit(step_path, StepExecutionState.STARTED)
+            self._emit(node_path, NodeExecutionState.STARTED)
 
-    def complete_composite(self, step_path: StepPath) -> None:
+    def complete_composite(self, node_path: NodePath) -> None:
         """记录组合边界成功完成；失败子图不会进入此状态。"""
 
         with self._lock:
-            self._require_not_failed(step_path)
-            if step_path not in self._entered_composites:
+            self._require_not_failed(node_path)
+            if node_path not in self._entered_composites:
                 raise RuntimeError(
-                    f"cannot complete a composite that was not entered: {step_path}"
+                    f"cannot complete a composite that was not entered: {node_path}"
                 )
-            if step_path in self._completed_composites:
+            if node_path in self._completed_composites:
                 raise RuntimeError(
-                    f"composite was completed more than once: {step_path}"
+                    f"composite was completed more than once: {node_path}"
                 )
-            self._completed_composites.add(step_path)
-            emit = self._events is not None and step_path not in self._completed_steps
+            self._completed_composites.add(node_path)
+            emit = self._events is not None and node_path not in self._completed_steps
         if emit:
-            self._emit(step_path, StepExecutionState.COMPLETED)
+            self._emit(node_path, NodeExecutionState.COMPLETED)
 
-    def _require_not_failed(self, step_path: StepPath) -> None:
-        if step_path in self._node_failures:
-            raise RuntimeError(f"node already failed or blocked: {step_path}")
+    def _require_not_failed(self, node_path: NodePath) -> None:
+        if node_path in self._node_failures:
+            raise RuntimeError(f"node already failed or blocked: {node_path}")
 
-    def record_failed_step(self, step_path: StepPath, cause: StepFailureCause) -> None:
-        self._record_node_failure(step_path, GraphNodeFailure.FAILED)
+    def record_failed_step(self, node_path: NodePath, cause: NodeFailureCause) -> None:
+        self._record_node_failure(node_path, GraphNodeFailure.FAILED)
         if self._events is not None:
-            self._emit(step_path, cause)
+            self._emit(node_path, cause)
 
-    def record_blocked_step(self, step_path: StepPath, cause: StepBlockCause) -> None:
-        self._record_node_failure(step_path, GraphNodeFailure.BLOCKED)
+    def record_blocked_step(self, node_path: NodePath, cause: NodeBlockCause) -> None:
+        self._record_node_failure(node_path, GraphNodeFailure.BLOCKED)
         if self._events is not None:
-            self._emit(step_path, cause)
+            self._emit(node_path, cause)
 
     def _record_node_failure(
-        self, step_path: StepPath, failure: GraphNodeFailure
+        self, node_path: NodePath, failure: GraphNodeFailure
     ) -> None:
         with self._lock:
-            self._require_not_failed(step_path)
+            self._require_not_failed(node_path)
             if (
-                step_path in self._completed_steps
-                or step_path in self._completed_composites
-                or step_path in self._skipped_steps
+                node_path in self._completed_steps
+                or node_path in self._completed_composites
+                or node_path in self._skipped_steps
             ):
                 raise RuntimeError(
-                    f"node already reached a terminal state: {step_path}"
+                    f"node already reached a terminal state: {node_path}"
                 )
             if failure is GraphNodeFailure.BLOCKED and (
-                step_path in self._step_label_paths
-                or step_path in self._entered_composites
+                node_path in self._step_label_paths
+                or node_path in self._entered_composites
             ):
-                raise RuntimeError(f"cannot block an already started node: {step_path}")
-            self._node_failures[step_path] = failure
+                raise RuntimeError(f"cannot block an already started node: {node_path}")
+            self._node_failures[node_path] = failure
 
-    def record_result(self, step_path: StepPath, value: object | None) -> None:
+    def record_result(self, node_path: NodePath, value: object | None) -> None:
         with self._lock:
-            if step_path not in self._step_label_paths:
+            if node_path not in self._step_label_paths:
                 raise RuntimeError(
-                    f"cannot record a result before step start: {step_path}"
+                    f"cannot record a result before step start: {node_path}"
                 )
             if self._results is not None:
-                self._results.record(step_path, value)
+                self._results.record(node_path, value)
 
-    def record_runtime_condition(self, step_path: StepPath, value: bool) -> None:
+    def record_runtime_condition(self, node_path: NodePath, value: bool) -> None:
         """保存 runtime 已使用的 step 条件值，供 render 只读展示。"""
 
         with self._lock:
-            existing = self._runtime_condition_values.get(step_path)
+            existing = self._runtime_condition_values.get(node_path)
             if existing is not None and existing is not value:
                 raise RuntimeError(
-                    f"runtime condition changed during one run: {step_path}"
+                    f"runtime condition changed during one run: {node_path}"
                 )
-            self._runtime_condition_values[step_path] = value
+            self._runtime_condition_values[node_path] = value
 
     def _initialize_execution_inputs(
-        self, paths: Mapping[StepPath, Path], events: StepEventSink | None
+        self, paths: Mapping[NodePath, Path], events: NodeEventSink | None
     ) -> None:
         """Atomically bind execution inputs after all declarations are validated."""
 
@@ -384,21 +384,21 @@ class ExecutionState:
             if events is not None:
                 self._events = _StepEvents(events)
 
-    def get_step_log_path(self, step_path: StepPath) -> Path | None:
+    def get_step_log_path(self, node_path: NodePath) -> Path | None:
         with self._lock:
-            return self._step_log_paths.get(step_path)
+            return self._step_log_paths.get(node_path)
 
 
 @dataclass(frozen=True, slots=True)
 class ExecutionSnapshot:
     """从执行状态原子复制出的渲染与观察快照。"""
 
-    skipped_steps: frozenset[StepPath]
-    executed_steps: tuple[StepPath, ...]
-    completed_steps: frozenset[StepPath]
-    entered_composites: frozenset[StepPath]
-    completed_composites: frozenset[StepPath]
-    step_label_paths: dict[StepPath, StepLabelPath]
+    skipped_steps: frozenset[NodePath]
+    executed_steps: tuple[NodePath, ...]
+    completed_steps: frozenset[NodePath]
+    entered_composites: frozenset[NodePath]
+    completed_composites: frozenset[NodePath]
+    step_label_paths: dict[NodePath, NodeLabelPath]
     results: ResultView | None
-    runtime_condition_values: dict[StepPath, bool]
-    node_failures: dict[StepPath, GraphNodeFailure]
+    runtime_condition_values: dict[NodePath, bool]
+    node_failures: dict[NodePath, GraphNodeFailure]

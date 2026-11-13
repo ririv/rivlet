@@ -4,22 +4,22 @@ English | [简体中文](./zh-CN/static_selection.md)
 
 `static.select()` retains every candidate in the Graph declaration and requires
 exactly one true condition during compilation. It returns `GraphWiring` for
-`>>` / `|` composition. There is no executable selector action or Step,
-GraphTemplate, or second Step/Graph API.
+`>>` / `|` composition. There is no executable selector action or Node,
+GraphTemplate, or second Node/Graph API.
 
 ## Complete conditions and branch contents
 
 ```python
-from rivlet import Case, Execution, Step, static
+from rivlet import Graph, Leaf, Case, Execution, static
 
 platform = "android"
 version = 3
 
-prepare = Step(lambda: print("prepare"), label="prepare")
-modern = Step(lambda: print("modern Android"), label="modern")
-legacy = Step(lambda: print("legacy Android"), label="legacy")
-linux = Step(lambda: print("Linux"), label="linux")
-finish = Step(lambda: print("finish"), label="finish")
+prepare = Leaf(lambda: print("prepare"), label=("prepare"))
+modern = Leaf(lambda: print("modern Android"), label=("modern"))
+legacy = Leaf(lambda: print("legacy Android"), label=("legacy"))
+linux = Leaf(lambda: print("Linux"), label=("linux"))
+finish = Leaf(lambda: print("finish"), label=("finish"))
 
 graph = (
     prepare
@@ -33,15 +33,15 @@ graph = (
     >> finish
 ).graph()
 
-Execution(Step(graph, label="platform workflow")).run()
+Execution(Graph(structure=(graph).structure, label=("platform workflow"))).run()
 ```
 
 This runs `prepare → modern → finish`. Each `Case(condition, component)` has two arguments:
 
 - `condition` is a required, complete static bool, not a matching value or predicate.
   Strings, functions, and other non-boolean objects are not implicitly made true.
-- `component` is a Step. Mount a Graph explicitly using `Step(graph)` or `graph.step()`.
-  `case.step` is the actual node available for explicit wiring.
+- `component` is a Leaf or Graph node; Graph needs no wrapper.
+  `case.node` is the actual node available for explicit wiring.
 - `static` is the `rivlet.static` module, not a `StaticConditions` evaluator instance.
 
 There is no separate subject, pattern, guard, wildcard, or chained condition method.
@@ -50,7 +50,7 @@ Existing `StaticConditions.when/edge` rules with explicit evaluators are unchang
 
 Python computes conditions and constructs all candidates before the API call.
 The declaration retains booleans; compilation performs the exact-one check.
-This does not defer expressions or factories, and does not read Step results.
+This does not defer expressions or factories, and does not read Node results.
 The `cases` sequence is copied to a tuple; later list mutation does not affect it.
 
 ## Exactly one true condition, with no precedence
@@ -74,19 +74,21 @@ fail.” Another true condition still produces a conflict. There is no implicit 
 The same rules and topology can be declared without the DSL:
 
 ```python
-from rivlet import Case, Graph, Execution, StaticSelection, Step, Edge
+from rivlet import Graph, GraphStructure, Leaf, Case, Execution, StaticSelection, Edge
 
-first = Step(lambda: print("first"), label="first")
-second = Step(lambda: print("second"), label="second")
-finish = Step(lambda: print("finish"), label="finish")
+first = Leaf(lambda: print("first"), label=("first"))
+second = Leaf(lambda: print("second"), label=("second"))
+finish = Leaf(lambda: print("finish"), label=("finish"))
 cases = (Case(False, first), Case(True, second))
 
 graph = Graph(
-    steps=tuple(case.step for case in cases) + (finish,),
-    edges=tuple(Edge(case.step, finish) for case in cases),
-    static_selections=(StaticSelection(cases=cases),),
+    structure=GraphStructure(
+        nodes=(tuple(case.node for case in cases) + (finish,)),
+        edges=(tuple(Edge(case.node, finish) for case in cases)),
+        static_selections=((StaticSelection(cases=cases),)),
+    )
 )
-Execution(Step(graph)).run()
+Execution(Graph(structure=(graph).structure)).run()
 ```
 
 `Graph.from_wiring()` and `.graph()` also accept `static_selections=`.
@@ -98,13 +100,13 @@ its normal composite lifecycle, not a no-op action.
 
 Rules and nested selections in unselected subgraphs are not evaluated. Neither
 are selections under a statically pruned parent. Constructed candidates still
-follow normal declaration validation. A scope cannot declare the same Step twice;
-reuse a child Graph across cases to obtain independent mounts, not implicit node
-merging. Each compilation and mount selects independently, without caching a
+follow normal declaration validation. A scope cannot declare the same Node twice;
+create distinct Graph nodes from one GraphStructure for independent mounts;
+repeating the same Graph object is not implicit mounting. Each compilation and mount selects independently, without caching a
 chosen branch in the declaration.
 
 Selection does not automatically expose or forward interface ports.
-Use `case.step` to bind ports explicitly. An active consumer requiring a port
+Use `case.node` to bind ports explicitly. An active consumer requiring a port
 or result from an unselected case causes a compilation error, not silent removal
 of the requirement. Runtime conditions never trigger reselection. Result bindings
 and thread/async execution retain their existing rules.

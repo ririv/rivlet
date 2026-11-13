@@ -44,44 +44,43 @@ For Windows x64 source builds and installed-wheel validation, see
 ## Compose steps and reusable subgraphs
 
 ```python
-from rivlet import Graph, Execution, Step, ThreadRunOptions
+from rivlet import Execution, Graph, Leaf, ThreadRunOptions
 
 
 def checks() -> Graph:
-    validate = Step(lambda: print("validate"), label="validate")
-    test = Step(lambda: print("test"), label="test")
-    return (validate | test).graph()
+    validate = Leaf(lambda: print("validate"), label="validate")
+    test = Leaf(lambda: print("test"), label="test")
+    return (validate | test).graph(label="checks")
 
 
-prepare = Step(lambda: print("prepare"), label="prepare")
-finish = Step(lambda: print("finish"), label="finish")
-
-graph = (prepare >> Step(checks(), label="checks") >> finish).graph()
-Execution(root=Step(graph, label="example")).run(ThreadRunOptions(workers=2))
+prepare = Leaf(lambda: print("prepare"), label="prepare")
+finish = Leaf(lambda: print("finish"), label="finish")
+graph = (prepare >> checks() >> finish).graph(label="example")
+Execution(graph).run(ThreadRunOptions(workers=2))
 ```
 
-After `prepare`, the `checks` subgraph can run `validate` and `test` concurrently.
-`finish` waits for both to succeed; their print order is not guaranteed.
+After prepare, validate and test can run concurrently; finish waits for both.
+`>>` orders nodes, while `|` adds no dependency. Run options set actual concurrency.
 
-`checks()` returns a reusable `Graph` structure. `Step(checks(), label="checks")`
-explicitly mounts it with its own identity and label. Nesting preserves its boundary
-and internal dependencies. `>>` waits for the whole
-left-hand step or subgraph; `|` adds no dependency between its branches. Actual
-concurrency comes from the run options, not from `|` alone.
+Leaf executes a callable; Graph contains a substructure. Both own identity, label
+and condition and support the same wire/DSL operations. Node is their common
+protocol, not another wrapper. Only Graph exposes an interface.
 
-The operators also accept bare `Leaf` and `Graph`: `prepare >> checks() >> finish`.
-Each bare occurrence gets a fresh anonymous Step; a Graph remains a subgraph.
-Use an explicit Step when you need a label, condition, or a reference for wiring.
+GraphStructure holds reusable structure without a node identity. Declare distinct
+Graph nodes to use one structure twice:
 
-To wrap the whole composition directly, use
-`(prepare >> checks() >> finish).step(label="pipeline")`;
-this is equivalent to `.graph().step(label="pipeline")` and returns a Step.
+```python
+body = checks().structure
+left = Graph(body, label="left")
+right = Graph(body, label="right")
+both = (left | right).graph(label="both")
+Execution(both).run(ThreadRunOptions(workers=2))
+```
 
-Declarations and runs are separate: `Graph` describes the workflow;
-`Step` owns identity, label and runtime condition; `Graph` owns structure, not a name.
-`Execution(root_step)` owns one run, including the root's condition and lifecycle.
-The root may contain a Graph or a single Leaf. Create a new execution to run the declaration
-again. You can also declare the same wiring without the DSL; see the
+The two Graph nodes share structure, not mounted results or paths. The DSL retains
+actual nodes; the same node cannot occur twice in one structure. Execution accepts
+the actual Leaf or Graph root, with no extra Step wrapper. Create another Execution
+to run a declaration again. For direct construction, see the
 [core model](https://github.com/ririv/rivlet/blob/main/docs/core_model.md).
 
 ## Connect subgraphs through input and output ports
@@ -95,42 +94,42 @@ This complete example connects two otherwise independent subgraphs:
 
 ```python
 from rivlet import (
+    Graph,
+    GraphStructure,
+    Leaf,
     Edge,
     GraphInterface,
-    Graph,
     Execution,
-    Step,
     ThreadRunOptions,
 )
 
 data_ready = "validated-data"
 
-fetch = Step(lambda: print("fetch data"), label="fetch")
-validate = Step(lambda: print("validate data"), label="validate")
-archive = Step(lambda: print("archive data"), label="archive")
+fetch = Leaf(lambda: print("fetch data"), label=("fetch"))
+validate = Leaf(lambda: print("validate data"), label=("validate"))
+archive = Leaf(lambda: print("archive data"), label=("archive"))
 producer_graph = (fetch >> validate >> archive).graph(
-
     interface=GraphInterface(outputs={data_ready: validate}),
 )
 
-prepare = Step(lambda: print("prepare consumer"), label="prepare")
-process = Step(lambda: print("process data"), label="process")
-report = Step(lambda: print("report results"), label="report")
+prepare = Leaf(lambda: print("prepare consumer"), label=("prepare"))
+process = Leaf(lambda: print("process data"), label=("process"))
+report = Leaf(lambda: print("report results"), label=("report"))
 consumer_graph = (prepare >> process >> report).graph(
-
     interface=GraphInterface(inputs={data_ready: process}),
 )
 
-producer = producer_graph.step(label="producer")
-consumer = consumer_graph.step(label="consumer")
+producer = Graph(structure=(producer_graph).structure, label=("producer"))
+consumer = Graph(structure=(consumer_graph).structure, label=("consumer"))
 graph = Graph(
-
-    steps=(producer, consumer),
-    edges=(
-        Edge(source=producer, target=consumer, ports=data_ready),
-    ),
+    structure=GraphStructure(
+        nodes=((producer, consumer)),
+        edges=((Edge(source=producer, target=consumer, ports=data_ready),)),
+    )
 )
-Execution(Step(graph, label="pipeline")).run(ThreadRunOptions(workers=3))
+Execution(Graph(structure=(graph).structure, label=("pipeline"))).run(
+    ThreadRunOptions(workers=3)
+)
 ```
 
 ```text
@@ -145,9 +144,8 @@ without waiting for `archive`, provided its own preparation has also completed.
 The overall execution still waits for both subgraphs to finish.
 
 Matching port names do **not** create dependencies: `Edge` explicitly
-connects this producer and consumer. Ports synchronize readiness; they do not
-transfer Python return values or inspect external data. Use result edges for
-argument passing, and publish an output only when later steps will no longer
+connects this producer and consumer. An ordinary port edge synchronizes readiness without passing values.
+Use result edges with typed interface endpoints for argument passing, and publish an output only when later steps will no longer
 invalidate what the consumer reads.
 
 This is different from `producer >> consumer`, which waits for the
@@ -160,9 +158,10 @@ multiple inputs, and failure behavior, see
 Using `producer_graph` from the previous example:
 
 ```python
-setup = Step(lambda: print("set up producer"), label="setup")
-wrapped = (setup >> Step(producer_graph, label="producer")).graph(
-
+setup = Leaf(lambda: print("set up producer"), label=("setup"))
+wrapped = (
+    setup >> producer_graph
+).graph(
     interface=producer_graph,
 )
 ```
@@ -176,32 +175,33 @@ only one direction or declare a new interface with `GraphInterface`.
 | What you want | API | When the condition is false |
 | --- | --- | --- |
 | Exclude optional work before execution | `StaticConditions.when(...)` | Remove the node and its incident edges during compilation |
-| Decide whether a task runs | `Step(condition=predicate)` or `Step(condition=(predicate, source, ...))` | Skip its action; a subgraph is not entered |
+| Decide whether a task runs | `Leaf(condition=predicate)` / `Graph(condition=predicate)` or `condition=(predicate, source, ...)` | Skip its action; a subgraph is not entered |
 | Decide whether a task waits for another | `ConditionalPrerequisite(...)` | Remove only that waiting requirement, not either task |
 
 ### Static conditions: choose work before execution
 
 ```python
 from rivlet import (
+    Graph,
+    Leaf,
     Execution,
     StaticCondition,
     StaticConditions,
-    Step,
     ThreadRunOptions,
 )
 
 extra_checks = StaticCondition(payload=False, description="extra checks enabled")
 static = StaticConditions(evaluator=lambda condition: condition.payload is True)
 
-prepare = Step(lambda: print("prepare static workflow"), label="prepare")
-verify = Step(lambda: print("verify"), label="verify")
-extra = Step(lambda: print("extra checks"), label="extra")
-finish = Step(lambda: print("finish static workflow"), label="finish")
+prepare = Leaf(lambda: print("prepare static workflow"), label=("prepare"))
+verify = Leaf(lambda: print("verify"), label=("verify"))
+extra = Leaf(lambda: print("extra checks"), label=("extra"))
+finish = Leaf(lambda: print("finish static workflow"), label=("finish"))
 
-graph = (
-    prepare >> (verify | static.when(extra_checks, extra)) >> finish
-).graph()
-Execution(Step(graph, label="static conditions")).run(ThreadRunOptions(workers=2))
+graph = (prepare >> (verify | static.when(extra_checks, extra)) >> finish).graph()
+Execution(Graph(structure=(graph).structure, label=("static conditions"))).run(
+    ThreadRunOptions(workers=2)
+)
 ```
 
 With `payload=False`, compilation removes `extra`; change it to `True` to include
@@ -215,15 +215,15 @@ ordering. Static conditions also do not defer Python construction of a child gra
 ### Static selection: retain candidates, select exactly one
 
 ```python
-from rivlet import Case, Execution, Step, static
+from rivlet import Graph, Leaf, Case, Execution, static
 
 platform = "android"
 version = 3
-prepare = Step(lambda: print("prepare"), label="prepare")
-modern = Step(lambda: print("modern Android"), label="modern")
-legacy = Step(lambda: print("legacy Android"), label="legacy")
-linux = Step(lambda: print("Linux"), label="linux")
-finish = Step(lambda: print("finish"), label="finish")
+prepare = Leaf(lambda: print("prepare"), label=("prepare"))
+modern = Leaf(lambda: print("modern Android"), label=("modern"))
+legacy = Leaf(lambda: print("legacy Android"), label=("legacy"))
+linux = Leaf(lambda: print("Linux"), label=("linux"))
+finish = Leaf(lambda: print("finish"), label=("finish"))
 
 graph = (
     prepare
@@ -236,11 +236,11 @@ graph = (
     )
     >> finish
 ).graph()
-Execution(Step(graph, label="static selection")).run()
+Execution(Graph(structure=(graph).structure, label=("static selection"))).run()
 ```
 
 Each `Case(condition, component)` contains one complete boolean condition and a
-Step. To select a subgraph, pass `Step(child_graph, label="child")`.
+Leaf or Graph. A Graph is already a node; pass it directly.
 Declaration rendering retains every case; compilation requires exactly
 one true condition and produces `prepare → modern → finish`. Zero or multiple active
 cases are errors, not first-match precedence. `static` is the module namespace and
@@ -251,21 +251,21 @@ for subgraphs, boundaries, and direct declarations.
 ### Passing results to an action
 
 ```python
-from rivlet import Edge, Execution, Graph, Option, Results, Step, StepRunContext
+from rivlet import Graph, Leaf, Execution, Option, Results, NodeRunContext
 
-prepare = Step(lambda: print("prepare"))
-plan = Step(lambda: "implementation plan")
-review = Step(lambda: True)
+prepare = Leaf(lambda: print("prepare"))
+plan = Leaf(lambda: "implementation plan")
+review = Leaf(lambda: True)
 
 
 def implement(
-    ctx: StepRunContext, plan: Option[object], review: Option[object]
+    ctx: NodeRunContext, plan: Option[object], review: Option[object]
 ) -> None:
     ctx.control.require_running()
     print(plan.unwrap(), review.unwrap())
 
 
-work = Step(implement)
+work = Leaf(implement)
 graph = Graph.from_wiring(
     (
         prepare.wire(),
@@ -279,31 +279,34 @@ graph = Graph.from_wiring(
         ),
     )
 )
-Execution(Step(graph)).run()
+Execution(Graph(structure=(graph).structure)).run()
 ```
 
-`after` lists both kinds of prerequisite: a plain Step only waits for completion;
+`after` lists both kinds of prerequisite: a plain Node only waits for completion;
 `Results(plan, review)` also passes their results in that order. For direct construction,
 the equivalent edges are `Edge(prepare, work)` and `*Edge.results((plan, review), work)`.
 Skipped producers supply `Nothing()`; a successful `None` is `Some(None)`.
-Failed producers block the consumer. Result connections are currently graph-local;
-subgraph interface ports express readiness, not value transport.
+Failed producers block the consumer. Result edges can also use
+`producer.interface.outputs[name]` and `consumer.interface.inputs[name]` across
+subgraphs; see the complete [port result example](https://github.com/ririv/rivlet/blob/main/docs/interfaces.md#result-transport).
 
 ### Runtime conditions: decide from a step result
 
 ```python
-from rivlet import Graph, Execution, Option, Step
+from rivlet import Graph, Leaf, Execution, Option
 
 
 def should_process(result: Option[object]) -> bool:
     return result.unwrap() is True
 
 
-probe = Step(lambda: False, label="has work")
-process = Step(
-    lambda: print("process work"), label="process", condition=(should_process, probe)
+probe = Leaf(lambda: False, label=("has work"))
+process = Leaf(
+    lambda: print("process work"),
+    label=("process"),
+    condition=((should_process, probe)),
 )
-done = Step(lambda: print("workflow finished"), label="done")
+done = Leaf(lambda: print("workflow finished"), label=("done"))
 
 graph = Graph.from_wiring(
     (
@@ -311,9 +314,8 @@ graph = Graph.from_wiring(
         process.wire(),
         done.wire(after=(process,)),
     ),
-
 )
-Execution(Step(graph, label="runtime conditions")).run()
+Execution(Graph(structure=(graph).structure, label=("runtime conditions"))).run()
 ```
 
 `condition=(should_process, probe)` declares the result dependency and passes it as
@@ -326,22 +328,16 @@ returns `False`, `process` is skipped and `done` still runs. Return `True` to ru
 `Some(None)`. If a source may be skipped, inspect `is_some()` or `is_none()` before
 unwrapping. A predicate error blocks the affected task; it is not treated as false.
 
-For a subgraph, use the same runtime condition on `child_graph.step(condition=...)`.
+For a subgraph, pass the same condition to `Graph(structure, condition=...)`.
 
 ### Conditional edges: decide whether to wait
 
 ```python
-from rivlet import (
-    ConditionalPrerequisite,
-    Graph,
-    Execution,
-    Step,
-    ThreadRunOptions,
-)
+from rivlet import Graph, Leaf, ConditionalPrerequisite, Execution, ThreadRunOptions
 
-decision = Step(lambda: False, label="wait for checks")
-checks = Step(lambda: print("run checks"), label="checks")
-publish = Step(lambda: print("publish"), label="publish")
+decision = Leaf(lambda: False, label=("wait for checks"))
+checks = Leaf(lambda: print("run checks"), label=("checks"))
+publish = Leaf(lambda: print("publish"), label=("publish"))
 wait_for_checks = lambda result: result.unwrap() is True
 
 graph = Graph.from_wiring(
@@ -351,30 +347,34 @@ graph = Graph.from_wiring(
         publish.wire(
             after=(
                 ConditionalPrerequisite(
-                    checks, condition=(wait_for_checks, decision),
+                    checks,
+                    condition=(wait_for_checks, decision),
                 ),
             ),
         ),
     ),
-
 )
-Execution(Step(graph, label="conditional dependency")).run(ThreadRunOptions(workers=2))
+Execution(Graph(structure=(graph).structure, label=("conditional dependency"))).run(
+    ThreadRunOptions(workers=2)
+)
 ```
 
 `publish` waits for `decision`. If it returns `True`, `publish` also waits for
 `checks`; if it returns `False`, `checks` still runs, but publishing need not wait
 for it. Both tasks remain part of the overall run. To skip publishing itself,
-declare it with `Step(..., condition=...)` instead. Static edge conditions are available
+declare it with `Leaf(..., condition=...)` instead. Static edge conditions are available
 through `static.edge(source, target, condition=...)`.
 
 ## Export structure without running tasks
 
 ```python
 import json
-from rivlet import Graph, Execution, Step, export_graph
+from rivlet import Graph, Leaf, Execution, export_graph
 
-graph = (Step(lambda: None, label="prepare") >> Step(lambda: None, label="finish")).graph()
-execution = Execution(Step(graph))
+graph = (
+    Leaf(lambda: None, label=("prepare")) >> Leaf(lambda: None, label=("finish"))
+).graph()
+execution = Execution(Graph(structure=(graph).structure))
 declaration = export_graph(graph)
 compilation = execution.compile()
 compiled = export_graph(compilation)

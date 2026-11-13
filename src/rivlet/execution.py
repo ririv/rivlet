@@ -28,20 +28,20 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    from .events import StepEventSink
-    from .model import Graph, GraphMode, Step, StepPath
+    from .events import NodeEventSink
+    from .model import GraphMode, GraphStructure, Node, NodeKind, NodePath
     from .option import Some
 
 
 @dataclass(frozen=True, slots=True)
 class Execution:
-    """Bind one declared root Step to a single execution.
+    """Bind one declared root Node to a single execution.
 
-    根与内部 Step 使用相同的身份、条件和生命周期；根可承载 Graph、Leaf
+    根与内部 Node 使用相同的身份、条件和生命周期；根可承载 Graph、Leaf
     或原生图结构。这里只绑定运行状态，不重命名或替换声明。
 
     它持有：
-    - 根 Step 声明
+    - 根 Node 声明
     - 这次执行共享的 `ExecutionState`
     - 这次执行使用的 `ExecutionControl`
     - 调用方显式提供、由各 Python action 共享的业务对象
@@ -51,8 +51,8 @@ class Execution:
     - `run()`：按 dynamic / compiled 两种模式执行这次图实例
     """
 
-    root: Step
-    _declaration_graph: Graph = field(init=False, repr=False, compare=False)
+    root: NodeKind
+    _declaration_graph: GraphStructure = field(init=False, repr=False, compare=False)
     shared: object | None = field(default=None, kw_only=True, repr=False)
     execution_state: ExecutionState = field(default_factory=ExecutionState)
     execution_control: ExecutionControl = field(
@@ -60,10 +60,10 @@ class Execution:
     )
     action_log: ActionLog = NO_ACTION_LOG
     execution_output: ExecutionOutput = NO_EXECUTION_OUTPUT
-    step_log_paths: InitVar[Mapping[Step, Path] | None] = field(
+    node_log_paths: InitVar[Mapping[NodeKind, Path] | None] = field(
         default=None, kw_only=True
     )
-    events: InitVar[StepEventSink | None] = field(default=None, kw_only=True)
+    events: InitVar[NodeEventSink | None] = field(default=None, kw_only=True)
     _compilation: GraphCompilation | None = field(
         default=None, init=False, repr=False, compare=False
     )
@@ -81,16 +81,20 @@ class Execution:
         return self._compilation
 
     def __post_init__(
-        self, step_log_paths: Mapping[Step, Path] | None, events: StepEventSink | None
+        self,
+        node_log_paths: Mapping[NodeKind, Path] | None,
+        events: NodeEventSink | None,
     ) -> None:
-        from .model import Graph, Step
+        from .model import Graph, GraphStructure, Leaf
 
-        if not isinstance(self.root, Step):
-            raise TypeError("Execution requires a root Step")
-        # 根 Step 是唯一真实根节点。此 Graph 只是编译输入的结构作用域，
+        if not isinstance(self.root, (Leaf, Graph)):
+            raise TypeError("Execution requires a root Node")
+        # 根 Node 是唯一真实根节点。此 Graph 只是编译输入的结构作用域，
         # 不分配身份、不生成空 action，也不再次包装已有节点。
-        object.__setattr__(self, "_declaration_graph", Graph(steps=(self.root,)))
-        if not step_log_paths:
+        object.__setattr__(
+            self, "_declaration_graph", GraphStructure(nodes=(self.root,))
+        )
+        if not node_log_paths:
             if events is not None:
                 self.execution_state._initialize_execution_inputs({}, events)
             return
@@ -100,7 +104,7 @@ class Execution:
             self._require_unique_mounted_step_path(
                 step, mounted_step_paths=mounted_step_paths
             ): path
-            for step, path in step_log_paths.items()
+            for step, path in node_log_paths.items()
         }
         self.execution_state._initialize_execution_inputs(resolved, events)
 
@@ -119,7 +123,7 @@ class Execution:
                 object.__setattr__(self, "_compilation", compilation)
             return compilation
 
-    def require_result(self, step: Step) -> Some[object]:
+    def require_result(self, step: Node) -> Some[object]:
         """按声明 step 引用读取本次图挂载中的执行结果。"""
 
         results = self.execution_state.results
@@ -129,10 +133,10 @@ class Execution:
 
     def _require_unique_mounted_step_path(
         self,
-        step: Step,
+        step: Node,
         *,
-        mounted_step_paths: Mapping[Step, tuple[StepPath, ...]] | None = None,
-    ) -> StepPath:
+        mounted_step_paths: Mapping[Node, tuple[NodePath, ...]] | None = None,
+    ) -> NodePath:
         if mounted_step_paths is None:
             mounted_step_paths = self._index_mounted_step_paths()
         matches = mounted_step_paths.get(step)
@@ -144,19 +148,21 @@ class Execution:
             )
         return next(iter(matches))
 
-    def _index_mounted_step_paths(self) -> dict[Step, tuple[StepPath, ...]]:
-        from .model import Graph, step_paths_for_mount
+    def _index_mounted_step_paths(self) -> dict[Node, tuple[NodePath, ...]]:
+        from .model import Graph, GraphStructure, node_paths_for_mount
 
-        mounted_step_paths: dict[Step, list[StepPath]] = {}
+        mounted_step_paths: dict[Node, list[NodePath]] = {}
 
-        def _collect(graph: Graph, parent_step_path: StepPath | None) -> None:
-            for candidate, candidate_id in step_paths_for_mount(
+        def _collect(graph: GraphStructure, parent_node_path: NodePath | None) -> None:
+            for candidate, candidate_id in node_paths_for_mount(
                 graph,
-                parent_step_path=parent_step_path,
+                parent_node_path=parent_node_path,
             ).items():
                 mounted_step_paths.setdefault(candidate, []).append(candidate_id)
-                if isinstance(candidate.node, Graph):
-                    _collect(candidate.node, candidate_id)
+                if isinstance(candidate, Graph) and isinstance(
+                    candidate.structure, GraphStructure
+                ):
+                    _collect(candidate.structure, candidate_id)
 
         # V 为静态挂载中的 step 出现次数。一次批量绑定以 O(V) 时间和空间建立索引，
         # 随后的 K 次查找均为 O(1)，总复杂度为 O(V + K)，避免退化为 O(K * V)。
@@ -189,9 +195,9 @@ class Execution:
 
     @property
     def _root_label(self) -> str:
-        from .model import StepPath, resolve_step_label
+        from .model import NodePath, resolve_node_label
 
-        return resolve_step_label(self.root, StepPath((0,)))
+        return resolve_node_label(self.root, NodePath((0,)))
 
     def _compile_for_run(self, mode: GraphMode) -> GraphCompilation:
         self.execution_control.require_running()

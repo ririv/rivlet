@@ -15,13 +15,14 @@ from rivlet import (
     ExecutionState,
     Graph,
     GraphInterface,
+    GraphStructure,
+    Leaf,
+    NodeExecutionEvent,
+    NodeExecutionState,
+    NodeRunContext,
     Option,
     Results,
     ResultStore,
-    Step,
-    StepExecutionEvent,
-    StepExecutionState,
-    StepRunContext,
     ThreadRunOptions,
     resolve_port_requirements,
 )
@@ -59,18 +60,26 @@ change(-1)
     def python_action() -> None:
         subprocess.run(command, check=True, timeout=30)
 
-    def branch() -> Graph:
+    def branch() -> GraphStructure:
         native = _native_process_graph(
             [("process", command[0], command[1:], str(tmp_path), dict(os.environ))],
             [],
         )
-        return Graph(steps=(Step(native), Step(python_action), Step(python_action)))
+        return Graph(
+            structure=GraphStructure(
+                nodes=(
+                    Graph(structure=native),
+                    Leaf(python_action),
+                    Leaf(python_action),
+                )
+            )
+        ).structure
 
-    graph = Graph(steps=tuple(Step(branch) for _ in range(4)))
-    events: list[StepExecutionEvent] = []
+    graph = Graph(structure=GraphStructure(nodes=tuple(Leaf(branch) for _ in range(4))))
+    events: list[NodeExecutionEvent] = []
 
     class Sink:
-        def emit(self, event: StepExecutionEvent) -> None:
+        def emit(self, event: NodeExecutionEvent) -> None:
             events.append(event)
 
     with server:
@@ -79,7 +88,7 @@ change(-1)
         )
         thread.start()
         try:
-            Execution(Step(graph), events=Sink()).run(
+            Execution(Graph(structure=graph.structure), events=Sink()).run(
                 AsyncRunOptions(concurrency=2)
                 if asynchronous
                 else ThreadRunOptions(workers=2)
@@ -91,13 +100,13 @@ change(-1)
     assert state["active"] == 0
     assert 1 <= state["peak"] <= 2
     native_events = [
-        event for event in events if event.step_path.labels[-1] == "process"
+        event for event in events if event.node_path.labels[-1] == "process"
     ]
     assert (
-        sum(event.state is StepExecutionState.STARTED for event in native_events) == 4
+        sum(event.state is NodeExecutionState.STARTED for event in native_events) == 4
     )
     assert (
-        sum(event.state is StepExecutionState.COMPLETED for event in native_events) == 4
+        sum(event.state is NodeExecutionState.COMPLETED for event in native_events) == 4
     )
 
 
@@ -106,41 +115,48 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
     asynchronous,
 ) -> None:
     calls = []
-    prepared = Step(lambda: "prepared", label="prepared")
+    prepared = Leaf(lambda: "prepared", label=("prepared"))
     port = "ready"
 
-    def expand(_ctx: StepRunContext, result: Option[object]) -> Graph:
+    def expand(_ctx: NodeRunContext, result: Option[object]) -> GraphStructure:
         source = result.unwrap()
-        ready = Step(lambda: calls.append(source), label="ready")
+        ready = Leaf(lambda: calls.append(source), label=("ready"))
         provider = Graph(
-            steps=(ready,),
-            interface=GraphInterface(outputs={port: ready}),
-        ).step()
+            structure=GraphStructure(
+                nodes=(ready,), interface=GraphInterface(outputs={port: ready})
+            )
+        )
 
         def consume() -> None:
             assert calls == ["prepared"]
             calls.append("consumed")
 
-        use = Step(consume, label="consume")
+        use = Leaf(consume, label=("consume"))
         consumer = Graph(
-            steps=(use,),
-            interface=GraphInterface(inputs={port: use}),
-        ).step()
-        return Graph(
-            steps=(consumer, provider),
-            edges=resolve_port_requirements(
-                (provider, consumer),
-                (ExactProviderRequirement(consumer, provider, port),),
-            ),
+            structure=GraphStructure(
+                nodes=(use,), interface=GraphInterface(inputs={port: use})
+            )
         )
+        return Graph(
+            structure=GraphStructure(
+                nodes=(consumer, provider),
+                edges=resolve_port_requirements(
+                    (provider, consumer),
+                    (ExactProviderRequirement(consumer, provider, port),),
+                ),
+            )
+        ).structure
 
     graph = Graph.from_wiring(
         (
             prepared.wire(),
-            Step(expand, label="expand").wire(after=(Results(prepared),)),
+            Leaf(expand, label=("expand")).wire(after=(Results(prepared),)),
         )
     )
-    Execution(Step(graph), execution_state=ExecutionState(results=ResultStore())).run(
+    Execution(
+        Graph(structure=graph.structure),
+        execution_state=ExecutionState(results=ResultStore()),
+    ).run(
         AsyncRunOptions(concurrency=1) if asynchronous else ThreadRunOptions(workers=1)
     )
     assert calls == ["prepared", "consumed"]

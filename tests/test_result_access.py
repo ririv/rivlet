@@ -8,13 +8,13 @@ from rivlet import (
     Graph,
     GraphObservationEvent,
     GraphObservationMessages,
+    Leaf,
+    NodePath,
+    NodeRunContext,
     Option,
     Results,
     ResultStore,
     ResultView,
-    Step,
-    StepPath,
-    StepRunContext,
     ThreadRunOptions,
 )
 
@@ -22,28 +22,28 @@ from rivlet import (
 def test_result_view_is_live_and_preserves_none_results() -> None:
     store = ResultStore()
     view = store.view
-    step_path = StepPath((0,))
-    assert not view.has(step_path)
-    assert view.get(step_path) is None
+    node_path = NodePath((0,))
+    assert not view.has(node_path)
+    assert view.get(node_path) is None
 
-    store.record(step_path, None)
+    store.record(node_path, None)
     assert view is store.view
-    assert view.has(step_path)
-    assert view.require(step_path).value is None
+    assert view.has(node_path)
+    assert view.require(node_path).value is None
 
 
 def test_record_rejects_overwriting_an_existing_result() -> None:
     store = ResultStore()
-    step_path = StepPath((0,))
-    store.record(step_path, "first")
+    node_path = NodePath((0,))
+    store.record(node_path, "first")
     with pytest.raises(RuntimeError, match="step result already recorded"):
-        store.record(step_path, "second")
-    assert store.view.require(step_path).value == "first"
+        store.record(node_path, "second")
+    assert store.view.require(node_path).value == "first"
 
 
 def test_state_snapshot_keeps_its_result_records() -> None:
     state = ExecutionState(results=ResultStore())
-    first, second = StepPath((0,)), StepPath((1,))
+    first, second = NodePath((0,)), NodePath((1,))
     state.record_step(first, ("first",))
     state.record_result(first, "first")
     snapshot = state.snapshot()
@@ -60,13 +60,13 @@ def test_state_snapshot_keeps_its_result_records() -> None:
 def test_actions_receive_bound_results_and_observers_receive_read_only_view() -> None:
     state = ExecutionState(results=ResultStore())
     received: list[ResultView] = []
-    prepare = Step(lambda: "source")
+    prepare = Leaf(lambda: "source")
 
-    def consume(_ctx: StepRunContext, source: Option[object]) -> str:
+    def consume(_ctx: NodeRunContext, source: Option[object]) -> str:
         assert source.unwrap() == "source"
         return "output"
 
-    finish = Step(consume)
+    finish = Leaf(consume)
 
     class Observer:
         def emit(self, event: GraphObservationEvent) -> None:
@@ -77,11 +77,11 @@ def test_actions_receive_bound_results_and_observers_receive_read_only_view() ->
             assert result.value == "output"
 
     execution = Execution(
-        root=Step(
-            Graph.from_wiring(
+        root=Graph(
+            structure=Graph.from_wiring(
                 (prepare.wire(), finish.wire(after=(Results(prepare),))),
                 observation=GraphObservationMessages(after_success="done"),
-            )
+            ).structure
         ),
         execution_state=state,
     )

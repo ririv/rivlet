@@ -3,21 +3,25 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING
 
-from .._native import NativeGraph
+from .._native import NativeGraphStructure
 from ..errors import GraphError
+from ..interface import InputEndpoint, InputPort, OutputEndpoint, OutputPort
 from ..model import (
-    Graph,
+    Graph as GraphNode,
+)
+from ..model import (
+    GraphStructure,
     Leaf,
-    StepPath,
+    NodePath,
     _RuntimeCondition,
-    resolve_step_label,
-    step_paths_for_mount,
+    node_paths_for_mount,
+    resolve_node_label,
 )
 
 if TYPE_CHECKING:
-    from ..model import Step
+    from ..model import Node
     from .schema import (
         DeclarationDocument,
         EdgeDocument,
@@ -28,27 +32,27 @@ if TYPE_CHECKING:
     )
 
 
-def scope_id(owner: StepPath | None) -> str:
+def scope_id(owner: NodePath | None) -> str:
     return "graph:root" if owner is None else f"graph:{owner}"
 
 
-def edge_id(owner: StepPath | None, index: int) -> str:
+def edge_id(owner: NodePath | None, index: int) -> str:
     return f"{scope_id(owner)}/edge:{index}"
 
 
 @dataclass(slots=True)
 class Scope:
-    graph: Graph | NativeGraph
-    owner: StepPath | None
+    graph: GraphStructure | NativeGraphStructure
+    owner: NodePath | None
     label_path: tuple[str, ...]
-    ids: dict[Step, StepPath] = field(default_factory=dict)
-    descendants: dict[Step, list[StepPath]] = field(default_factory=dict)
+    ids: dict[Node, NodePath] = field(default_factory=dict)
+    descendants: dict[Node, list[NodePath]] = field(default_factory=dict)
 
     @property
     def id(self) -> str:
         return scope_id(self.owner)
 
-    def require_descendant(self, step: Step) -> str:
+    def require_descendant(self, step: Node) -> str:
         matches = self.descendants[step]
         if len(matches) != 1:
             raise GraphError("exported port must identify one mounted node")
@@ -64,6 +68,30 @@ class DeclarationIndex:
         default_factory=dict
     )
     edge_indexes: dict[str, int] = field(default_factory=dict)
+
+    def output_node(self, scope: Scope, endpoint: OutputEndpoint) -> str:
+        if isinstance(endpoint, OutputPort):
+            path = scope.descendants[endpoint.graph]
+            if len(path) != 1:
+                raise GraphError("exported port must identify one mounted graph node")
+            child = self.scopes[scope_id(path[0])]
+            assert isinstance(child.graph, GraphStructure)
+            return self.output_node(child, child.graph.interface.outputs[endpoint.name])
+        return scope.require_descendant(endpoint)
+
+    def input_nodes(self, scope: Scope, endpoint: InputEndpoint) -> list[str]:
+        if isinstance(endpoint, InputPort):
+            path = scope.descendants[endpoint.graph]
+            if len(path) != 1:
+                raise GraphError("exported port must identify one mounted graph node")
+            child = self.scopes[scope_id(path[0])]
+            assert isinstance(child.graph, GraphStructure)
+            return [
+                value
+                for target in child.graph.interface.inputs[endpoint.name]
+                for value in self.input_nodes(child, target)
+            ]
+        return [scope.require_descendant(endpoint)]
 
     def condition_id(self, target: str, condition: _RuntimeCondition) -> str:
         key = (target, condition)
@@ -81,9 +109,9 @@ class DeclarationIndex:
 
 
 def index_declaration(
-    graph: Graph,
+    graph: GraphStructure,
     *,
-    parent: StepPath | None = None,
+    parent: NodePath | None = None,
     label: str | None = None,
     label_path: tuple[str, ...] = (),
 ) -> DeclarationIndex:
@@ -105,15 +133,15 @@ def index_declaration(
     # V/E/P 为节点、边和端口引用数，L 为全部身份/标签路径长度。
     # 按挂载遍历并建立索引，时间/空间 O(V + E + P + L)；不按每条边重扫子图。
     def visit(
-        current: Graph | NativeGraph,
-        owner: StepPath | None,
+        current: GraphStructure | NativeGraphStructure,
+        owner: NodePath | None,
         path: tuple[str, ...],
         ancestors: tuple[Scope, ...],
     ) -> None:
         scope = Scope(current, owner, path)
         index.scopes[scope.id] = scope
-        if isinstance(current, Graph):
-            scope.ids = step_paths_for_mount(current, parent_step_path=owner)
+        if isinstance(current, GraphStructure):
+            scope.ids = node_paths_for_mount(current, parent_node_path=owner)
             scope_label = (
                 ("<structure>" if label is None else label)
                 if not ancestors
@@ -133,18 +161,18 @@ def index_declaration(
                 index.node_scopes[key] = scope
                 for ancestor in (*ancestors, scope):
                     ancestor.descendants.setdefault(step, []).append(identifier)
-                step_label = resolve_step_label(step, identifier)
+                step_label = resolve_node_label(step, identifier)
                 condition = (
                     None
                     if step.condition is None
                     else index.condition_id(key, step.condition)
                 )
-                action = step.node
+                action = step.structure if isinstance(step, GraphNode) else step
                 node: NodeDocument
-                if isinstance(action, (Graph, NativeGraph)):
+                if isinstance(action, (GraphStructure, NativeGraphStructure)):
                     node = {
                         "kind": "subgraph",
-                        "step_id": step.id.value,
+                        "node_id": step.id.value,
                         "id": key,
                         "graph": scope.id,
                         "label": step_label,
@@ -156,8 +184,8 @@ def index_declaration(
                     visit(action, identifier, (*path, step_label), (*ancestors, scope))
                 elif isinstance(action, Leaf):
                     node = {
-                        "kind": "step",
-                        "step_id": step.id.value,
+                        "kind": "leaf",
+                        "node_id": step.id.value,
                         "id": key,
                         "graph": scope.id,
                         "label": step_label,
@@ -167,25 +195,29 @@ def index_declaration(
                     }
                     document["nodes"].append(node)
                 else:
-                    assert_never(action)
+                    raise GraphError(f"unsupported node declaration: {type(action)!r}")
             for port_name, steps in current.interface.inputs.items():
                 port: InputPortDocument = {
                     "kind": "input",
                     "port": port_name,
-                    "nodes": [scope.require_descendant(step) for step in steps],
+                    "nodes": [
+                        value
+                        for step in steps
+                        for value in index.input_nodes(scope, step)
+                    ],
                 }
                 scope_document["ports"].append(port)
             for port_name, step in current.interface.outputs.items():
                 output: OutputPortDocument = {
                     "kind": "output",
                     "port": port_name,
-                    "node": scope.require_descendant(step),
+                    "node": index.output_node(scope, step),
                 }
                 scope_document["ports"].append(output)
         else:
             labels, arcs = current.structure()
             ids = [
-                owner.child(i) if owner is not None else StepPath((i,))
+                owner.child(i) if owner is not None else NodePath((i,))
                 for i in range(len(labels))
             ]
             document["graphs"].append(
@@ -199,14 +231,14 @@ def index_declaration(
                 }
             )
             for identifier, native_label, identity in zip(
-                ids, labels, current.step_ids(), strict=True
+                ids, labels, current.node_ids(), strict=True
             ):
                 index.node_scopes[str(identifier)] = scope
                 document["nodes"].append(
                     {
-                        "kind": "step",
+                        "kind": "leaf",
                         "id": str(identifier),
-                        "step_id": identity,
+                        "node_id": identity,
                         "graph": scope.id,
                         "label": native_label,
                         "label_path": [*path, native_label],
@@ -227,14 +259,14 @@ def index_declaration(
 
     visit(graph, parent, label_path, ())
     for scope in index.scopes.values():
-        if isinstance(scope.graph, Graph):
+        if isinstance(scope.graph, GraphStructure):
             _export_scope(index, scope)
     return index
 
 
 def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
     graph = scope.graph
-    assert isinstance(graph, Graph)
+    assert isinstance(graph, GraphStructure)
     document = index.document
     for i, edge in enumerate(graph.edges):
         source, target = str(scope.ids[edge.source]), str(scope.ids[edge.target])
@@ -250,12 +282,18 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
                 "target": target,
                 "argument_index": edge._result_index,
             }
+            if isinstance(edge.result_source, OutputPort):
+                item["source_port"] = edge.result_source.name
+                item["provider_node"] = index.output_node(scope, edge.result_source)
+            if isinstance(edge.result_target, InputPort):
+                item["target_port"] = edge.result_target.name
+                item["consumer_nodes"] = index.input_nodes(scope, edge.result_target)
         elif edge.ports is not None:
             provider = index.scopes[scope_id(scope.ids[edge.source])]
             consumer = index.scopes[scope_id(scope.ids[edge.target])]
             provider_graph, consumer_graph = provider.graph, consumer.graph
-            assert isinstance(provider_graph, Graph) and isinstance(
-                consumer_graph, Graph
+            assert isinstance(provider_graph, GraphStructure) and isinstance(
+                consumer_graph, GraphStructure
             )
             item = {
                 "kind": "port",
@@ -268,12 +306,13 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
                 "condition": None
                 if edge.condition is None
                 else index.condition_id(target, edge.condition),
-                "provider_node": provider.require_descendant(
-                    provider_graph.interface.outputs[edge.ports[0]]
+                "provider_node": index.output_node(
+                    provider, provider_graph.interface.outputs[edge.ports[0]]
                 ),
                 "consumer_nodes": [
-                    consumer.require_descendant(step)
+                    value
                     for step in consumer_graph.interface.inputs[edge.ports[1]]
+                    for value in index.input_nodes(consumer, step)
                 ],
             }
         elif edge.condition is not None:
@@ -314,7 +353,7 @@ def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
             {
                 "id": f"{scope.id}/selection:{i}",
                 "cases": [
-                    {"node": str(scope.ids[case.step]), "condition": case.condition}
+                    {"node": str(scope.ids[case.node]), "condition": case.condition}
                     for case in selection.cases
                 ],
             }

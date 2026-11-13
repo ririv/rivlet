@@ -2,642 +2,174 @@
 
 [English](../core_model.md) | 简体中文
 
-Graph 模块把声明、编译和执行分成独立阶段：
-
 ```text
-Graph / Step
-    ↓ compile_graph(...)
-GraphCompilation
-    ↓ Graph runtime
-ExecutionState
+Node（共同协议）
+├── Leaf：身份 + label + condition + callable
+└── Graph：身份 + label + condition + GraphStructure
+                                      ├── nodes: Leaf | Graph
+                                      ├── edges
+                                      └── 接口声明 / 静态规则
+                        ↓ Execution(root).compile()
+                   GraphCompilation
+                        ↓ run() / arun()
+                   ExecutionState
 ```
 
-声明层只表达结构，不保存某次执行的状态；内部身份只在图挂载时产生。
+不再有 Step 包装。Leaf/Graph 内部组合共同元信息，不继承 Node 的实现。Node 描述
+共同操作；`NodeKind = Leaf | Graph` 是结构和执行支持的封闭联合，仅实现外形相同
+的协议不会注册新的执行类型。旧包装的归属问题和选择理由见[建模讨论](./design/node-modeling.md)。
 
-## 模型包
-
-`rivlet.model` 仍是公开导入入口。实现按职责组织，不引入第二套声明类型：
-
-- `step.py`：Step 与挂载后的步骤身份。
-- `edge.py`：执行边、结果边和条件前置声明。
-- `graph.py`：图边界、接口、观察消息与静态声明。
-- `wiring.py`：接线输入、DSL 组合和归一化。
-- `condition.py`：轻量运行时判断及其来源绑定。
-- `leaf.py`：Python callable 的签名适配与调用约定。
-- `validation.py`：拓扑、结果绑定与挂载接口校验。
-- `__init__.py`：公开导出与跨模块联合类型；在真实类型加载后统一装配，避免重复定义。
-
-## 纯拓扑层
-
-`rivlet.topology` 提供不携带执行或领域行为的基础图结构：
-
-- `Arc[NodeT]`
-  - 一条从 `source` 指向 `target` 的有向边
-- `DirectedTopology[NodeT]`
-  - 只保存节点与有向边
-  - 允许存在环
-  - 提供前驱、后继和从根节点计算可达集合的端口
-- `DAGTopology[NodeT]`
-  - 组合一份 `DirectedTopology`
-  - 构造时完成无环校验
-  - 只有无环拓扑才能产生该类型
-
-这层不认识 `Step`、action、条件、port 或运行状态，是独立的 Python 通用拓扑 API。
-执行 `Graph` 的校验不经过它，而是将阻塞关系批量交给 Rust `dag_cycle`；Rust 编译器
-还会校验包含跨子图端口绑定的最终 DAG。两条路径的实现与复杂度见
-[拓扑复杂度](./topology_complexity.md)。
-
-## `Graph`
-
-位置：
-
-- [src/rivlet/model/graph.py](../../src/rivlet/model/graph.py)
-
-`Graph` 是声明态执行 DAG，包含：
-
-- `steps: tuple[Step, ...]`
-- `edges: tuple[GraphEdge, ...]`
-- `interface: GraphInterface`：统一持有输入和输出的只读映射；声明时也可传入
-  内部 Graph，显式转发它的完整接口。
-- `observation: GraphObservationMessages`
-- `static: tuple[StaticConditions, ...]`
-
-`Graph` 不负责执行，也不带 `run()`。
-
-Graph 不持有节点身份、label 或运行时条件。每次挂载由 Step 表达，
-名称与条件统一属于该 Step；匿名节点按实际挂载路径显示。
-
-显式接线只保存在 `Graph.edges` 中。规范化后的 `Graph` 不接受 `StepWiring`，
-Step 本身不保存执行或结果接线。`Edge.results()` 生成同时传递 action 结果的 Edge；
-条件直接声明自己的结果来源，不需要重复声明 action 结果边。
-
-## `Step`
-
-`Step` 是声明态执行节点，包含：
-
-- `label: str | None`
-- `node: Leaf | Graph | NativeGraph`
-- 构造参数 `condition: ConditionInput | None`，内部归一化为轻量条件声明
-
-`Step.id` 是声明身份；Step 不保存 `after`，接线属于 Graph。
+## 节点与可复用结构
 
 ```python
-prepare = Step(prepare_source, label="prepare")
-compile_step = Step(lambda: compile_source(flags), label="compile")
+from rivlet import Edge, Execution, Graph, GraphStructure, Leaf
+
+prepare = Leaf(lambda: print("prepare"), label="prepare")
+finish = Leaf(lambda: print("finish"), label="finish")
+body = GraphStructure(nodes=(prepare, finish), edges=(Edge(prepare, finish),))
+workflow = Graph(body, label="workflow", condition=lambda: True)
+Execution(workflow).run()
+
+left = Graph(body, label="left")
+right = Graph(body, label="right")
+two_runs = (left | right).graph(label="two runs")
 ```
 
-直接传入 callable 时，`Step` 会把它规范化为 `Leaf`。Graph core 和
-runtime 消费三种 action：
+GraphStructure 保存节点、边、GraphInterface 声明、观察消息、静态条件和选择；没有
+自身身份、label、运行时 condition 或状态。Graph 组合结构，通过 graph.interface
+暴露端口；Leaf 没有 interface 属性。Rust 的不透明结构 NativeGraphStructure 也用
+`Graph(native_structure, label="native")` 组合。
 
-- `Leaf`：执行叶子动作
-- `Graph`：保留显式 Python 子图边界
-- `NativeGraph`：挂载完整 Rust 原生子图，内部 action 由 Rust 执行
-
-同名 label 合法。声明期的 Step 身份是对象本身，因此：
-
-- 同一个 Step 不能在同一张 Graph 中挂载两次
-- 同一个 Step 可以在不同 Graph 中使用不同接线
-- 普通边与结果输入的跨图引用会在 Graph 构造时失败；跨子图同步使用端口
+共享结构时创建不同 Graph 节点。内部共享声明的身份不变，但每次挂载有自己的
+路径、结果和条件求值。同一结构不能重复放入同一节点。DSL 不会偷偷创建替身。
 
 ## 身份与展示
 
-当前模型严格区分身份与展示：
+- node.id: NodeId 由共用 Rust 计数器以 O(1) 分配，不持有全局声明注册表。
+- NodePath 是挂载位置，例如 0.1.0；segments、labels、parent 表达位置与展示。
+  labels 不参与相等判断和哈希。
+- label 可重复；未指定时显示数值路径。
+- Execution 的真实 Leaf/Graph 根在 0，子节点从 0.0 开始，不制造包装身份或空 action。
+- 声明 ID 不是持久业务 ID 或缓存 key。Rust 声明身份叫 NodeIdentity，低层拓扑中的
+  NodeId 则是整数索引，二者用途不同。
 
-- `Step` 对象引用
-  - 声明期引用
-  - 用于边、运行时条件读取和结果读取
-- `Step.id`
-  - 声明自身的 `StepId`，创建一次后保持不变
-  - 同一 Step 重复挂载时 ID 相同，不同声明分配不同 ID
-- `StepPath`
-  - Step 在一次具体挂载中的内部结构身份
-  - 由挂载位置生成，例如 `0`、`1`、`1.0`
-  - 供 compiler、runtime 和结果存储使用
-- `Step.label`
-  - 可选展示名
-Graph 不声明名称；`Step.label` 只用于展示，不承担身份语义。
-编译节点通过 `.id` 提供声明身份，通过 `.path` 提供挂载位置；编译引用只携带 `.path`。
-同一个声明可以对应多个挂载后的编译节点。
-
-未填写 Step label 时，编译阶段使用该挂载位置的 `StepPath` 作为展示名。
-因此匿名 lambda 可以保持无 label，不需要为了显示而伪造稳定身份。
-
-## 拓扑与接线
-
-规范化接线统一使用 Edge，其内部区分执行连接与结果连接：
+## 边、wire 与 DSL
 
 ```python
-type GraphEdge = Edge
+direct = Graph(GraphStructure(
+    nodes=(prepare, finish), edges=(Edge(prepare, finish),),
+))
+with_wire = Graph.from_wiring((prepare.wire(), finish.wire(after=(prepare,))))
+with_dsl = (prepare >> (left | right) >> finish).graph(label="pipeline")
 ```
 
-这些边引用真实 Step 对象：
-
-- `Edge(source, target)`
-- `Edge(source, target, condition=condition)`
-- `Edge(source, target, ports="ready")`
-- `Edge(source, target, ports=("sdk-ready", "toolchain-ready"), condition=condition)`
-- `Edge.results((first, second), target)`：生成一组 Edge，同时声明等待关系与结果参数顺序
-
-作者通常不需要直接构造边，可以使用 `Step.wire(...)`：
-
-```python
-prepare = Step(prepare_source, label="prepare")
-compile_step = Step(compile_source, label="compile")
-
-graph = Graph.from_wiring(
-    wiring=(
-        prepare.wire(),
-        compile_step.wire(after=(prepare,)),
-    )
-)
-```
-
-`StepWiring` 只是一份一次性接线输入。`Graph.from_wiring(...)` 会把它解析成
-`Graph.steps + Graph.edges`，之后不再保留包装器。
-
-条件 prerequisite 使用显式类型：
-
-```python
-archive.wire(
-    after=(
-        build,
-        ConditionalPrerequisite(
-            configure,
-            condition=cache_miss,
-        ),
-    )
-)
-```
-
-字符串不能引用 Step。声明图必须直接引用对象，避免 label 同名、重命名或子图作用域
-导致引用歧义。
-
-`Edge` 是解析完成后的跨子图端口边。端口接口、任意提供者需求、精确
-提供者需求和 compiled lowering 见 [interfaces.md](./interfaces.md)。
-
-## 组合 DSL
-
-Graph DSL 只保留两个运算符：
-
-```python
-A >> B
-# B 依赖 A
-
-A | B
-# A 与 B 并列，不增加依赖
-```
-
-它们返回 `GraphWiring`，需要显式物化成 Graph：
-
-```python
-graph = (
-    prepare
-    >> (compile_a | compile_b)
-    >> install
-).graph()
-```
-
-也可以直接把整个组合挂载为 Step：
-
-```python
-pipeline = (prepare >> child_graph >> cleanup).step(label="pipeline")
-```
-
-`.step(label=..., condition=...)` 严格等价于 `.graph().step(...)`，没有另一套执行路径。
-每次调用都创建新的外层 Step，内部已有 Step 保持不变。
-需要设置图的接口或 observation 时，显式使用 `.graph(...).step(...)`。
-
-组合规则是：
-
-- `A >> B`：A 的所有出口连接到 B 的所有入口
-- `A | B`：合并两侧步骤和边，不新增边
-- `A >> (B | C)`：fan-out
-- `(A | B) >> C`：fan-in
-
-这里的入口、出口是 wiring 的结构边界，不是 `GraphInterface` 的具名端口；
-`>>` 不会自动公开或绑定子图的端口接口。
-
-两侧可以是 `Step`、`Leaf`、`Graph` 或已有 `GraphWiring`。
-裸 Leaf／Graph 每出现一次，就归一化成一个新的匿名 Step；已有 Step 保留身份。
-Graph 按子图挂载，不展开成外层的步骤：
-
-```python
-pipeline = (prepare >> child_graph >> Leaf(cleanup)).graph()
-two_mounts = (child_graph | child_graph).graph()
-```
-
-`two_mounts` 的两次挂载共享结构，但拥有不同的 Step 身份。继续组合已归一化的
-GraphWiring 时，保留其中已有 Step，不重复包装。需要标签、条件，或需要在边与端口中
-引用具体挂载时，仍显式创建 Step：
-
-```python
-pipeline = (prepare >> Step(child_graph, label="child") >> install).graph()
-```
-
-DSL 不接受裸 callable，须先包装为 Leaf 或 Step；NativeGraph 仍显式包装为 Step。
-这些简写不改变 `Graph.steps`、显式接线与执行入口的类型，它们仍使用 Step。
-
-这样会保留 `child_graph` 的子图边界。Graph 也可以显式转换为 Step，并传递挂载参数：
-
-```python
-child_step = child_graph.step(
-    label="build",
-    condition=condition,
-)
-```
-
-`Graph.step()` 与 DSL 的自动包装使用同一套 Graph→Step 语义。
-
-## 编译时静态选择
-
-`static.select(cases=(Case(condition, component), ...))` 把全部分支保留在
-`Graph.static_selections` 中，返回 `GraphWiring`。每个分支接收一个完整静态布尔条件，
-编译时要求恰好一个条件成立，不按声明顺序决定优先级。此入口不需要 evaluator；
-DSL、直接 Graph 声明和端口边界见[图内静态选择](./static_selection.md)。
-Python 构图时已计算布尔条件，延迟到编译阶段的是唯一选择检查，而不是表达式求值。
-
-## 构图前静态选择
-
-`select_one()` 在 Graph 组装前从已求值的分支中要求恰好一个结果。它返回分支持有的
-原始值，不包装 Step，不创建子图，也不进入 Graph 拓扑：
-
-```python
-compiler: Step = select_one(
-    StaticBranch(active=use_clang, value=compile_with_clang),
-    StaticBranch(active=use_gcc, value=compile_with_gcc),
-)
-
-graph = (prepare >> compiler >> install).graph()
-```
-
-没有 active 分支或同时存在多个 active 分支都会失败。条件必须由宿主在调用前求值成
-`bool`；`select_one()` 不接收 `StaticCondition`，也不读取隐式请求上下文。
-
-如果候选值的创建需要延迟，应先选择构造函数，再只调用选中的函数：
-
-```python
-selected_graph = select_one(
-    StaticBranch(active=is_android, value=android_graph),
-    StaticBranch(active=is_ios, value=ios_graph),
-)()
-```
-
-这与 `Step.condition` 的语义不同：`Step.condition` 是执行图中一个节点的运行时启用条件；
-`select_one()` 是进入 Graph 之前的严格构图选择。
-
-## `Leaf`
-
-没有结果输入时，调用 `fn()` 或 `fn(ctx)`。两种形式都有效时固定使用零参，
-保留 `lambda value=value: ...` 这种闭包默认值。
-
-通过 `wire(after=(Results(producer, ...),))` 接入结果后，固定调用
-`fn(ctx, first_result, ...)`。每个结果是 `Option[object]`，构图时校验完整签名，
-不根据参数名或类型标注猜测调用方式。
-
-```python
-def compile_action(ctx: StepRunContext, source: Option[object]) -> None:
-    ctx.control.require_running()
-    compile_source(source.unwrap())
-
-
-prepare = Step(prepare_source)
-compile_step = Step(compile_action)
-graph = Graph.from_wiring(
-    (
-        prepare.wire(),
-        compile_step.wire(after=(Results(prepare),)),
-    )
-)
-```
-
-`step(action)` 从具名函数或 Graph 名称推导 label，不绑定业务参数，
-也不引入第二套执行协议。
-
-## 运行时返回子图
-
-Leaf 可以在运行时返回 Graph。runtime 会把返回值作为当前 Step 的显式子图
-编译成嵌套 execution session，交给本次执行的同一个驱动调度：
-
-```python
-def select_graph(ctx: StepRunContext, selected: Option[object]) -> Graph:
-    return graph_for(selected.unwrap())
-
-
-selection = Step(select_graph)
-graph = Graph.from_wiring(
-    (select_strategy.wire(), selection.wire(after=(Results(select_strategy),)))
-)
-```
-
-这个端口用于先读取运行时结果，再选择下一层结构。父 Step 等待子图整体完成后才完成；
-等待期间不占动作名额。线程执行的所有 Python 子图共用一个线程池，异步执行的所有
-子图共用调用方的事件循环。根图、动态子图和 Rust 原生 action 合计受同一
-`workers` / `concurrency` 上限约束；串行执行使用显式栈，不递归调用执行器。
-
-此上限计算正在执行的 Graph 叶子动作，不限制 action 自己启动的线程、子进程或模型
-请求数量。它保持已有的子图边界、结果引用、端口和失败传播规则，不会修改已经
-声明的图或允许任意向运行中的图插入节点。纯 Python session 不创建空的 Rust 线程池。
-
-## 条件
-
-条件分成两层：
-
-- `Step.condition`
-  - 控制 Step 本身是否参与执行
-- `Edge`
-  - 控制一条 prerequisite 是否成立
-
-Step.condition 和 Edge 接受零参判断函数，或扁平元组 `(predicate, source_step, ...)`。
-函数在前，后续每个元素是一个来源 Step；无条件时传 None。
-静态条件通过 `StaticConditions(evaluator=..., conditions=...)` 绑定节点或边，
-在编译阶段求值；直接构造与 DSL 写法见[条件 Step](./conditional_steps.md)。
-
-运行时条件把判断函数和来源 Step 声明在一起：
-
-```python
-condition=(lambda result: not bool(result.unwrap()), cache_probe)
-```
-
-这些引用参与调度、环检测和接线边界计算，不再产生重复的 action 结果边。
-action 参数仍通过 `wire(after=...)` 中的 `Results(...)` 独立声明。
-
-## `Execution`
-
-位置：
-
-- [src/rivlet/execution.py](../../src/rivlet/execution.py)
-
-`Execution` 把声明图绑定到一次执行：
-
-```python
-execution = Execution(
-    root=Step(graph),
-    execution_state=ExecutionState(),
-    execution_control=ExecutionControl(),
-)
-```
-
-它包含：
-
-- `root: Step`
-- `shared`：显式注入的业务共享对象
-- `execution_state: ExecutionState`
-- `execution_control: ExecutionControl`
-- `action_log: ActionLog`
-- `execution_output: ExecutionOutput`
-
-并提供：
-
-- `compile()`
-- `run(...)`
-- `await arun(...)`
-- `require_result(step)`
-
-执行名称、身份和运行时条件统一来自根 Step，不再由 Graph 保存第二份名称。
-`Execution` 只接受 Step；图结构通过 `Step(graph, label="pipeline")` 显式挂载。
-根路径为 `0`，直接子步骤为 `0.0`、`0.1`；匿名 Step 按实际挂载路径显示。
-根的条件、跳过、日志、生命周期与失败事件都遵循普通 Step 规则。
-编译器使用只包含根 Step 的结构作用域，不额外创建节点身份或空 action。
-底层 `compile_graph(graph, root_label=...)` 仍用于纯结构检查或运行时展开，
-不是接受裸 Graph 执行的兼容入口。根为 Graph 时只有复合生命周期，根为 Leaf 时直接执行动作。
-
-`ExecutionState` 只属于当前 Execution 的一次运行。`ExecutionControl`
-默认同样由 Execution 独享；宿主若需要把多个顺序 Execution 归入同一次停止控制，可以显式
-把同一实例传给它们，但不会因此合并两份执行结果。control 收到停止请求后不可
-恢复；需要新的执行作用域时必须创建新实例。
-
-`Execution` 本身不读取宿主的全局日志目录、日志上下文或停止状态。独立使用时，
-`action_log` 不接入宿主日志设施，`execution_output` 也不写外部文件；需要文件输出时，
-宿主显式传入 Graph 提供的 `TreeFileExecutionOutput(output_dir)`。
-
-已有事件循环的程序直接使用异步入口：
-
-```python
-state = await Execution(root=Step(graph)).arun(
-    AsyncRunOptions(concurrency=8),
-)
-```
-
-`arun()` 不创建嵌套事件循环；底层 `AsyncGraphExecutor.aexecute()` 同样可被等待。
-同步 `run(AsyncRunOptions(...))` 则在自己的事件循环中调用同一条异步执行路径。
-
-## `GraphCompilation`
-
-位置：
-
-- [src/rivlet/compile.py](../../src/rivlet/compile.py)
-
-Rust 编译路径会把声明期已知子图转换为统一执行结构：
-
-- 求值静态条件并裁剪未启用节点与边
-- 为挂载节点分配 `StepPath` 并解析展示 label
-- 把运行期条件和 端口连接 降级为执行依赖
-
-- `CompiledStep`
-  - 由 Python driver 执行的 Python 叶子
-- `CompiledNativeStep`
-  - 由 Rust worker 执行的原生叶子，action 保留在 Rust
-- `CompiledComposite`
-  - 子图边界的非执行生命周期投影
-- `roots`
-  - 根图直接拥有的 typed refs
-
-`CompiledComposite` 不执行 action，也不生成 no-op 节点。它保留：
-
-- 子图边界
-- 直接子节点
-- prerequisite
-- runtime `condition`
-- observation
-- 整体完成状态
-
-动态和编译路径使用同一批 `StepPath` 与声明作用域映射，因此结果读取语义一致。
+NodeWiring 是构造输入，不是执行包装。GraphStructure 保存归一化 Edge。`>>` 连接
+结构出口与入口，`|` 不加依赖；返回 GraphWiring，调用 graph(...) 得到真实 Graph。
+操作数是 Leaf、Graph 或 GraphWiring，不接受裸函数；没有 step() 物化入口。
+子图不自动展平；DSL 边界不是具名端口，不隐式转发或连接接口。
+
+边引用实际的局部节点，不用 label 查找。ConditionalPrerequisite 只决定是否等待，
+不跳过端点。跨图连接使用端口。Rust 解析真实端点后校验 DAG；组件级出现回连，
+不代表内部叶子一定形成循环。
 
 ## 结果与运行上下文
 
-`wire(after=(prepare, Results(plan, review)))` 把两类前置统一放在一处：
-普通 Step 只等待完成，Results 还把生产者的结果按顺序传给 action。
-两者都在图的接线处声明；Results 已包含等待关系，不必再把同一来源作为普通 Step 重复声明。
+```python
+from rivlet import NodeRunContext, Option, Results
 
-`Results(first, second)` 是不可变、可复用的来源声明，只保存 Step 引用，
-不保存实际结果，也不是另一种边；构造时至少需要一个来源。
-同一 `after` 中的多组 Results 按出现顺序组合成一个完整结果参数组，
-中间的普通 Step 不占用结果参数位置；它们不改变节点或边条件各自的输入。
-`Graph.from_wiring()` 将它归一化为 Edge，与直接构造完全相同：
+plan = Leaf(lambda: "plan")
+review = Leaf(lambda: True)
+
+def implement(ctx: NodeRunContext, plan: Option[object], review: Option[object]) -> None:
+    ctx.control.require_running()
+    print(plan.unwrap(), review.unwrap())
+
+work = Leaf(implement)
+root = Graph.from_wiring((
+    prepare.wire(), plan.wire(), review.wire(),
+    work.wire(after=(prepare, Results(plan, review))),
+))
+```
+
+普通前置只等待完成；Results 还按顺序传 Option。直接构造等价边使用
+Edge.results((plan, review), work)。一个 after 中多个 Results 按出现顺序拼成完整
+参数组；不要重复普通前置、切片丢边，或给同一 action 安装多个独立参数组。
+
+无输入时调用 fn() 或 fn(ctx)，两者都合法优先 fn()，保留默认参数闭包；有输入时
+固定调用 fn(ctx, result_a, ...)。标注不决定调用方式，执行前校验完整参数个数。
+
+跨图结果从实际 Graph 获取端口：
 
 ```python
-graph = Graph(
-    steps=(prepare, plan, review, work),
-    edges=(
-        Edge(prepare, work),
-        *Edge.results((plan, review), work),
-    ),
+from rivlet import GraphInterface
+
+producer = (plan | review).graph(
+    interface=GraphInterface(outputs={"plan": plan, "review": review}),
 )
+consumer = Graph(GraphStructure(
+    nodes=(work,), interface=GraphInterface(inputs={"apply": work}),
+))
+root = Graph(GraphStructure(
+    nodes=(producer, consumer),
+    edges=Edge.results(
+        (producer.interface.outputs["plan"], producer.interface.outputs["review"]),
+        consumer.interface.inputs["apply"],
+    ),
+))
 ```
 
-结果边已经包含等待生产者结束的约束；上例的 prepare 是额外的纯执行前置。
-输入顺序与重复来源均保留，不需要 receiver 或手写参数索引。
-每个目标只能接入一组完整结果边，不可切片或拼接多组独立绑定；构造 Graph 时校验函数参数数量。
-目标必须是当前图内的 Leaf 步骤。跨子图结果端口暂不支持，端口仍只表达就绪关系。
-节点条件和每条条件边通过 `condition=(predicate, source_step, ...)` 声明独立输入，
-不接收 ctx。复用函数或条件元组不会合并不同位置的求值，
-不同挂载之间也独立。不使用函数名查找，不增加端口包装类型。
+公开输入允许等待外层接线；最终编译拒绝未绑定输入、重复参数组和真实循环。
+端口引用在转发和复用时保留 Graph 归属，不使用 `(Step, "port")` 或额外 bind。
+见[接口](./interfaces.md)。
 
-结果绑定到当前挂载；同一子图重复挂载时不会串读其它挂载的结果。
-运行时返回的 Graph 可以通过闭包捕获声明动作已经收到的参数，不再通过祖先引用查结果。
-预先声明的 Graph-valued Step 没有接收参数的 callable；条件输入仍在 condition 中声明。
-需要把运行期值带入子图时，使用接收结果参数、返回 Graph 的 Python action。
+- Some(value) 表示成功返回，包括 Some(None)。
+- Nothing() 表示没有值，例如运行时跳过或无返回值的复合节点。
+- 来源失败会阻断消费者，不转换成 Nothing。
+- 静态裁掉必须读取的来源会编译失败。
+- 显式输入会在来源执行前启用结果记录。
 
-ResultStore 按 StepPath 将成功结果登记一次，包装为 Some(value)。
-显式结果边在生产者执行前自动开启记录。
-Nothing() 表示生产者已终态但没有结果，例如被跳过；
-Some(None) 表示正常执行并返回 None。生产者失败会阻断消费者，不转换成 Nothing。
-输入来源被静态裁剪时编译报错，不静默传入缺失值。
+ResultView 只有 get/require/has，没有写入。每个路径成功记录一次，快照不深拷贝
+payload，应将发布值视为不可变。NodeRunContext 只有 node_id、node_path、协作取消
+control 和 shared(ExpectedType)，没有结果查询、日志路径或 scope 索引后门。
+宿主可用 Execution.require_result(node)。共享对象显式传入 Execution，调用方负责
+同步与释放，共享本身不产生依赖。
 
-执行状态和观察器公开 ResultView，只提供 get/require/has，不提供 record。
-快照复制当时的记录，但值本身不深拷贝、不冻结。发布后的值应视为不可变；
-需要共同修改的数据使用显式共享状态。
+## 条件与选择
 
-StepRunContext 只提供 step_id、step_path、
-control 和 shared(Type)。不再提供结果查询、结果视图或作用域索引绕行入口。
-StepReadContext 与祖先结果引用已移除；执行外部的
-Execution.require_result 仍可用于查看结果。
+Leaf/Graph 接受相同 condition：无参 bool 判断函数，或扁平的
+`(predicate, source_node, ...)`，来源按 Option 传入，独立于 action 的 Results。
+为假跳过节点，Graph 为假则跳过整棵子树。边条件只移除等待。
+StaticConditions 聚合宿主 evaluator 与编译规则；裁剪不补连路径。
 
-`ctx.step_id` 等于声明的 `Step.id`。Python 与原生声明共用 Rust 的进程内计数器，
-不从标签、路径或函数哈希推导身份；不保证跨进程重启稳定，不进入缓存键。
-分配时间 O(1)，不保留全局声明对象注册表。
+static.select 保留 Case(bool, node) 候选，编译时恰好一个为真；select_one 在构图
+前选择普通对象。二者均不延迟未选 Python 对象的构造。详见[节点条件](./conditional_steps.md)、
+[条件边](./conditional_edges.md)和[静态选择](./static_selection.md)。
 
-`ctx.step_path.segments` 是完整挂载路径，例如 `(1, 0)`，字符串形式为 `1.0`。
-`ctx.step_path.labels` 是展示标签，例如 `("stage", "configure")`；
-`parent` 返回携带父级标签的路径，根图中的步骤没有父级路径，返回 None。
-独立构造数值路径时默认按各段数值显示，编译时显式绑定真实挂载标签快照。
-标签不参与相等、排序和哈希；不再提供独立的 `ctx.label_path` 或 `ctx.graph_label_path`。
-同一声明重复挂载时 step_id 相同，但 step_path、结果、执行状态和事件位置各自独立。
+## 构图前静态选择
 
-StepControl 仅提供协作停止检查，不能跳过其他步骤；流程中的可选步骤使用节点条件声明。
-手动跳过仍由宿主通过 `execution.execution_state.request_skip(step_path)` 请求。
+select_one 接收 StaticBranch(active=bool, value=...)，返回原始选中值，要求恰好
+一个为真。若不想构造未选声明，先选工厂再调用；图内 static.select 则保留全部已
+构造候选。两者都不把声明顺序当作优先级。
 
-长任务应在自己的循环和外部调用之间协作检查停止状态：
+## 执行与编译
 
-```python
-async def task(ctx: StepRunContext) -> None:
-    for item in items:
-        ctx.control.require_running()
-        await process_item(item)
-```
+Execution 接受 Leaf/Graph；首次成功编译由 compile/run/arun 复用，重新求静态规则
+需新建 Execution。State 单次使用。各驱动共用 Rust 编译和调度，动态子图共享并发
+预算。GraphCompilation 包含 Python 叶子、原生叶子和复合生命周期，不是空任务。
+低层 compile_graph 接收 GraphStructure，用于结构检查或展开。
 
-宿主通过 `execution.execution_control.request_stop()` 发起停止，也可以取消正在等待
-`arun()` 的 asyncio task。驱动会停止派发新动作，并等待已经启动的动作清理退出；
-不会强杀 Python 函数或自动回滚副作用。action 若一直不检查停止状态，仍须等它自行
-结束。停止处理器在锁外执行，停止后才注册的处理器也会立即执行；多个处理器报错时
-全部调用后聚合异常。
+action 返回 GraphStructure 时在当前节点下直接展开结构；返回 Graph 时挂载真实
+图节点，保留身份、label、condition 和边界。不允许任意修改运行中的声明；结果
+仍按挂载局部绑定。见[执行语义](./execution.md)、[事件](./failure_events.md)。
 
-日志路径在构造执行对象时声明：
+日志在 Execution(root, node_log_paths={node: path}) 构造时绑定，引用必须唯一。
+V 个节点、K 项绑定批量解析为 O(V+K)，空映射不遍历。叶子继承最近祖先绑定；
+ActionLog 负责路由，action 不能修改。观察器与事件接收器显式注入，未启用不构造
+payload。状态提交后同步发事件；发送失败停止执行，不改写已完成工作。事件不是
+持久化、消息协议或恢复系统。
 
-```python
-execution = Execution(root=Step(graph), step_log_paths={step: log_path})
-```
+## 纯拓扑与原生结构
 
-日志路径属于执行设施，不属于 action 的输入；StepRunContext 不再公开 step_log_path。
-执行器解析当前步骤的直接绑定或继承路径，再在内部传给日志作用域、异常记录与动态子图。
-实际日志路由仍由宿主的 ActionLog 适配器负责，绑定与继承规则不变。
-
-构造器对完整图一次性解析全部 Step 引用并保存路径快照；每个引用必须对应唯一的挂载
-位置，不再提供构造后的绑定 API。V 个挂载步骤、K 个绑定的处理时间和空间均为
-O(V + K)；没有绑定时不遍历图。
-叶子动作直接使用自己的绑定；未声明时沿用最近的已绑定祖先路径。静态子图和 action
-动态返回的子图也沿用所属步骤的路径；action 不提供运行时修改绑定的入口。
-
-## 执行级共享状态
-
-`Execution(shared=...)` 接收调用方显式构造的业务对象，各 Python action 通过
-`ctx.shared(ExpectedType)` 取得同一个对象。此入口返回确定的类型，并在类型不符或未
-提供共享对象时明确报错；不创建默认字典，也不按类型查找或创建其他实例。
-
-```python
-from dataclasses import dataclass, field
-from threading import Lock
-
-from rivlet import Execution, Step, StepRunContext, ThreadRunOptions
-
-
-@dataclass
-class Progress:
-    completed: int = 0
-    lock: Lock = field(default_factory=Lock)
-
-    def advance(self) -> None:
-        with self.lock:
-            self.completed += 1
-
-
-def task(ctx: StepRunContext) -> None:
-    progress = ctx.shared(Progress)
-    progress.advance()
-
-
-graph = (Step(task) >> Step(task)).graph()
-progress = Progress()
-Execution(root=Step(graph), shared=progress).run(ThreadRunOptions(workers=2))
-assert progress.completed == 2
-```
-
-共享对象绑定到执行入口，不进入 `Graph` 声明、`ExecutionState`、结果 store 或
-执行快照。静态子图和 action 动态返回的子图沿用同一引用；每个 action 只增加 O(1)
-引用传递，不复制对象。直接使用串行、线程或异步执行器时，同样可以传 `shared=`。
-
-对象的锁、资源释放和使用寿命由调用方负责；多种共享端口可以组合进一个有类型的
-对象。多次执行若需要隔离，应分别构造共享对象；显式复用同一实例就表示共享。
-共享状态不产生调度依赖，读取若必须等待写入完成，仍须声明边。动态条件只接收只读
-Option 参数，不会因此获得共享状态。此接口不把 Python 对象投影给 Rust 原生 action。
-
-## Observation 与执行状态
-
-`GraphObservationMessages` 只保存只读展示消息：
-
-- `before`
-- `after_success`
-
-runtime 通过外部注入的 `GraphObserver` 发出 `GraphObservationEvent`。observer 用于
-trace、timing 和展示，不修改执行结果，也不替代显式 Step。
-
-需要跟踪步骤状态时，显式订阅独立的执行事件：
-
-```python
-from rivlet import Execution, StepExecutionEvent
-
-
-class Events:
-    def emit(self, event: StepExecutionEvent) -> None:
-        print(event.step_id, event.step_path, event.step_path.labels, event.state)
-
-
-execution = Execution(root=Step(graph), events=Events())
-execution.run()
-```
-
-`StepExecutionState` 有 `STARTED`、`COMPLETED`、`FAILED`、`BLOCKED`、`SKIPPED`。
-状态已提交后才通知；静态子图、动态子图、Python 和原生步骤都使用挂载后的身份与
-标签路径。组合边界的开始/完成事件不占动作名额，也不依赖 dynamic/compiled 展示模式。
-被阻塞或跳过的节点不会先收到开始事件。
-
-`event.state_detail` 保存生命周期状态或和类型表达的直接失败／阻断原因，`.state`
-从这一份事实派生，表示这次事件的状态，不是实时状态快照。
-子图、条件、端口边、身份及构造规则见[失败事件](./failure_events.md)。
-
-事件回调同步、串行执行，但线程不固定，不保证在协调线程，应保持短小，耗时会计入
-执行时间。回调报错抛出
-`EventDeliveryError` 并停止执行；不会把已经完成的 Step 重新标成失败。
-未配置 `events` 时不构造事件、标签索引或消息文本，也不复制结果表。事件只描述运行
-状态，不负责消息传递、持久化或从历史状态恢复。
-
-`ExecutionState` 只服务一次执行，记录：
-
-- 已执行和已完成的 StepPath
-- 已进入和已完成的 composite
-- skip 状态
-- failed / blocked 状态与节点失败记录
-- runtime condition 结果
-- 可选 `ResultStore`
-
-同一个状态不能用于第二次 run，也不提供 reset 或兜底恢复语义。
+DirectedTopology 允许环，DAGTopology 校验无环；它们不含 action、端口或状态。
+见[拓扑复杂度](./topology_complexity.md)。Rust adapter 暴露 NativeGraphStructure，
+action 留在 Rust，共用一个编译图。见[原生图](./native-graphs.md)。

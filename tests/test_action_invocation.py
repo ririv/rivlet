@@ -12,16 +12,17 @@ from rivlet import (
     ExecutionControl,
     ExecutionState,
     Graph,
+    GraphStructure,
+    Leaf,
+    NodePath,
     ResultStore,
     SerialGraphExecutor,
-    Step,
-    StepPath,
 )
 from rivlet.runtime import ParallelGraphExecutor
 
 
 def _execute(graph: Graph, workers: int) -> ResultStore:
-    compilation = Execution(root=Step(graph)).compile()
+    compilation = Execution(root=Graph(structure=graph.structure)).compile()
     results = ResultStore()
     state = ExecutionState(results=results)
     if workers == 0:
@@ -43,16 +44,18 @@ def test_sync_actions_and_returned_graph_do_not_create_event_loop(
     monkeypatch.setattr(asyncio, "run", unexpected_loop)
     calls: list[str] = []
 
-    def make_graph() -> Graph:
+    def make_graph() -> GraphStructure:
         calls.append("declare")
-        return Graph(steps=(Step(lambda: calls.append("nested")),))
+        return Graph(
+            structure=GraphStructure(nodes=(Leaf(lambda: calls.append("nested")),))
+        ).structure
 
-    steps = (Step(lambda: 42), Step(lambda: None), Step(make_graph))
-    results = _execute(Graph(steps=steps), workers)
+    steps = (Leaf(lambda: 42), Leaf(lambda: None), Leaf(make_graph))
+    results = _execute(Graph(structure=GraphStructure(nodes=steps)), workers)
     assert calls == ["declare", "nested"]
     assert (
         results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
@@ -63,7 +66,7 @@ def test_sync_actions_and_returned_graph_do_not_create_event_loop(
     )
     assert (
         results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     1,
@@ -74,7 +77,7 @@ def test_sync_actions_and_returned_graph_do_not_create_event_loop(
     )
     assert (
         results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     2,
@@ -114,11 +117,11 @@ def test_awaitable_results_remain_supported(
         case "awaitable":
             action = Result
 
-    results = _execute(Graph(steps=(Step(action),)), workers)
+    results = _execute(Graph(structure=GraphStructure(nodes=(Leaf(action),))), workers)
     assert calls == ["started", "finished"]
     assert (
         results.require(
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
@@ -145,6 +148,6 @@ def test_awaitable_keeps_action_context_and_propagates_error(workers: int) -> No
     token = marker.set("outside")
     try:
         with pytest.raises(RuntimeError, match="action failed"):
-            _execute(Graph(steps=(Step(action),)), workers)
+            _execute(Graph(structure=GraphStructure(nodes=(Leaf(action),))), workers)
     finally:
         marker.reset(token)

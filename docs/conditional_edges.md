@@ -19,7 +19,7 @@ target.wire(
 
 Graph.from_wiring normalizes this into an Edge. No hidden hook or runtime
 topology mutation is involved. Explicit skip requests remain available to the host,
-not through StepRunContext.control. Structural optional dependencies should be
+not through NodeRunContext.control. Structural optional dependencies should be
 visible in the graph rather than hidden inside action side effects.
 
 ## Two kinds of conditions
@@ -75,27 +75,33 @@ StaticConditions requires an explicit evaluator.
 ### A static-edge example
 
 Suppose archive must wait for an Android environment shim only on Android.
-This example intentionally controls only the dependency; the shim Step stays enabled.
+This example intentionally controls only the dependency; the shim Node stays enabled.
 
 ```python
-build = Step(build_archive_input, label="build")
-write_android_env_shim = Step(write_shim, label="write_android_env_shim")
-archive = Step(create_archive, label="archive")
+build = Leaf(build_archive_input, label=("build"))
+write_android_env_shim = Leaf(write_shim, label=("write_android_env_shim"))
+archive = Leaf(create_archive, label=("archive"))
 
 condition = StaticCondition(
     payload=AndroidOnlyPayload(),
     description="target_os(android)",
 )
 graph = Graph(
-    steps=(build, write_android_env_shim, archive),
-    edges=(
-        Edge(source=build, target=archive),
-        Edge(source=write_android_env_shim, target=archive),
-    ),
-    static=StaticConditions(
-        evaluator=evaluate_target_condition,
-        conditions={(write_android_env_shim, archive): condition},
-    ),
+    structure=GraphStructure(
+        nodes=((build, write_android_env_shim, archive)),
+        edges=(
+            (
+                Edge(source=build, target=archive),
+                Edge(source=write_android_env_shim, target=archive),
+            )
+        ),
+        static=(
+            StaticConditions(
+                evaluator=evaluate_target_condition,
+                conditions={(write_android_env_shim, archive): condition},
+            )
+        ),
+    )
 )
 ```
 
@@ -114,7 +120,7 @@ write_android_env_shim       (still runs independently)
 ```
 
 A true static edge becomes an ordinary dependency; a false one disappears.
-Removing an edge does not disable its source Step. Use a static node rule to disable the
+Removing an edge does not disable its source Node. Use a static node rule to disable the
 source as well. Payload types, evaluator functions, and actions in this example
 belong to the host.
 
@@ -128,19 +134,19 @@ graph = static.edge(checks, build, condition=wait_for_checks).graph()
 This returns ordinary GraphWiring without gate Steps. Unlike static.when, false
 removes only the edge; checks and build remain. Composed StaticConditions retain
 their own evaluators. Duplicate rules for one target are rejected, never overridden.
-The DSL does not automatically merge repeated Step objects.
+The DSL does not automatically merge repeated Node objects.
 
 ## Runtime conditions
 
 Runtime conditions are evaluated during execution, often from a cache probe or
-other Step result. Their public input forms are:
+other Node result. Their public input forms are:
 
 ```python
-condition=lambda: True
-condition=(lambda result: result.unwrap() is True, probe)
+condition = lambda: True
+condition = (lambda result: result.unwrap() is True, probe)
 ```
 
-The predicate receives one `Option[object]` per source Step, in tuple order.
+The predicate receives one `Option[object]` per source Node, in tuple order.
 Graph resolves the results in the current mount; no context lookup is required.
 See [result inputs](./conditional_steps.md#result-inputs) for absence and unwrapping.
 
@@ -156,10 +162,10 @@ Conditions bind their inputs at the point of use. Action arguments remain in
 and individual edge conditions may read different sources without receiver lookup.
 
 ```python
-permission = Step(lambda: True)
-design = Step(lambda: "implement login")
-environment_check = Step(lambda: True)
-prepare = Step(lambda: print("prepare environment"))
+permission = Leaf(lambda: True)
+design = Leaf(lambda: "implement login")
+environment_check = Leaf(lambda: True)
+prepare = Leaf(lambda: print("prepare environment"))
 
 prepare_dependency = ConditionalPrerequisite(
     prepare,
@@ -168,11 +174,13 @@ prepare_dependency = ConditionalPrerequisite(
         environment_check,
     ),
 )
-implementation = Step(
+implementation = Leaf(
     lambda ctx, plan: print(plan.unwrap()),
     condition=(
-        lambda result: result.is_some() and result.unwrap() is True,
-        permission,
+        (
+            lambda result: result.is_some() and result.unwrap() is True,
+            permission,
+        )
     ),
 )
 graph = Graph.from_wiring(
@@ -203,12 +211,12 @@ The session sees ordinary dependencies, ConditionId values, inputs, and compiled
 conditional prerequisites. Python predicates remain in adapter side tables.
 StaticCondition objects do not enter the runtime evaluation protocol.
 
-Conceptually, a compiled Step's after list can contain:
+Conceptually, a compiled Node's after list can contain:
 
 ```text
-CompiledStepRef(probe)
+CompiledLeafRef(probe)
 CompiledConditionalDependency(
-    node=CompiledStepRef(configure),
+    node=CompiledLeafRef(configure),
     condition=CompiledRuntimeCondition(inputs=(probe,), when=predicate),
 )
 ```

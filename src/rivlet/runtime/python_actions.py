@@ -5,11 +5,10 @@ import traceback
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..compile import CompiledStep, GraphCompilation, compile_graph
-from ..model import Graph
+from ..compile import CompiledPythonLeaf, GraphCompilation, compile_graph
 from ..observe import GraphObservationPhase
 from ..option import Nothing, Option
-from .executor_common import emit_graph_observation
+from .executor_common import as_graph_result, emit_graph_observation
 from .run import CompiledGraphRun, RuntimeStep
 from .session_tree import (
     DynamicSubgraph,
@@ -24,7 +23,7 @@ if TYPE_CHECKING:
 
     from ..model import Leaf
     from ..observe import GraphObserver
-    from ..results import StepRunContext
+    from ..results import NodeRunContext
     from .action_log import ActionLog
     from .control import ExecutionControl
     from .state import ExecutionState
@@ -43,7 +42,7 @@ class PythonActionRuntime:
     invoke: Callable[
         [
             Leaf,
-            StepRunContext,
+            NodeRunContext,
             Path | None,
             ActionLog,
             tuple[Option[object], ...],
@@ -90,14 +89,16 @@ class PythonActionRuntime:
             phase=GraphObservationPhase.AFTER_SUCCESS,
         )
 
-    def _run_step(self, run: CompiledGraphRun, step: CompiledStep) -> LeafInvocation:
+    def _run_step(
+        self, run: CompiledGraphRun, step: CompiledPythonLeaf
+    ) -> LeafInvocation:
         self.control.require_running()
         context = step.context
         self.state.record_step(step.path, step.path.labels)
         runtime_step = RuntimeStep(
             step,
             step.path.labels,
-            context.graph_step_paths,
+            context.graph_node_paths,
             context.ancestor_graph_scopes,
         )
         ctx = run.make_run_context(
@@ -132,7 +133,7 @@ class PythonActionRuntime:
     async def _await_step(
         self,
         run: CompiledGraphRun,
-        step: CompiledStep,
+        step: CompiledPythonLeaf,
         step_log_path: Path | None,
         value: Awaitable[object],
     ) -> LeafOutcome:
@@ -145,19 +146,20 @@ class PythonActionRuntime:
     def _finish_step(
         self,
         run: CompiledGraphRun,
-        step: CompiledStep,
+        step: CompiledPythonLeaf,
         step_log_path: Path | None,
         value: object,
     ) -> LeafOutcome:
-        if isinstance(value, Graph):
+        expansion = as_graph_result(value)
+        if expansion is not None:
             compilation = compile_graph(
-                value,
+                expansion,
                 root_label=step.path.labels[-1],
-                parent_step_path=step.path,
+                parent_node_path=step.path,
                 root_label_path=step.path.labels,
                 ancestor_graph_scopes=(
                     run.child_graph_scope(
-                        step, graph_step_paths=step.context.graph_step_paths
+                        step, graph_node_paths=step.context.graph_node_paths
                     ),
                     *step.context.ancestor_graph_scopes,
                 ),

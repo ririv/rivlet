@@ -1,4 +1,4 @@
-# Step overhead benchmark
+# Node overhead benchmark
 
 English | [简体中文](./zh-CN/step_overhead_benchmark.md)
 
@@ -31,7 +31,7 @@ settings remain unchanged.
 
 | Phase | Before | After |
 | --- | ---: | ---: |
-| Graph and Step declaration | 5.65 ms | 5.82 ms |
+| Graph and Node declaration | 5.65 ms | 5.82 ms |
 | Compilation | 8.69 ms | 9.04 ms |
 | Serial reference driver | 227.21 ms | 16.99 ms |
 | Thread driver, 1 worker | 272.10 ms | 51.93 ms |

@@ -43,7 +43,7 @@ the ordering.
 
 For one Graph level, let:
 
-- V be its Step count.
+- V be its Node count.
 - E be its ordinary, conditional and result edge count.
 - A be the deduplicated local blocking-arc count, with A ≤ E.
 
@@ -88,10 +88,16 @@ become a local blocking arc between composites. The real dependency is from an
 internal provider output to an internal consumer input, located and lowered during
 compilation.
 
-Interface ownership checks traverse mounted Python subgraphs once, index Step
+Interface ownership checks traverse mounted Python subgraphs once, index Node
 mount counts, and validate references. For M mounted nodes and R port references,
 this costs O(M + R) time and O(M) space. M is not merely the local V above.
 Ambiguous multiply mounted references are errors.
+
+The Rust collector indexes descendant references only for scopes declaring ports.
+Let H count mounted-node/port-bearing-ancestor pairs. Building the index takes
+O(H) time/space; lookup is O(1) on average plus explicit forwarding depth. The
+worst case is bounded by all mounted path lengths. Port-free graphs do not build
+this extra descendant index; P ports do not each rescan all V nodes.
 
 The Rust compiler validates the complete DAG, including known subgraphs,
 composite dependencies, inputs, and lowered port connections. For N final nodes
@@ -112,7 +118,7 @@ time is O(G + V), auxiliary space O(G + C). The previous per-graph scan of every
 was O(G × V) in the worst case.
 
 After validation and reachability, compilation chooses its path from the complete
-declaration, not from the root Python Graph.static field:
+declaration, not from the root Python GraphStructure.static field:
 
 - If all scopes are reachable, all nodes are active, and all runtime conditions are
   used, IDs stay unchanged. Conditions and port connections move directly into
@@ -159,7 +165,7 @@ GraphWiring.entries and exits are structural DSL boundaries, not named port
 ports or a separately stored topology.
 
 Each calculation reads explicit ordinary, conditional and result edges, and the
-Step order used to return deterministic boundaries. Time is O(V + E) and
+Node order used to return deterministic boundaries. Time is O(V + E) and
 auxiliary space O(V).
 
 Entries and exits are independent properties, so reading both calculates both.
@@ -176,5 +182,5 @@ mean exactly one loop.
 
 Historical measurements are recorded in the
 [recipe-scale benchmark](./recipe_scale_benchmark.md) and
-[Step overhead benchmark](./step_overhead_benchmark.md), with their own dates and
+[Node overhead benchmark](./step_overhead_benchmark.md), with their own dates and
 workload boundaries.

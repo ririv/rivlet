@@ -18,9 +18,10 @@ from rivlet import (
     Graph,
     GraphInterface,
     GraphNodeFailure,
+    GraphStructure,
+    Leaf,
+    NodePath,
     SerialGraphExecutor,
-    Step,
-    StepPath,
     ThreadRunOptions,
     render_execution,
     render_live_execution,
@@ -33,14 +34,18 @@ from rivlet._native import _native_process_graph
 def execute(request):
     def run(graph: Graph, state: ExecutionState) -> None:
         if request.param == "serial":
-            SerialGraphExecutor(state).execute(Execution(Step(graph)).compile())
+            SerialGraphExecutor(state).execute(
+                Execution(Graph(structure=graph.structure)).compile()
+            )
         else:
             options = (
                 ThreadRunOptions(workers=1)
                 if request.param == "thread"
                 else AsyncRunOptions(concurrency=1)
             )
-            Execution(root=Step(graph), execution_state=state).run(options)
+            Execution(root=Graph(structure=graph.structure), execution_state=state).run(
+                options
+            )
 
     return run
 
@@ -51,10 +56,10 @@ def fail() -> None:
 
 def test_failure_blocks_only_downstream_and_renders_terminal_states(execute):
     calls = []
-    failed = Step(fail, label="failed")
-    blocked = Step(lambda: calls.append("blocked"), label="blocked")
-    good = Step(lambda: calls.append("good"), label="good")
-    later = Step(lambda: calls.append("later"), label="later")
+    failed = Leaf(fail, label=("failed"))
+    blocked = Leaf(lambda: calls.append("blocked"), label=("blocked"))
+    good = Leaf(lambda: calls.append("good"), label=("good"))
+    later = Leaf(lambda: calls.append("later"), label=("later"))
     graph = Graph.from_wiring(
         (
             failed.wire(),
@@ -68,14 +73,14 @@ def test_failure_blocks_only_downstream_and_renders_terminal_states(execute):
         execute(graph, state)
     assert calls == ["good", "later"]
     assert state.node_failures == {
-        StepPath((0,)): GraphNodeFailure.FAILED,
-        StepPath(
+        NodePath((0,)): GraphNodeFailure.FAILED,
+        NodePath(
             (
                 0,
                 0,
             )
         ): GraphNodeFailure.FAILED,
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
@@ -84,13 +89,13 @@ def test_failure_blocks_only_downstream_and_renders_terminal_states(execute):
     }
     assert state.skipped_steps == set()
     rendered = render_execution(
-        Step(graph, label="root"),
+        Graph(structure=graph.structure, label="root"),
         state,
     )
     assert "failed [failed]" in rendered
     assert "blocked [blocked]" in rendered
     assert "remaining=0" in render_live_execution(
-        Step(graph, label="root"),
+        Graph(structure=graph.structure, label="root"),
         state,
     )
 
@@ -99,7 +104,11 @@ def test_multiple_independent_errors_are_reported_together(execute):
     def other() -> None:
         raise LookupError("other failed")
 
-    graph = Graph(steps=(Step(fail, label="first"), Step(other, label="second")))
+    graph = Graph(
+        structure=GraphStructure(
+            nodes=(Leaf(fail, label="first"), Leaf(other, label="second"))
+        )
+    )
     with pytest.raises(ExceptionGroup) as caught:
         execute(graph, ExecutionState())
     assert {str(error) for error in caught.value.exceptions} == {
@@ -118,10 +127,12 @@ def test_condition_exception_blocks_all_users_without_stopping_other_work(execut
 
     condition = broken
     graph = Graph(
-        steps=(
-            Step(lambda: calls.append("wrong-a"), condition=condition),
-            Step(lambda: calls.append("wrong-b"), condition=condition),
-            Step(lambda: calls.append("good")),
+        structure=GraphStructure(
+            nodes=(
+                Leaf(lambda: calls.append("wrong-a"), condition=condition),
+                Leaf(lambda: calls.append("wrong-b"), condition=condition),
+                Leaf(lambda: calls.append("good")),
+            )
         )
     )
     state = ExecutionState()
@@ -130,14 +141,14 @@ def test_condition_exception_blocks_all_users_without_stopping_other_work(execut
     assert len(caught.value.exceptions) == 2
     assert calls == ["condition", "condition", "good"]
     assert state.node_failures == {
-        StepPath((0,)): GraphNodeFailure.FAILED,
-        StepPath(
+        NodePath((0,)): GraphNodeFailure.FAILED,
+        NodePath(
             (
                 0,
                 0,
             )
         ): GraphNodeFailure.BLOCKED,
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
@@ -148,24 +159,26 @@ def test_condition_exception_blocks_all_users_without_stopping_other_work(execut
 
 def test_condition_does_not_read_failed_action_result(execute):
     calls = []
-    producer = Step(fail)
+    producer = Leaf(fail)
 
     def needs_result(_ctx) -> bool:
         calls.append("wrong-condition")
         return True
 
     graph = Graph(
-        steps=(
-            producer,
-            (
-                consumer_134 := Step(
-                    lambda _ctx, *_inputs: None,
-                    condition=(_needs_result_condition := (needs_result, producer)),
-                )
+        structure=GraphStructure(
+            nodes=(
+                producer,
+                (
+                    consumer_134 := Leaf(
+                        lambda _ctx, *_inputs: None,
+                        condition=(_needs_result_condition := (needs_result, producer)),
+                    )
+                ),
+                Leaf(lambda: calls.append("good")),
             ),
-            Step(lambda: calls.append("good")),
-        ),
-        edges=(*Edge.results((producer,), consumer_134),),
+            edges=(*Edge.results((producer,), consumer_134),),
+        )
     )
     state = ExecutionState()
     with pytest.raises(RuntimeError, match="action failed"):
@@ -173,7 +186,7 @@ def test_condition_does_not_read_failed_action_result(execute):
     assert calls == ["good"]
     assert (
         state.node_failures[
-            StepPath(
+            NodePath(
                 (
                     0,
                     1,
@@ -186,12 +199,12 @@ def test_condition_does_not_read_failed_action_result(execute):
 
 def test_inactive_conditional_edge_does_not_propagate_failure(execute):
     calls = []
-    producer = Step(fail)
+    producer = Leaf(fail)
 
     def disabled() -> bool:
         return False
 
-    consumer = Step(lambda: calls.append("consumer"))
+    consumer = Leaf(lambda: calls.append("consumer"))
     graph = Graph.from_wiring(
         (
             producer.wire(),
@@ -208,33 +221,39 @@ def test_inactive_conditional_edge_does_not_propagate_failure(execute):
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_port_success_survives_failure_in_another_subgraph_branch(mode):
     calls = []
-    ready = Step(lambda: calls.append("ready"))
+    ready = Leaf(lambda: calls.append("ready"))
     port = "ready"
     provider = Graph(
-        steps=(Step(fail), ready),
-        interface=GraphInterface(outputs={port: ready}),
-    ).step(label="provider")
-    consume = Step(lambda: calls.append("consume"))
+        structure=GraphStructure(
+            nodes=(Leaf(fail), ready), interface=GraphInterface(outputs={port: ready})
+        ),
+        label="provider",
+    )
+    consume = Leaf(lambda: calls.append("consume"))
     consumer = Graph(
-        steps=(consume,),
-        interface=GraphInterface(inputs={port: consume}),
-    ).step(label="consumer")
-    whole = Step(lambda: calls.append("wrong-whole"))
+        structure=GraphStructure(
+            nodes=(consume,), interface=GraphInterface(inputs={port: consume})
+        ),
+        label="consumer",
+    )
+    whole = Leaf(lambda: calls.append("wrong-whole"))
     bindings = resolve_port_requirements(
         (provider, consumer),
         (ExactProviderRequirement(consumer=consumer, provider=provider, port=port),),
     )
     graph = Graph(
-        steps=(provider, consumer, whole),
-        edges=(*bindings, Edge(source=provider, target=whole)),
+        structure=GraphStructure(
+            nodes=(provider, consumer, whole),
+            edges=(*bindings, Edge(source=provider, target=whole)),
+        )
     )
-    plan = Execution(root=Step(graph))
+    plan = Execution(root=Graph(structure=graph.structure))
     with pytest.raises(RuntimeError, match="action failed"):
         plan.run(ThreadRunOptions(workers=1), mode=mode)
     assert calls == ["ready", "consume"]
     assert (
         plan.execution_state.node_failures[
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
@@ -245,7 +264,7 @@ def test_port_success_survives_failure_in_another_subgraph_branch(mode):
     )
     assert (
         plan.execution_state.node_failures[
-            StepPath(
+            NodePath(
                 (
                     0,
                     2,
@@ -258,18 +277,26 @@ def test_port_success_survives_failure_in_another_subgraph_branch(mode):
 
 def test_blocked_composite_marks_descendants_without_entering_them(execute):
     calls = []
-    producer = Step(fail)
+    producer = Leaf(fail)
     inner = Graph(
-        steps=(Graph(steps=(Step(lambda: calls.append("wrong")),)).step(),)
-    ).step()
+        structure=GraphStructure(
+            nodes=(
+                Graph(
+                    structure=GraphStructure(
+                        nodes=(Leaf(lambda: calls.append("wrong")),)
+                    )
+                ),
+            )
+        )
+    )
     graph = Graph.from_wiring((producer.wire(), inner.wire(after=(producer,))))
     state = ExecutionState()
     with pytest.raises(RuntimeError, match="action failed"):
         execute(graph, state)
     assert calls == []
-    assert state.entered_composites == {StepPath((0,))}
+    assert state.entered_composites == {NodePath((0,))}
     assert all(
-        state.node_failures[StepPath((0, *path))] is GraphNodeFailure.BLOCKED
+        state.node_failures[NodePath((0, *path))] is GraphNodeFailure.BLOCKED
         for path in [(1,), (1, 0), (1, 0, 0)]
     )
 
@@ -277,35 +304,37 @@ def test_blocked_composite_marks_descendants_without_entering_them(execute):
 def test_failed_port_blocks_input_but_not_consumer_preparation(execute):
     calls = []
     port = "ready"
-    ready = Step(fail)
+    ready = Leaf(fail)
     provider = Graph(
-        steps=(ready,), interface=GraphInterface(outputs={port: ready})
-    ).step()
-    prepare = Step(lambda: calls.append("prepare"))
-    consume = Step(lambda: calls.append("wrong"))
-    consumer = (
-        (prepare >> consume)
-        .graph(interface=GraphInterface(inputs={port: consume}))
-        .step()
+        structure=GraphStructure(
+            nodes=(ready,), interface=GraphInterface(outputs={port: ready})
+        )
+    )
+    prepare = Leaf(lambda: calls.append("prepare"))
+    consume = Leaf(lambda: calls.append("wrong"))
+    consumer = (prepare >> consume).graph(
+        interface=GraphInterface(inputs={port: consume}),
     )
     graph = Graph(
-        steps=(provider, consumer),
-        edges=resolve_port_requirements(
-            (provider, consumer),
-            (
-                ExactProviderRequirement(
-                    consumer=consumer, provider=provider, port=port
+        structure=GraphStructure(
+            nodes=(provider, consumer),
+            edges=resolve_port_requirements(
+                (provider, consumer),
+                (
+                    ExactProviderRequirement(
+                        consumer=consumer, provider=provider, port=port
+                    ),
                 ),
             ),
-        ),
+        )
     )
     state = ExecutionState()
     with pytest.raises(RuntimeError, match="action failed"):
         execute(graph, state)
     assert calls == ["prepare"]
-    assert state.node_failures[StepPath((0, 1, 1))] is GraphNodeFailure.BLOCKED
+    assert state.node_failures[NodePath((0, 1, 1))] is GraphNodeFailure.BLOCKED
     assert (
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
@@ -317,13 +346,17 @@ def test_failed_port_blocks_input_but_not_consumer_preparation(execute):
 
 def test_dynamic_returned_graph_failure_is_local_to_its_parent_action(execute):
     calls = []
-    inner = Graph(steps=(Step(fail), Step(lambda: calls.append("inner"))))
-    parent = Step(lambda: inner)
+    inner = Graph(
+        structure=GraphStructure(
+            nodes=(Leaf(fail), Leaf(lambda: calls.append("inner")))
+        )
+    )
+    parent = Leaf(lambda: inner.structure)
     graph = Graph.from_wiring(
         (
             parent.wire(),
-            Step(lambda: calls.append("wrong")).wire(after=(parent,)),
-            Step(lambda: calls.append("outer")).wire(),
+            Leaf(lambda: calls.append("wrong")).wire(after=(parent,)),
+            Leaf(lambda: calls.append("outer")).wire(),
         )
     )
     with pytest.raises(RuntimeError, match="action failed"):
@@ -352,7 +385,11 @@ def test_native_failure_preserves_successes_in_same_completion_batch(execute, tm
         [],
     )
     calls = []
-    graph = Graph(steps=(Step(native), Step(lambda: calls.append("python"))))
+    graph = Graph(
+        structure=GraphStructure(
+            nodes=(Graph(structure=native), Leaf(lambda: calls.append("python")))
+        )
+    )
     with pytest.raises(RuntimeError, match=r"exited with status .*7"):
         execute(graph, ExecutionState())
     assert (tmp_path / "success").is_file()
@@ -366,9 +403,11 @@ def test_explicit_stop_still_prevents_unrelated_pending_actions(options):
     calls = []
     control = ExecutionControl()
     graph = Graph(
-        steps=(Step(control.request_stop), Step(lambda: calls.append("wrong")))
+        structure=GraphStructure(
+            nodes=(Leaf(control.request_stop), Leaf(lambda: calls.append("wrong")))
+        )
     )
-    plan = Execution(root=Step(graph), execution_control=control)
+    plan = Execution(root=Graph(structure=graph.structure), execution_control=control)
     with pytest.raises(ExecutionStopped):
         plan.run(options)
     assert calls == []
@@ -393,21 +432,23 @@ def test_cancellation_from_condition_waits_for_started_async_action():
         control.require_running()
         return True
 
-    ready = Step(prepare)
+    ready = Leaf(prepare)
     graph = Graph(
-        steps=(
-            Step(survive),
-            ready,
-            (
-                consumer_337 := Step(
-                    lambda _ctx, *_inputs: None,
-                    condition=(_cancel_condition := (cancel, ready)),
-                )
+        structure=GraphStructure(
+            nodes=(
+                Leaf(survive),
+                ready,
+                (
+                    consumer_337 := Leaf(
+                        lambda _ctx, *_inputs: None,
+                        condition=(_cancel_condition := (cancel, ready)),
+                    )
+                ),
             ),
-        ),
-        edges=(*Edge.results((ready,), consumer_337),),
+            edges=(*Edge.results((ready,), consumer_337),),
+        )
     )
-    plan = Execution(root=Step(graph), execution_control=control)
+    plan = Execution(root=Graph(structure=graph.structure), execution_control=control)
     with pytest.raises(ExecutionStopped):
         plan.run(AsyncRunOptions(concurrency=2))
     assert completed == ["survived"]
@@ -446,11 +487,8 @@ def test_parallel_native_errors_are_collected_without_losing_completions(
         [],
     )
     plan = Execution(
-        root=Step(
-            Graph(
-                steps=(Step(native),),
-            ),
-            label="root",
+        root=Graph(
+            structure=GraphStructure(nodes=(Graph(structure=native),)), label="root"
         )
     )
     with pytest.raises(ExceptionGroup) as caught:

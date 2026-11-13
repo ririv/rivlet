@@ -8,12 +8,15 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, TypeGuard
 
 from ..errors import GraphError
+from .metadata import _NodeMeta
 
 if TYPE_CHECKING:
     from ..option import Option
-    from ..results import StepRunContext
-    from . import GraphWiringOperand
-    from .wiring import GraphWiring
+    from ..results import NodeRunContext
+    from . import ConditionInput, GraphWiringOperand, NodePrerequisite
+    from .condition import _RuntimeCondition
+    from .identity import NodeId
+    from .wiring import GraphWiring, NodeWiring, Results
 
 
 type LeafCallable = Callable[..., object]
@@ -26,7 +29,7 @@ class _NoArgsCall:
 
 @dataclass(frozen=True, slots=True)
 class _StepContextCall:
-    fn: Callable[[StepRunContext], object]
+    fn: Callable[[NodeRunContext], object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -51,7 +54,7 @@ def _accepts_no_args(
 def _accepts_step_context(
     _fn: LeafCallable,
     signature: inspect.Signature,
-) -> TypeGuard[Callable[[StepRunContext], object]]:
+) -> TypeGuard[Callable[[NodeRunContext], object]]:
     try:
         signature.bind(object())
     except TypeError:
@@ -69,8 +72,15 @@ class Leaf:
     """
 
     _call: _LeafCall
+    _meta: _NodeMeta
 
-    def __init__(self, action: LeafCallable) -> None:
+    def __init__(
+        self,
+        action: LeafCallable,
+        *,
+        label: str | None = None,
+        condition: ConditionInput | None = None,
+    ) -> None:
         fn = action
         try:
             signature = inspect.signature(fn)
@@ -90,10 +100,28 @@ class Leaf:
             call = _ResultCall(fn)
 
         object.__setattr__(self, "_call", call)
+        object.__setattr__(self, "_meta", _NodeMeta.create(label, condition))
+
+    @property
+    def id(self) -> NodeId:
+        return self._meta.id
+
+    @property
+    def label(self) -> str | None:
+        return self._meta.label
+
+    @property
+    def condition(self) -> _RuntimeCondition | None:
+        return self._meta.condition
 
     @property
     def action(self) -> LeafCallable:
         return self._call.fn
+
+    def wire(self, after: tuple[NodePrerequisite | Results, ...] = ()) -> NodeWiring:
+        from .wiring import NodeWiring
+
+        return NodeWiring(self, after)
 
     def __rshift__(self, other: GraphWiringOperand) -> GraphWiring:
         from .wiring import _sequence_wiring
@@ -117,7 +145,7 @@ class Leaf:
             ) from exc
 
     def invoke(
-        self, run_ctx: StepRunContext, inputs: tuple[Option[object], ...] = ()
+        self, run_ctx: NodeRunContext, inputs: tuple[Option[object], ...] = ()
     ) -> object:
         if inputs:
             return self.action(run_ctx, *inputs)
@@ -128,3 +156,11 @@ class Leaf:
                 return fn(run_ctx)
             case _ResultCall():
                 raise GraphError("action requires result inputs")
+
+
+def leaf(action: LeafCallable) -> Leaf:
+    """Declare a leaf, using a named callable's name as its presentation label."""
+
+    name = getattr(action, "__name__", None)
+    label = name if isinstance(name, str) and name != "<lambda>" else None
+    return Leaf(action, label=label)

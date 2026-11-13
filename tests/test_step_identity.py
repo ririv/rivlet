@@ -9,13 +9,14 @@ from rivlet import (
     Execution,
     Graph,
     GraphMode,
+    GraphStructure,
+    Leaf,
+    NodeExecutionEvent,
+    NodeId,
+    NodePath,
+    NodeRunContext,
     Option,
     Results,
-    Step,
-    StepExecutionEvent,
-    StepId,
-    StepPath,
-    StepRunContext,
     ThreadRunOptions,
     export_graph,
 )
@@ -23,8 +24,8 @@ from rivlet._native import _native_process_graph
 
 
 def test_path_labels_do_not_change_identity_and_parent_preserves_labels():
-    path = StepPath((2, 1), labels=("stage", "configure"))
-    renamed = StepPath((2, 1), labels=("other", "name"))
+    path = NodePath((2, 1), labels=("stage", "configure"))
+    renamed = NodePath((2, 1), labels=("other", "name"))
     assert path == renamed
     assert hash(path) == hash(renamed)
     assert {path: "result"}[renamed] == "result"
@@ -43,26 +44,33 @@ def test_path_labels_do_not_change_identity_and_parent_preserves_labels():
 def test_repeated_mounts_share_declaration_id_not_results(
     mode: GraphMode, options: ThreadRunOptions | AsyncRunOptions
 ):
-    received: list[tuple[StepId, StepPath, object]] = []
-    events: list[StepExecutionEvent] = []
+    received: list[tuple[NodeId, NodePath, object]] = []
+    events: list[NodeExecutionEvent] = []
 
     class Sink:
-        def emit(self, event: StepExecutionEvent) -> None:
+        def emit(self, event: NodeExecutionEvent) -> None:
             events.append(event)
 
-    def produce(ctx: StepRunContext) -> tuple[int, ...]:
-        return ctx.step_path.segments
+    def produce(ctx: NodeRunContext) -> tuple[int, ...]:
+        return ctx.node_path.segments
 
-    def consume(ctx: StepRunContext, result: Option[object]) -> None:
-        received.append((ctx.step_id, ctx.step_path, result.unwrap()))
+    def consume(ctx: NodeRunContext, result: Option[object]) -> None:
+        received.append((ctx.node_id, ctx.node_path, result.unwrap()))
 
-    producer = Step(produce, label="source")
-    consumer = Step(consume, label="use")
+    producer = Leaf(produce, label=("source"))
+    consumer = Leaf(consume, label=("use"))
     child = Graph.from_wiring(
         (consumer.wire(after=(Results(producer),)), producer.wire())
     )
-    graph = Graph(steps=(child.step(label="left"), child.step(label="right")))
-    execution = Execution(Step(graph), events=Sink())
+    graph = Graph(
+        structure=GraphStructure(
+            nodes=(
+                Graph(structure=child.structure, label="left"),
+                Graph(structure=child.structure, label="right"),
+            )
+        )
+    )
+    execution = Execution(Graph(structure=graph.structure), events=Sink())
     execution.run(options, mode=mode)
     assert producer.id != consumer.id
     assert {identity for identity, _, _ in received} == {consumer.id}
@@ -75,7 +83,7 @@ def test_repeated_mounts_share_declaration_id_not_results(
         ("0", "right", "use"),
     }
     assert {
-        event.step_path.labels for event in events if event.step_id == consumer.id
+        event.node_path.labels for event in events if event.node_id == consumer.id
     } == {
         ("0", "left", "use"),
         ("0", "right", "use"),
@@ -83,47 +91,55 @@ def test_repeated_mounts_share_declaration_id_not_results(
     first = export_graph(execution.compile())
     second = export_graph(Execution(execution.root).compile())
     assert first == second
-    assert [node["step_id"] for node in first["nodes"] if node["label"] == "use"] == [
+    assert [node["node_id"] for node in first["nodes"] if node["label"] == "use"] == [
         consumer.id.value,
         consumer.id.value,
     ]
 
 
 def test_dynamic_child_keeps_identity_and_full_path_labels():
-    seen: list[StepRunContext] = []
+    seen: list[NodeRunContext] = []
 
-    def record(ctx: StepRunContext) -> None:
+    def record(ctx: NodeRunContext) -> None:
         seen.append(ctx)
 
-    leaf = Step(record, label="leaf")
-    child = Graph(steps=(leaf,))
-    graph = Graph(steps=(Step(lambda: child, label="expand"),))
-    Execution(Step(graph)).run()
-    assert seen[0].step_id == leaf.id
-    assert seen[0].step_path.segments == (0, 0, 0)
-    assert seen[0].step_path.labels == ("0", "expand", "leaf")
-    assert seen[0].step_path.parent is not None
-    assert seen[0].step_path.parent.labels == ("0", "expand")
+    leaf = Leaf(record, label=("leaf"))
+    child = Graph(structure=GraphStructure(nodes=(leaf,)))
+    graph = Graph(
+        structure=GraphStructure(nodes=(Leaf(lambda: child.structure, label="expand"),))
+    )
+    Execution(Graph(structure=graph.structure)).run()
+    assert seen[0].node_id == leaf.id
+    assert seen[0].node_path.segments == (0, 0, 0)
+    assert seen[0].node_path.labels == ("0", "expand", "leaf")
+    assert seen[0].node_path.parent is not None
+    assert seen[0].node_path.parent.labels == ("0", "expand")
 
 
 def test_native_declaration_ids_survive_compilation_and_repeated_mounts():
     native = _native_process_graph(
         [("leaf", sys.executable, ["-c", "pass"], ".", {})], []
     )
-    python_step = Step(lambda: None)
+    python_step = Leaf(lambda: None)
     graph = Graph(
-        steps=(Step(native, label="first"), Step(native, label="second"), python_step)
+        structure=GraphStructure(
+            nodes=(
+                Graph(structure=native, label="first"),
+                Graph(structure=native, label="second"),
+                python_step,
+            )
+        )
     )
-    root = Step(graph)
+    root = Graph(structure=graph.structure)
     first = export_graph(Execution(root).compile())
     second = export_graph(Execution(root).compile())
     assert first == second
     native_nodes = [
         node
         for node in first["nodes"]
-        if node["kind"] == "step" and node["action_kind"] == "native"
+        if node["kind"] == "leaf" and node["action_kind"] == "native"
     ]
     assert [node["id"] for node in native_nodes] == ["0.0.0", "0.1.0"]
-    assert [node["step_id"] for node in native_nodes] == [native.step_ids()[0]] * 2
-    assert native.step_ids()[0] not in {step.id.value for step in graph.steps}
-    assert StepId().value not in {step.id.value for step in graph.steps}
+    assert [node["node_id"] for node in native_nodes] == [native.node_ids()[0]] * 2
+    assert native.node_ids()[0] not in {step.id.value for step in graph.structure.nodes}
+    assert NodeId().value not in {step.id.value for step in graph.structure.nodes}

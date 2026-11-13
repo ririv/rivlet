@@ -1,4 +1,4 @@
-"""分离测量空 Step 的声明、编译和执行成本，不代表真实构建吞吐量。"""
+"""分离测量空 Node 的声明、编译和执行成本，不代表真实构建吞吐量。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import time
 from functools import partial
 from typing import TYPE_CHECKING
 
-from rivlet import Graph, Step
+from rivlet import Graph, GraphStructure, Leaf
 from rivlet.compile import compile_graph
 from rivlet.runtime import (
     ExecutionControl,
@@ -27,7 +27,11 @@ def _noop() -> None:
 
 
 def _declare(nodes: int) -> Graph:
-    return Graph(steps=tuple(Step(_noop, label=f"step-{i}") for i in range(nodes)))
+    return Graph(
+        structure=GraphStructure(
+            nodes=tuple(Leaf(_noop, label=f"step-{i}") for i in range(nodes))
+        )
+    )
 
 
 def _execute_threads(compilation: GraphCompilation, workers: int) -> object:
@@ -62,9 +66,11 @@ def main() -> None:
     _measure("declaration", lambda: _declare(args.nodes), args.repeats)
     graph = _declare(args.nodes)
     _measure(
-        "compilation", lambda: compile_graph(graph, root_label="bench"), args.repeats
+        "compilation",
+        lambda: compile_graph(graph.structure, root_label="bench"),
+        args.repeats,
     )
-    compilation = compile_graph(graph, root_label="bench")
+    compilation = compile_graph(graph.structure, root_label="bench")
     _measure(
         "serial execution",
         lambda: SerialGraphExecutor().execute(compilation),

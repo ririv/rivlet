@@ -22,14 +22,15 @@ from rivlet import (
     Graph,
     GraphInterface,
     GraphMode,
+    GraphStructure,
+    Leaf,
     NodeConditionSite,
+    NodeExecutionEvent,
+    NodeExecutionState,
+    NodeExecutionStateDetail,
+    NodePath,
     Option,
     SerialGraphExecutor,
-    Step,
-    StepExecutionEvent,
-    StepExecutionState,
-    StepExecutionStateDetail,
-    StepPath,
     SubgraphFailed,
     ThreadRunOptions,
     resolve_port_requirements,
@@ -39,20 +40,20 @@ from rivlet._native import _native_process_graph
 
 @dataclass
 class Events:
-    items: list[StepExecutionEvent] = field(default_factory=list)
+    items: list[NodeExecutionEvent] = field(default_factory=list)
 
-    def emit(self, event: StepExecutionEvent) -> None:
+    def emit(self, event: NodeExecutionEvent) -> None:
         self.items.append(event)
 
-    def failures(self) -> dict[StepPath, StepExecutionStateDetail]:
+    def failures(self) -> dict[NodePath, NodeExecutionStateDetail]:
         failures = {
-            event.step_path: event.state_detail
+            event.node_path: event.state_detail
             for event in self.items
-            if event.state in (StepExecutionState.FAILED, StepExecutionState.BLOCKED)
+            if event.state in (NodeExecutionState.FAILED, NodeExecutionState.BLOCKED)
         }
-        root_failure = failures.pop(StepPath((0,)))
+        root_failure = failures.pop(NodePath((0,)))
         assert isinstance(root_failure, SubgraphFailed)
-        assert root_failure.source.parent == StepPath((0,))
+        assert root_failure.source.parent == NodePath((0,))
         return failures
 
 
@@ -62,7 +63,7 @@ type Execute = Callable[[Graph, Events, GraphMode], Execution]
 @pytest.fixture(params=["serial", "threaded", "async"])
 def execute(request: pytest.FixtureRequest) -> Execute:
     def run(graph: Graph, events: Events, mode: GraphMode) -> Execution:
-        execution = Execution(Step(graph), events=events)
+        execution = Execution(Graph(structure=graph.structure), events=events)
         with pytest.raises((RuntimeError, ExceptionGroup)):
             match request.param:
                 case "serial":
@@ -89,38 +90,38 @@ def fail() -> Never:
 def test_failure_events_describe_direct_causes_without_exceptions(
     execute: Execute, mode: GraphMode
 ) -> None:
-    source, blocked, later = Step(fail), Step(lambda: None), Step(lambda: None)
-    good = Step(lambda: None)
+    source, blocked, later = Leaf(fail), Leaf(lambda: None), Leaf(lambda: None)
+    good = Leaf(lambda: None)
     graph = ((source >> blocked >> later) | good).graph()
     events = Events()
     execution = execute(graph, events, mode)
     assert events.failures() == {
-        StepPath(
+        NodePath(
             (
                 0,
                 0,
             )
         ): ActionFailed(),
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
             )
         ): BlockedByDependency(
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
                 )
             )
         ),
-        StepPath(
+        NodePath(
             (
                 0,
                 2,
             )
         ): BlockedByDependency(
-            StepPath(
+            NodePath(
                 (
                     0,
                     1,
@@ -129,7 +130,7 @@ def test_failure_events_describe_direct_causes_without_exceptions(
         ),
     }
     assert (
-        StepPath(
+        NodePath(
             (
                 0,
                 3,
@@ -146,15 +147,15 @@ def test_predicate_failure_is_not_an_action_or_dependency_failure(
     execute: Execute, mode: GraphMode, edge: bool
 ) -> None:
     condition = fail
-    source = Step(lambda: None)
-    target = Step(lambda: None, condition=None if edge else condition)
+    source = Leaf(lambda: None)
+    target = Leaf(lambda: None, condition=(None if edge else condition))
     after = (ConditionalPrerequisite(source, condition=condition),) if edge else ()
     graph = Graph.from_wiring((source.wire(), target.wire(after=after)))
     events = Events()
     execute(graph, events, mode)
     causes = events.failures()
     assert set(causes) == {
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
@@ -162,7 +163,7 @@ def test_predicate_failure_is_not_an_action_or_dependency_failure(
         )
     }
     cause = causes[
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
@@ -174,7 +175,7 @@ def test_predicate_failure_is_not_an_action_or_dependency_failure(
     assert site.condition_index >= 0
     if edge:
         assert isinstance(site, EdgeConditionSite)
-        assert site.prerequisite == StepPath(
+        assert site.prerequisite == NodePath(
             (
                 0,
                 0,
@@ -183,14 +184,14 @@ def test_predicate_failure_is_not_an_action_or_dependency_failure(
     else:
         assert isinstance(site, NodeConditionSite)
     assert not any(
-        event.step_path
-        == StepPath(
+        event.node_path
+        == NodePath(
             (
                 0,
                 1,
             )
         )
-        and event.state is StepExecutionState.STARTED
+        and event.state is NodeExecutionState.STARTED
         for event in events.items
     )
 
@@ -204,8 +205,8 @@ def test_failed_condition_input_does_not_claim_the_predicate_ran(
         pytest.fail("predicate must not read a failed producer")
 
     condition = should_not_run
-    source, predecessor = Step(fail), Step(lambda: None)
-    target = Step(lambda: None, condition=None if edge else (condition, source))
+    source, predecessor = Leaf(fail), Leaf(lambda: None)
+    target = Leaf(lambda: None, condition=(None if edge else (condition, source)))
     after = (
         (ConditionalPrerequisite(predecessor, condition=(condition, source)),)
         if edge
@@ -223,7 +224,7 @@ def test_failed_condition_input_does_not_claim_the_predicate_ran(
     events = Events()
     execute(graph, events, mode)
     cause = events.failures()[
-        StepPath(
+        NodePath(
             (
                 0,
                 2,
@@ -231,7 +232,7 @@ def test_failed_condition_input_does_not_claim_the_predicate_ran(
         )
     ]
     assert isinstance(cause, BlockedByConditionInput)
-    assert cause.source == StepPath(
+    assert cause.source == NodePath(
         (
             0,
             0,
@@ -239,7 +240,7 @@ def test_failed_condition_input_does_not_claim_the_predicate_ran(
     )
     if edge:
         assert isinstance(cause.condition, EdgeConditionSite)
-        assert cause.condition.prerequisite == StepPath(
+        assert cause.condition.prerequisite == NodePath(
             (
                 0,
                 1,
@@ -253,8 +254,8 @@ def test_failed_condition_input_does_not_claim_the_predicate_ran(
 def test_false_edge_does_not_report_a_failed_but_unused_predecessor(
     execute: Execute, mode: GraphMode
 ) -> None:
-    source = Step(fail)
-    target = Step(lambda: None)
+    source = Leaf(fail)
+    target = Leaf(lambda: None)
 
     def condition():
         return False
@@ -268,7 +269,7 @@ def test_false_edge_does_not_report_a_failed_but_unused_predecessor(
     events = Events()
     execution = execute(graph, events, mode)
     assert events.failures() == {
-        StepPath(
+        NodePath(
             (
                 0,
                 0,
@@ -276,7 +277,7 @@ def test_false_edge_does_not_report_a_failed_but_unused_predecessor(
         ): ActionFailed()
     }
     assert (
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
@@ -290,40 +291,40 @@ def test_false_edge_does_not_report_a_failed_but_unused_predecessor(
 def test_unentered_subgraph_children_reference_their_blocked_parent(
     execute: Execute, mode: GraphMode
 ) -> None:
-    source = Step(fail)
-    inner = Graph(steps=(Step(lambda: None),)).step()
-    container = Graph(steps=(inner,)).step()
+    source = Leaf(fail)
+    inner = Graph(structure=GraphStructure(nodes=(Leaf(lambda: None),)))
+    container = Graph(structure=GraphStructure(nodes=(inner,)))
     events = Events()
     execute((source >> container).graph(), events, mode)
     assert events.failures() == {
-        StepPath(
+        NodePath(
             (
                 0,
                 0,
             )
         ): ActionFailed(),
-        StepPath(
+        NodePath(
             (
                 0,
                 1,
             )
         ): BlockedByDependency(
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
                 )
             )
         ),
-        StepPath((0, 1, 0)): BlockedByParent(
-            StepPath(
+        NodePath((0, 1, 0)): BlockedByParent(
+            NodePath(
                 (
                     0,
                     1,
                 )
             )
         ),
-        StepPath((0, 1, 0, 0)): BlockedByParent(StepPath((0, 1, 0))),
+        NodePath((0, 1, 0, 0)): BlockedByParent(NodePath((0, 1, 0))),
     }
 
 
@@ -332,26 +333,30 @@ def test_unentered_subgraph_children_reference_their_blocked_parent(
 def test_repeated_subgraphs_keep_failure_sources_in_their_own_mount(
     execute: Execute, mode: GraphMode, dynamic: bool
 ) -> None:
-    child = Graph(steps=(Step(fail),))
-    left = Step(lambda: child) if dynamic else child.step()
-    right = Step(lambda: child) if dynamic else child.step()
+    child = Graph(structure=GraphStructure(nodes=(Leaf(fail),)))
+    left = (
+        Leaf(lambda: child.structure) if dynamic else Graph(structure=child.structure)
+    )
+    right = (
+        Leaf(lambda: child.structure) if dynamic else Graph(structure=child.structure)
+    )
     events = Events()
     execute((left | right).graph(), events, mode)
     assert events.failures() == {
-        StepPath((0, 0, 0)): ActionFailed(),
-        StepPath(
+        NodePath((0, 0, 0)): ActionFailed(),
+        NodePath(
             (
                 0,
                 0,
             )
-        ): SubgraphFailed(StepPath((0, 0, 0))),
-        StepPath((0, 1, 0)): ActionFailed(),
-        StepPath(
+        ): SubgraphFailed(NodePath((0, 0, 0))),
+        NodePath((0, 1, 0)): ActionFailed(),
+        NodePath(
             (
                 0,
                 1,
             )
-        ): SubgraphFailed(StepPath((0, 1, 0))),
+        ): SubgraphFailed(NodePath((0, 1, 0))),
     }
 
 
@@ -359,19 +364,23 @@ def test_repeated_subgraphs_keep_failure_sources_in_their_own_mount(
 def test_dynamic_failure_chain_preserves_each_session_boundary(
     execute: Execute, mode: GraphMode
 ) -> None:
-    grandchild = Graph(steps=(Step(fail),))
-    child = Graph(steps=(Step(lambda: grandchild),))
+    grandchild = Graph(structure=GraphStructure(nodes=(Leaf(fail),)))
+    child = Graph(structure=GraphStructure(nodes=(Leaf(lambda: grandchild.structure),)))
     events = Events()
-    execute(Graph(steps=(Step(lambda: child),)), events, mode)
+    execute(
+        Graph(structure=GraphStructure(nodes=(Leaf(lambda: child.structure),))),
+        events,
+        mode,
+    )
     assert events.failures() == {
-        StepPath((0, 0, 0, 0)): ActionFailed(),
-        StepPath((0, 0, 0)): SubgraphFailed(StepPath((0, 0, 0, 0))),
-        StepPath(
+        NodePath((0, 0, 0, 0)): ActionFailed(),
+        NodePath((0, 0, 0)): SubgraphFailed(NodePath((0, 0, 0, 0))),
+        NodePath(
             (
                 0,
                 0,
             )
-        ): SubgraphFailed(StepPath((0, 0, 0))),
+        ): SubgraphFailed(NodePath((0, 0, 0))),
     }
 
 
@@ -380,22 +389,29 @@ def test_port_failure_points_to_the_actual_provider_step(
     execute: Execute, mode: GraphMode
 ) -> None:
     port = "ready"
-    provide, consume = Step(fail), Step(lambda: None)
+    provide, consume = Leaf(fail), Leaf(lambda: None)
     provider = Graph(
-        steps=(provide,),
-        interface=GraphInterface(outputs={port: provide}),
-    ).step()
+        structure=GraphStructure(
+            nodes=(provide,), interface=GraphInterface(outputs={port: provide})
+        )
+    )
     consumer = Graph(
-        steps=(consume,), interface=GraphInterface(inputs={port: consume})
-    ).step()
+        structure=GraphStructure(
+            nodes=(consume,), interface=GraphInterface(inputs={port: consume})
+        )
+    )
     bindings = resolve_port_requirements(
         (provider, consumer),
         (ExactProviderRequirement(consumer=consumer, provider=provider, port=port),),
     )
     events = Events()
-    execute(Graph(steps=(provider, consumer), edges=bindings), events, mode)
-    assert events.failures()[StepPath((0, 1, 0))] == BlockedByDependency(
-        StepPath((0, 0, 0))
+    execute(
+        Graph(structure=GraphStructure(nodes=(provider, consumer), edges=bindings)),
+        events,
+        mode,
+    )
+    assert events.failures()[NodePath((0, 1, 0))] == BlockedByDependency(
+        NodePath((0, 0, 0))
     )
 
 
@@ -404,31 +420,35 @@ def test_provider_failure_after_ready_does_not_retroactively_block_consumer(
     execute: Execute, mode: GraphMode
 ) -> None:
     port = "ready"
-    ready, late_failure, consume = Step(lambda: None), Step(fail), Step(lambda: None)
-    provider = (
-        (ready >> late_failure)
-        .graph(interface=GraphInterface(outputs={port: ready}))
-        .step()
+    ready, late_failure, consume = Leaf(lambda: None), Leaf(fail), Leaf(lambda: None)
+    provider = (ready >> late_failure).graph(
+        interface=GraphInterface(outputs={port: ready}),
     )
     consumer = Graph(
-        steps=(consume,), interface=GraphInterface(inputs={port: consume})
-    ).step()
+        structure=GraphStructure(
+            nodes=(consume,), interface=GraphInterface(inputs={port: consume})
+        )
+    )
     bindings = resolve_port_requirements(
         (provider, consumer),
         (ExactProviderRequirement(consumer=consumer, provider=provider, port=port),),
     )
     events = Events()
-    execution = execute(Graph(steps=(provider, consumer), edges=bindings), events, mode)
+    execution = execute(
+        Graph(structure=GraphStructure(nodes=(provider, consumer), edges=bindings)),
+        events,
+        mode,
+    )
     assert events.failures() == {
-        StepPath((0, 0, 1)): ActionFailed(),
-        StepPath(
+        NodePath((0, 0, 1)): ActionFailed(),
+        NodePath(
             (
                 0,
                 0,
             )
-        ): SubgraphFailed(StepPath((0, 0, 1))),
+        ): SubgraphFailed(NodePath((0, 0, 1))),
     }
-    assert StepPath((0, 1, 0)) in execution.execution_state.completed_steps
+    assert NodePath((0, 1, 0)) in execution.execution_state.completed_steps
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -440,13 +460,17 @@ def test_native_action_failure_uses_the_same_causal_model(
         [],
     )
     events = Events()
-    execute(Graph(steps=(Step(native),)), events, mode)
+    execute(
+        Graph(structure=GraphStructure(nodes=(Graph(structure=native),))),
+        events,
+        mode,
+    )
     assert events.failures() == {
-        StepPath((0, 0, 0)): ActionFailed(),
-        StepPath(
+        NodePath((0, 0, 0)): ActionFailed(),
+        NodePath(
             (
                 0,
                 0,
             )
-        ): SubgraphFailed(StepPath((0, 0, 0))),
+        ): SubgraphFailed(NodePath((0, 0, 0))),
     }

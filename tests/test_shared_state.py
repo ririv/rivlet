@@ -11,12 +11,13 @@ from rivlet import (
     Execution,
     Graph,
     GraphMode,
+    GraphStructure,
+    Leaf,
+    NodeControl,
+    NodeId,
+    NodePath,
+    NodeRunContext,
     SerialGraphExecutor,
-    Step,
-    StepControl,
-    StepId,
-    StepPath,
-    StepRunContext,
     ThreadRunOptions,
 )
 
@@ -36,29 +37,31 @@ class Progress:
 def test_shared_object_reaches_parallel_and_nested_actions(
     mode: GraphMode, executor: Literal["serial", "threads", "async"]
 ) -> None:
-    def record(ctx: StepRunContext) -> None:
+    def record(ctx: NodeRunContext) -> None:
         shared = ctx.shared(Progress)
         assert_type(shared, Progress)
-        shared.complete(str(ctx.step_path))
+        shared.complete(str(ctx.node_path))
 
-    async def record_async(ctx: StepRunContext) -> None:
+    async def record_async(ctx: NodeRunContext) -> None:
         record(ctx)
 
-    def expand(ctx: StepRunContext) -> Graph:
+    def expand(ctx: NodeRunContext) -> GraphStructure:
         record(ctx)
-        return Graph(steps=(Step(record_async),))
+        return Graph(structure=GraphStructure(nodes=(Leaf(record_async),))).structure
 
     graph = Graph(
-        steps=(
-            *(Step(record) for _ in range(12)),
-            Step(Graph(steps=(Step(record),))),
-            Step(expand),
-        ),
+        structure=GraphStructure(
+            nodes=(
+                *(Leaf(record) for _ in range(12)),
+                Graph(structure=GraphStructure(nodes=(Leaf(record),))),
+                Leaf(expand),
+            )
+        )
     )
     # 同一份声明执行两次，各次显式提供的对象互不污染。
     for _ in range(2):
         progress = Progress()
-        execution = Execution(root=Step(graph), shared=progress)
+        execution = Execution(root=Graph(structure=graph.structure), shared=progress)
         match executor:
             case "serial":
                 SerialGraphExecutor(shared=progress).execute(execution.compile())
@@ -76,10 +79,10 @@ def test_shared_object_reaches_parallel_and_nested_actions(
 
 
 def test_shared_type_check_is_an_explicit_boundary() -> None:
-    context = StepRunContext(
-        step_id=StepId(),
-        step_path=StepPath((0,)),
-        control=StepControl(),
+    context = NodeRunContext(
+        node_id=NodeId(),
+        node_path=NodePath((0,)),
+        control=NodeControl(),
         _shared=Progress(),
     )
     assert_type(context.shared(Progress), Progress)
@@ -88,10 +91,10 @@ def test_shared_type_check_is_an_explicit_boundary() -> None:
 
 
 def test_missing_shared_state_is_not_created_implicitly() -> None:
-    context = StepRunContext(
-        step_id=StepId(),
-        step_path=StepPath((0,)),
-        control=StepControl(),
+    context = NodeRunContext(
+        node_id=NodeId(),
+        node_path=NodePath((0,)),
+        control=NodeControl(),
     )
     with pytest.raises(RuntimeError, match="no shared state was provided"):
         context.shared(Progress)

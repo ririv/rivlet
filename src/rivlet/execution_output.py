@@ -10,7 +10,7 @@ from .render.execution import render_execution
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from .model import GraphMode, Step
+    from .model import GraphMode, NodeKind
     from .runtime import ExecutionState
 
 
@@ -19,7 +19,7 @@ class ExecutionOutput(Protocol):
 
     def write(
         self,
-        root: Step,
+        root: NodeKind,
         state: ExecutionState,
         *,
         mode: GraphMode,
@@ -32,7 +32,7 @@ class NoExecutionOutput:
 
     def write(
         self,
-        root: Step,
+        root: NodeKind,
         state: ExecutionState,
         *,
         mode: GraphMode,
@@ -62,14 +62,14 @@ class TreeFileExecutionOutput:
 
     def write(
         self,
-        root: Step,
+        root: NodeKind,
         state: ExecutionState,
         *,
         mode: GraphMode,
     ) -> None:
-        from .model import StepPath, resolve_step_label
+        from .model import NodePath, resolve_node_label
 
-        root_label = resolve_step_label(root, StepPath((0,)))
+        root_label = resolve_node_label(root, NodePath((0,)))
         output_path = self.output_dir / (
             f"graph-execution.{_sanitize_root_label(root_label)}.{mode}.tree"
         )

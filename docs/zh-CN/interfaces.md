@@ -23,48 +23,40 @@ B requires 123
 
 一张 Graph 可以声明多个端口入口和出口：
 
-- `GraphInterface.inputs`：端口到内部 Step 的映射；一个端口可以对应多个
-  Step，分别约束它们开始消费端口的位置。
-- `GraphInterface.outputs`：端口到内部 Step 的映射；该 Step 完成后端口就绪。
+- `GraphInterface.inputs`：端口到内部 Node 的映射；一个端口可以对应多个
+  Node，分别约束它们开始消费端口的位置。
+- `GraphInterface.outputs`：端口到内部 Node 的映射；该 Node 完成后端口就绪。
 
-它们引用真实 Step，不会生成空 action、事件 Step 或其它假节点。
+它们引用真实 Node，不会生成空 action、事件 Node 或其它假节点。
 
 ```python
-from rivlet import GraphInterface
+from rivlet import Graph, GraphInterface
 
 port_123 = "123"
 
-a_graph = (
-    a_1 >> a_2 >> a_3 >> a_4 >> a_5
-).graph(
-
+a_graph = (a_1 >> a_2 >> a_3 >> a_4 >> a_5).graph(
     interface=GraphInterface(
         outputs={port_123: a_3},
     ),
 )
 
-b_graph = (
-    b_a >> b_b >> b_c >> b_d >> b_e
-).graph(
-
+b_graph = (b_a >> b_b >> b_c >> b_d >> b_e).graph(
     interface=GraphInterface(inputs={port_123: b_b}),
 )
 
-a = a_graph.step(label="A")
-b = b_graph.step(label="B")
+a = Graph(structure=(a_graph).structure, label=("A"))
+b = Graph(structure=(b_graph).structure, label=("B"))
 ```
 
-端口出口是一项稳定契约：提供者宣布就绪以后，后续 Step 不应再破坏或替换已经
+端口出口是一项稳定契约：提供者宣布就绪以后，后续 Node 不应再破坏或替换已经
 暴露的内容。如果后续阶段才产生另一项事实，应把它声明为另一个端口出口。
 
-端口可以引用当前 Graph 的直接 Step，也可以引用当前 Graph 内保留边界的子图后代
-Step。后者用于给现有子图外包一层前置或后处理流程，同时仍把真实消费点或就绪点暴露
+端口可以引用当前 Graph 的直接 Node，也可以引用当前 Graph 内保留边界的子图后代
+Node。后者用于给现有子图外包一层前置或后处理流程，同时仍把真实消费点或就绪点暴露
 出去；Graph 不会因此拆开子图：
 
 ```python
-wrapped = (
-    prepare >> Step(child_graph) >> normalize
-).graph(
+wrapped = (prepare >> child_graph >> normalize).graph(
     interface=GraphInterface(
         inputs=child_graph,
         outputs={installed_runtime: normalize},
@@ -87,15 +79,17 @@ graph = prepared_wiring.graph(
 
 ## 转发与复用
 
-三种 Graph 构造入口 `Graph(...)`、`Graph.from_wiring(...)`、`wiring.graph(...)`
+三种结构声明入口 `GraphStructure(...)`、`Graph.from_wiring(...)`、`wiring.graph(...)`
 均接受同一个 `interface` 参数。不写时使用空接口，不会自动公开内部图的端口。
 
 ```python
-# 整体转发，保留子图边界，不复制 Step。
-outer = (prepare >> Step(child_graph)).graph(interface=child_graph)
+# 整体转发，保留子图边界，不复制 Node。
+outer = (prepare >> child_graph).graph(
+    interface=child_graph
+)
 
 # 分方向转发；输出以最终收尾步骤为准，不公开 child 原来的输出。
-outer = (Step(child_graph) >> normalize).graph(
+outer = (child_graph >> normalize).graph(
     interface=GraphInterface(
         inputs=child_graph,
         outputs={installed_runtime: normalize},
@@ -114,16 +108,14 @@ another = GraphInterface(inputs=shared.inputs)
 `inputs=graph` 只转发输入，`outputs=graph` 只转发输出。它们与分别传入
 `graph.interface.inputs` / `graph.interface.outputs` 等价。
 构造接口时复制映射，并保存为只读视图；修改调用方原字典不会改变既有声明。
-输入值统一归一化为非空 Step 元组，输出值始终是一个 Step。
-复用的 Step 必须位于最终图中，且只能挂载一次，不能因为转发而指向图外步骤。
+输入值统一归一化为非空 Node 元组，输出值始终是一个 Node。
+复用的 Node 必须位于最终图中，且只能挂载一次，不能因为转发而指向图外步骤。
 
 同一端口只占一个字典键；不要写重复键，Python 会在调用 API 前覆盖它，图无法
 诊断被覆盖的条目。需要约束多个步骤时应写在同一键下：
 
 ```python
-consumer = (
-    (prepare_a >> configure_a) | (prepare_b >> configure_b)
-).graph(
+consumer = ((prepare_a >> configure_a) | (prepare_b >> configure_b)).graph(
     interface=GraphInterface(
         inputs={toolchain: (configure_a, configure_b)},
     ),
@@ -157,18 +149,49 @@ Edge(source=a, target=b, ports=("sdk-ready", "toolchain-ready"), condition=neede
 与端口无关的消费者准备步骤可以提前执行。
 静态边规则也可以在编译期移除整条端口连接。
 
-端口仍只表达就绪关系，不传递结果。图内使用 `Edge.results()` 或 `wire(after=...)` 中的 `Results(...)` 绑定 action 的 `Option` 参数；
+普通端口边只表达就绪；结果边可使用实际 Graph 的 interface 端点传递 Option 参数，见下方跨图结果章节。
 这次没有引入 `.input()`／`.output()` 或 `.argument()` 端点 API。
+
+
+## 跨图结果
+
+GraphStructure.interface 保存声明；Graph.interface 返回绑定该图节点的只读端口视图。
+输入端口是 InputPort，输出端口是 OutputPort；Leaf 没有 interface。端口引用保留所属
+Graph，不用 (Step, "port") 或额外 bind。以下是独立可执行的例子：
+
+```python
+from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Leaf
+
+plan = Leaf(lambda: "design", label="plan")
+producer = Graph(GraphStructure(
+    nodes=(plan,), interface=GraphInterface(outputs={"plan": plan}),
+), label="producer")
+work = Leaf(lambda ctx, value: print(value.unwrap()), label="work")
+consumer = Graph(GraphStructure(
+    nodes=(work,), interface=GraphInterface(inputs={"apply": work}),
+), label="consumer")
+root = Graph(GraphStructure(
+    nodes=(producer, consumer),
+    edges=Edge.results(
+        (producer.interface.outputs["plan"],), consumer.interface.inputs["apply"],
+    ),
+))
+Execution(root).run()
+```
+
+公开入口可暂未绑定；最终编译检查每个真实叶子的完整参数组。输入端口指向多个叶子时，
+完整有序参数组传给每个接收方，均须符合签名；别名端口不能给同一叶子安装多组参数。
+复用 GraphStructure 时，必须创建不同 Graph 节点并从对应实例取端口；转发可直接用
+inputs=child、outputs=child，或 child.interface.inputs/outputs。外层转发不抹掉内部归属。
+运行时跳过的来源传 Nothing，成功返回 None 则传 Some(None)；失败阻断消费者。
+图间交错接线按真实叶子校验环，不用组件级粗略边判环。
 
 ## 两种需求
 
 声明层明确区分两种语义：
 
 ```python
-type PortRequirement = (
-    AnyProviderRequirement
-    | ExactProviderRequirement
-)
+type PortRequirement = AnyProviderRequirement | ExactProviderRequirement
 ```
 
 只要求端口，不指定提供者：
@@ -216,7 +239,7 @@ ExactProviderRequirement(A.123)
 `123`，调用方必须传入显式选择：
 
 ```python
-# 这里的 c 是另一个同样提供 port_123 的 graph-valued Step。
+# 这里的 c 是另一个同样提供 port_123 的 Graph node。
 requirement = AnyProviderRequirement(
     consumer=b,
     port=port_123,
@@ -233,11 +256,7 @@ bindings = resolve_port_requirements(
     ),
 )
 
-graph = Graph(
-
-    steps=(a, b, c),
-    edges=bindings,
-)
+graph = Graph(structure=GraphStructure(nodes=((a, b, c)), edges=(bindings)))
 ```
 
 没有选择时，多提供者属于歧义并直接失败。runtime 不会采用“谁先完成就用谁”，
@@ -257,7 +276,7 @@ B 依赖 A。A 有第 1、2、3、4、5 步，并把第 3 步声明成自己的�
 知道自己等待的端口现在可用了。随后 B 从第 b 步继续，而 A 仍然继续做第 4、5 步，
 两边可以同时运行。
 
-如果 B 还需要 C 提供的另一项端口，可以为另一个内部 Step 声明另一个
+如果 B 还需要 C 提供的另一项端口，可以为另一个内部 Node 声明另一个
 输入映射条目。B 不存在一个覆盖全部依赖的唯一入口；每项端口分别连接到真正开始
 消费它的位置。
 
@@ -329,7 +348,9 @@ B：
 ### 等待整个子图与等待端口出口不同
 
 ```python
-graph = (Step(a_graph) >> Step(b_graph)).graph()
+graph = (
+    Graph(structure=(a_graph).structure) >> Graph(structure=(b_graph).structure)
+).graph()
 ```
 
 这里要求整个 A 成功结束后才进入 B，不是只等待 A 的某个端口出口：
@@ -361,13 +382,13 @@ A 和 B 的子图边界仍然保留；不会为了接线而展开声明图，也
 因此以下两种写法使用同一份 binding lowering：
 
 ```python
-Execution(root=Step(graph)).run(mode="compiled")
-Execution(root=Step(graph)).run(mode="dynamic")
+Execution(root=Graph(structure=(graph).structure)).run(mode="compiled")
+Execution(root=Graph(structure=(graph).structure)).run(mode="dynamic")
 ```
 
 ## 当前语言边界
 
-Python 使用 Step 对象作为声明期引用。端口解析入口先校验接口引用与组件归属，再把
+Python 使用 Node 对象作为声明期引用。端口解析入口先校验接口引用与组件归属，再把
 component、port、requirement 和 selection 编码为整数 ID，一次交给 Rust 的
 provider 解析器检查唯一性、歧义和显式选择。这里不会执行 action，也没有失败后换
 provider 的隐式策略。
@@ -375,9 +396,9 @@ provider 的隐式策略。
 得到的显式 binding 随图进入声明编译器，定位内部端口并 lower 为执行依赖。最终 DAG
 校验与执行状态机都在 Rust；Python 不维护另一套 provider 选择或 binding lowering 规则。
 
-当前端口引用的是 Python 声明中的 Step，不能直接引用不透明 NativeGraph 内部的
-NativeStep。需要公开原生子图整体完成状态时，可以由 Python Step 挂载它，并以该
-Step 作为出口。运行期才返回的子图也不能提前向外公开尚不存在的内部端口。
+当前端口引用的是 Python 声明中的 Node，不能直接引用不透明 NativeGraphStructure 内部的
+NativeLeaf。需要公开原生子图整体完成状态时，可以由 Python Node 挂载它，并以该
+Node 作为出口。运行期才返回的子图也不能提前向外公开尚不存在的内部端口。
 
 端口提供组件及其直接出口不允许使用运行时 `condition` 来决定是否存在；这与“执行失败”
 不同。provider 的选择必须在编译前确定，不能靠运行时跳过来实现候选切换。

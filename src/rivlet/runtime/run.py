@@ -3,15 +3,26 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..compile import CompiledLeaf, CompiledNativeStep, CompiledStep, GraphCompilation
+from ..compile import (
+    CompiledLeaf,
+    CompiledNativeLeaf,
+    CompiledPythonLeaf,
+    GraphCompilation,
+)
 from ..errors import GraphError
-from ..results import GraphScope, StepControl, StepRunContext
+from ..results import GraphScope, NodeControl, NodeRunContext
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
-    from ..model import Graph, GraphObservationMessages, Step, StepLabelPath, StepPath
+    from ..model import (
+        GraphObservationMessages,
+        GraphStructure,
+        Node,
+        NodeLabelPath,
+        NodePath,
+    )
     from ..observe import GraphObserver
     from .control import ExecutionControl
     from .state import ExecutionState
@@ -49,9 +60,9 @@ type ExecutableGraph = GraphCompilation
 class RuntimeStep:
     """当前可执行 step 及其内部挂载作用域。"""
 
-    step: CompiledStep
-    label_path: StepLabelPath
-    graph_step_paths: Mapping[Step, StepPath]
+    step: CompiledPythonLeaf
+    label_path: NodeLabelPath
+    graph_node_paths: Mapping[Node, NodePath]
     ancestor_graph_scopes: tuple[GraphScope, ...]
 
 
@@ -75,7 +86,7 @@ class CompiledGraphRun:
         return self.compilation.observation
 
     @property
-    def source_graph(self) -> Graph:
+    def source_graph(self) -> GraphStructure:
         return self.compilation.source_graph
 
     @property
@@ -83,8 +94,8 @@ class CompiledGraphRun:
         return self.compilation.steps
 
     @property
-    def observation_step_paths(self) -> Mapping[Step, StepPath]:
-        return self.compilation.root_graph_step_paths
+    def observation_step_paths(self) -> Mapping[Node, NodePath]:
+        return self.compilation.root_graph_node_paths
 
     def make_run_context(
         self,
@@ -92,13 +103,13 @@ class CompiledGraphRun:
         *,
         shared: object | None = None,
         execution_control: ExecutionControl,
-    ) -> StepRunContext:
+    ) -> NodeRunContext:
         step = runtime_step.step
         context = step.context
-        return StepRunContext(
-            step_id=context.step_id,
-            step_path=step.path,
-            control=StepControl(
+        return NodeRunContext(
+            node_id=context.node_id,
+            node_path=step.path,
+            control=NodeControl(
                 _execution_control=execution_control,
             ),
             _shared=shared,
@@ -107,7 +118,7 @@ class CompiledGraphRun:
     def step_log_path_for(
         self,
         state: ExecutionState,
-        step: CompiledStep | CompiledNativeStep,
+        step: CompiledPythonLeaf | CompiledNativeLeaf,
     ) -> Path | None:
         """Resolve a step's explicit or inherited log path without creating a run context."""
 
@@ -131,7 +142,7 @@ class CompiledGraphRun:
 
         contexts: list[tuple[int, str | None]] = []
         for node, compiled_node in enumerate(self.compilation._native_nodes):
-            if not isinstance(compiled_node, CompiledNativeStep):
+            if not isinstance(compiled_node, CompiledNativeLeaf):
                 continue
             step_log_path = self.step_log_path_for(state, compiled_node)
             contexts.append(
@@ -144,11 +155,11 @@ class CompiledGraphRun:
 
     def child_graph_scope(
         self,
-        step: CompiledStep,
+        step: CompiledPythonLeaf,
         *,
-        graph_step_paths: Mapping[Step, StepPath],
+        graph_node_paths: Mapping[Node, NodePath],
     ) -> GraphScope:
-        del graph_step_paths
+        del graph_node_paths
         return GraphScope(
-            step_paths=step.context.graph_step_paths,
+            node_paths=step.context.graph_node_paths,
         )

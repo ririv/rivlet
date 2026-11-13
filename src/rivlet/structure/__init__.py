@@ -8,37 +8,38 @@ from .schema import CompilationDocument, DeclarationDocument, GraphDocument
 
 if TYPE_CHECKING:
     from ..compile import GraphCompilation
-    from ..model import Graph, Step
+    from ..model import GraphStructure, Node
 
 
 @overload
-def export_graph(subject: Graph | Step) -> DeclarationDocument: ...
+def export_graph(subject: GraphStructure | Node) -> DeclarationDocument: ...
 
 
 @overload
 def export_graph(subject: GraphCompilation) -> CompilationDocument: ...
 
 
-def export_graph(subject: Graph | Step | GraphCompilation) -> GraphDocument:
+def export_graph(subject: GraphStructure | Node | GraphCompilation) -> GraphDocument:
     """Return detached JSON data without executing actions or runtime conditions.
 
     A Graph is inspected without evaluating static conditions. A GraphCompilation
     exposes decisions already made by compile_graph; it is never recompiled here.
     """
     from ..compile import GraphCompilation
-    from ..model import Graph, Step, StepPath, resolve_step_label
+    from ..model import Graph, GraphStructure, Leaf, NodePath, resolve_node_label
     from .compiled import export_compilation
     from .declaration import index_declaration
 
-    if isinstance(subject, Step):
+    if isinstance(subject, (Leaf, Graph)):
         return index_declaration(
-            Graph(steps=(subject,)), label=resolve_step_label(subject, StepPath((0,)))
+            GraphStructure(nodes=(subject,)),
+            label=resolve_node_label(subject, NodePath((0,))),
         ).document
-    if isinstance(subject, Graph):
+    if isinstance(subject, GraphStructure):
         return index_declaration(subject).document
     if isinstance(subject, GraphCompilation):
         return export_compilation(subject)
-    raise TypeError("export_graph requires Graph, Step or GraphCompilation")
+    raise TypeError("export_graph requires Graph, Node or GraphCompilation")
 
 
 __all__ = [

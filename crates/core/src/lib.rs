@@ -17,7 +17,7 @@ pub use execution::{
     PortConnection, Prerequisite, RuntimeCondition,
 };
 pub use failure::{BlockCause, ConditionSite, FailureCause};
-pub use identity::StepId;
+pub use identity::NodeIdentity;
 pub use lowering::{
     DeclaredGraph, DeclaredNode, DeclaredNodeKind, ExecutionGraphDeclaration, GraphId,
     LoweringError,

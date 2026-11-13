@@ -11,7 +11,7 @@ import statistics
 import time
 from typing import TYPE_CHECKING
 
-from rivlet import Graph, Step
+from rivlet import Graph, GraphStructure, Leaf
 from rivlet._native import _experimental_run_tokio_callbacks
 from rivlet.compile import compile_graph
 from rivlet.runtime.batch_driver import run_threaded_session
@@ -26,9 +26,13 @@ if TYPE_CHECKING:
 
 def _compilation(nodes: int) -> GraphCompilation:
     graph = Graph(
-        steps=tuple(Step(lambda: None, label=f"step-{index}") for index in range(nodes))
+        structure=GraphStructure(
+            nodes=tuple(
+                Leaf(lambda: None, label=f"step-{index}") for index in range(nodes)
+            )
+        )
     )
-    return compile_graph(graph, root_label="benchmark")
+    return compile_graph(graph.structure, root_label="benchmark")
 
 
 def _host(compilation: GraphCompilation) -> CompiledExecutionHost:

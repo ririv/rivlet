@@ -15,13 +15,14 @@ from rivlet import (
     ExecutionState,
     ExecutionStopped,
     Graph,
+    GraphStructure,
+    Leaf,
+    NodeExecutionEvent,
+    NodeExecutionState,
+    NodePath,
+    NodeRunContext,
     ResultStore,
     SerialGraphExecutor,
-    Step,
-    StepExecutionEvent,
-    StepExecutionState,
-    StepPath,
-    StepRunContext,
     ThreadRunOptions,
 )
 
@@ -53,11 +54,19 @@ def test_dynamic_subgraphs_share_one_action_budget(mode, limit, asynchronous) ->
 
     def branch(depth: int) -> Graph:
         if depth == 0:
-            return Graph(steps=tuple(Step(activity.work) for _ in range(4)))
-        return Graph(steps=tuple(Step(lambda: branch(depth - 1)) for _ in range(3)))
+            return Graph(
+                structure=GraphStructure(
+                    nodes=tuple(Leaf(activity.work) for _ in range(4))
+                )
+            )
+        return Graph(
+            structure=GraphStructure(
+                nodes=tuple(Leaf(lambda: branch(depth - 1)) for _ in range(3))
+            )
+        )
 
     graph = branch(2)
-    execution = Execution(Step(graph))
+    execution = Execution(Graph(structure=graph.structure))
     options = (
         AsyncRunOptions(concurrency=limit)
         if asynchronous
@@ -74,15 +83,15 @@ def test_arun_uses_the_callers_event_loop() -> None:
         loop = asyncio.get_running_loop()
         seen = []
 
-        async def action(ctx: StepRunContext) -> str:
+        async def action(ctx: NodeRunContext) -> str:
             ctx.control.require_running()
             seen.append(asyncio.get_running_loop())
             await asyncio.sleep(0)
             return "done"
 
-        step = Step(action)
+        step = Leaf(action)
         execution = Execution(
-            Step(Graph(steps=(step,))),
+            Graph(structure=GraphStructure(nodes=(step,))),
             execution_state=ExecutionState(results=ResultStore()),
         )
         await execution.arun(AsyncRunOptions(concurrency=2))
@@ -95,51 +104,52 @@ def test_arun_uses_the_callers_event_loop() -> None:
 def test_events_report_committed_transitions_without_reclassifying_sink_failure() -> (
     None
 ):
-    events: list[StepExecutionEvent] = []
+    events: list[NodeExecutionEvent] = []
 
     class Sink:
-        def emit(self, event: StepExecutionEvent) -> None:
+        def emit(self, event: NodeExecutionEvent) -> None:
             events.append(event)
-            if event.state is StepExecutionState.COMPLETED:
-                assert event.step_path in execution.execution_state.completed_steps
+            if event.state is NodeExecutionState.COMPLETED:
+                assert event.node_path in execution.execution_state.completed_steps
                 raise ValueError("sink unavailable")
 
     execution = Execution(
-        Step(Graph(steps=(Step(lambda: 1, label="task"),))), events=Sink()
+        Graph(structure=GraphStructure(nodes=(Leaf(lambda: 1, label="task"),))),
+        events=Sink(),
     )
     with pytest.raises(EventDeliveryError, match="step event delivery failed"):
         execution.run()
     assert [event.state for event in events] == [
-        StepExecutionState.STARTED,
-        StepExecutionState.STARTED,
-        StepExecutionState.COMPLETED,
+        NodeExecutionState.STARTED,
+        NodeExecutionState.STARTED,
+        NodeExecutionState.COMPLETED,
     ]
-    assert events[1].step_path.labels == ("0", "task")
+    assert events[1].node_path.labels == ("0", "task")
     assert execution.execution_state.node_failures == {}
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
 def test_events_and_failure_propagation_cross_dynamic_boundaries(asynchronous) -> None:
-    events: list[StepExecutionEvent] = []
+    events: list[NodeExecutionEvent] = []
     calls = []
 
     class Sink:
-        def emit(self, event: StepExecutionEvent) -> None:
+        def emit(self, event: NodeExecutionEvent) -> None:
             events.append(event)
 
     def fail() -> None:
         raise ValueError("action failed")
 
-    failed = Step(fail, label="failed")
-    blocked = Step(lambda: calls.append("blocked"), label="blocked")
+    failed = Leaf(fail, label=("failed"))
+    blocked = Leaf(lambda: calls.append("blocked"), label=("blocked"))
     child = (failed >> blocked).graph()
-    parent = Step(lambda: child, label="parent")
-    downstream = Step(lambda: calls.append("downstream"), label="downstream")
-    independent = Step(lambda: calls.append("independent"), label="independent")
+    parent = Leaf(lambda: child.structure, label=("parent"))
+    downstream = Leaf(lambda: calls.append("downstream"), label=("downstream"))
+    independent = Leaf(lambda: calls.append("independent"), label=("independent"))
     graph = Graph.from_wiring(
         wiring=(parent.wire(), downstream.wire(after=(parent,)), independent.wire())
     )
-    execution = Execution(Step(graph), events=Sink())
+    execution = Execution(Graph(structure=graph.structure), events=Sink())
     with pytest.raises(ValueError, match="action failed"):
         execution.run(
             AsyncRunOptions(concurrency=2)
@@ -147,10 +157,10 @@ def test_events_and_failure_propagation_cross_dynamic_boundaries(asynchronous) -
             else ThreadRunOptions(workers=2)
         )
     assert calls == ["independent"]
-    terminal = {event.step_path.labels: event.state for event in events}
-    assert terminal[("0",)] is StepExecutionState.FAILED
-    assert terminal[("0", "parent", "failed")] is StepExecutionState.FAILED
-    assert terminal[("0", "parent", "blocked")] is StepExecutionState.BLOCKED
+    terminal = {event.node_path.labels: event.state for event in events}
+    assert terminal[("0",)] is NodeExecutionState.FAILED
+    assert terminal[("0", "parent", "failed")] is NodeExecutionState.FAILED
+    assert terminal[("0", "parent", "blocked")] is NodeExecutionState.BLOCKED
     assert (
         terminal[
             (
@@ -158,7 +168,7 @@ def test_events_and_failure_propagation_cross_dynamic_boundaries(asynchronous) -
                 "parent",
             )
         ]
-        is StepExecutionState.FAILED
+        is NodeExecutionState.FAILED
     )
     assert (
         terminal[
@@ -167,7 +177,7 @@ def test_events_and_failure_propagation_cross_dynamic_boundaries(asynchronous) -
                 "downstream",
             )
         ]
-        is StepExecutionState.BLOCKED
+        is NodeExecutionState.BLOCKED
     )
     assert (
         terminal[
@@ -176,23 +186,25 @@ def test_events_and_failure_propagation_cross_dynamic_boundaries(asynchronous) -
                 "independent",
             )
         ]
-        is StepExecutionState.COMPLETED
+        is NodeExecutionState.COMPLETED
     )
 
 
 def test_skip_event_has_a_label_without_running_the_action() -> None:
     class Sink:
-        def emit(self, event: StepExecutionEvent) -> None:
+        def emit(self, event: NodeExecutionEvent) -> None:
             events.append(event)
 
-    events: list[StepExecutionEvent] = []
+    events: list[NodeExecutionEvent] = []
     execution = Execution(
-        Step(
-            Graph(steps=(Step(lambda: pytest.fail("must be skipped"), label="skip"),))
+        Graph(
+            structure=GraphStructure(
+                nodes=(Leaf(lambda: pytest.fail("must be skipped"), label="skip"),)
+            )
         ),
         execution_state=ExecutionState(
             initial_skip_requests=(
-                StepPath(
+                NodePath(
                     (
                         0,
                         0,
@@ -203,16 +215,16 @@ def test_skip_event_has_a_label_without_running_the_action() -> None:
         events=Sink(),
     )
     execution.run()
-    assert [(event.step_path.labels, event.state) for event in events] == [
-        (("0",), StepExecutionState.STARTED),
+    assert [(event.node_path.labels, event.state) for event in events] == [
+        (("0",), NodeExecutionState.STARTED),
         (
             (
                 "0",
                 "skip",
             ),
-            StepExecutionState.SKIPPED,
+            NodeExecutionState.SKIPPED,
         ),
-        (("0",), StepExecutionState.COMPLETED),
+        (("0",), NodeExecutionState.COMPLETED),
     ]
 
 
@@ -221,7 +233,7 @@ def test_arun_cancellation_waits_for_cooperative_action_cleanup() -> None:
         entered = asyncio.Event()
         cleaned = asyncio.Event()
 
-        async def action(ctx: StepRunContext) -> None:
+        async def action(ctx: NodeRunContext) -> None:
             entered.set()
             try:
                 while True:
@@ -230,7 +242,7 @@ def test_arun_cancellation_waits_for_cooperative_action_cleanup() -> None:
             finally:
                 cleaned.set()
 
-        execution = Execution(Step(Graph(steps=(Step(action),))))
+        execution = Execution(Graph(structure=GraphStructure(nodes=(Leaf(action),))))
         task = asyncio.create_task(execution.arun())
         await entered.wait()
         task.cancel()
@@ -247,7 +259,7 @@ def test_threaded_action_observes_external_stop() -> None:
     entered = threading.Event()
     cleaned = threading.Event()
 
-    def action(ctx: StepRunContext) -> None:
+    def action(ctx: NodeRunContext) -> None:
         entered.set()
         try:
             while not ctx.control.stop_requested():
@@ -265,7 +277,8 @@ def test_threaded_action_observes_external_stop() -> None:
     try:
         with pytest.raises(ExecutionStopped):
             Execution(
-                Step(Graph(steps=(Step(action),))), execution_control=control
+                Graph(structure=GraphStructure(nodes=(Leaf(action),))),
+                execution_control=control,
             ).run()
     finally:
         thread.join(timeout=2)
@@ -286,41 +299,46 @@ def test_no_subscription_constructs_no_events(monkeypatch) -> None:
     def unexpected(*args, **kwargs):
         pytest.fail("disabled event delivery must not construct events")
 
-    monkeypatch.setattr(state, "StepExecutionEvent", unexpected)
-    Execution(Step(Graph(steps=(Step(lambda: 1),)))).run()
+    monkeypatch.setattr(state, "NodeExecutionEvent", unexpected)
+    Execution(Graph(structure=GraphStructure(nodes=(Leaf(lambda: 1),)))).run()
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_composite_events_are_independent_of_presentation_mode(mode) -> None:
-    events: list[StepExecutionEvent] = []
+    events: list[NodeExecutionEvent] = []
 
     class Sink:
-        def emit(self, event: StepExecutionEvent) -> None:
+        def emit(self, event: NodeExecutionEvent) -> None:
             events.append(event)
 
-    child = Graph(steps=(Step(lambda: None, label="leaf"),))
-    Execution(Step(Graph(steps=(Step(child, label="child"),))), events=Sink()).run(
-        mode=mode
-    )
-    assert [(event.step_path.labels, event.state) for event in events] == [
-        (("0",), StepExecutionState.STARTED),
+    child = Graph(structure=GraphStructure(nodes=(Leaf(lambda: None, label="leaf"),)))
+    Execution(
+        Graph(
+            structure=GraphStructure(
+                nodes=(Graph(structure=child.structure, label="child"),)
+            )
+        ),
+        events=Sink(),
+    ).run(mode=mode)
+    assert [(event.node_path.labels, event.state) for event in events] == [
+        (("0",), NodeExecutionState.STARTED),
         (
             (
                 "0",
                 "child",
             ),
-            StepExecutionState.STARTED,
+            NodeExecutionState.STARTED,
         ),
-        (("0", "child", "leaf"), StepExecutionState.STARTED),
-        (("0", "child", "leaf"), StepExecutionState.COMPLETED),
+        (("0", "child", "leaf"), NodeExecutionState.STARTED),
+        (("0", "child", "leaf"), NodeExecutionState.COMPLETED),
         (
             (
                 "0",
                 "child",
             ),
-            StepExecutionState.COMPLETED,
+            NodeExecutionState.COMPLETED,
         ),
-        (("0",), StepExecutionState.COMPLETED),
+        (("0",), NodeExecutionState.COMPLETED),
     ]
 
 
@@ -329,13 +347,15 @@ def test_serial_dynamic_expansion_uses_an_explicit_stack() -> None:
 
     def expand(depth: int) -> Graph:
         return Graph(
-            steps=(
-                Step(lambda: calls.append("done"))
-                if depth == 0
-                else Step(lambda: expand(depth - 1)),
+            structure=GraphStructure(
+                nodes=(
+                    Leaf(lambda: calls.append("done"))
+                    if depth == 0
+                    else Leaf(lambda: expand(depth - 1)),
+                )
             )
         )
 
     graph = expand(128)
-    SerialGraphExecutor().execute(Execution(Step(graph)).compile())
+    SerialGraphExecutor().execute(Execution(Graph(structure=graph.structure)).compile())
     assert calls == ["done"]

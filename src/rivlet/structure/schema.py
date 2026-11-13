@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Literal, TypedDict
+from typing import Literal, NotRequired, TypedDict
 
 
 class OrderEdgeDocument(TypedDict):
@@ -29,6 +29,10 @@ class ResultEdgeDocument(TypedDict):
     source: str
     target: str
     argument_index: int
+    source_port: NotRequired[str]
+    target_port: NotRequired[str]
+    provider_node: NotRequired[str]
+    consumer_nodes: NotRequired[list[str]]
 
 
 class PortEdgeDocument(TypedDict):
@@ -49,10 +53,10 @@ type EdgeDocument = (
 )
 
 
-class StepDocument(TypedDict):
-    kind: Literal["step"]
+class LeafDocument(TypedDict):
+    kind: Literal["leaf"]
     id: str
-    step_id: int
+    node_id: int
     graph: str
     label: str
     label_path: list[str]
@@ -63,7 +67,7 @@ class StepDocument(TypedDict):
 class SubgraphDocument(TypedDict):
     kind: Literal["subgraph"]
     id: str
-    step_id: int
+    node_id: int
     graph: str
     label: str
     label_path: list[str]
@@ -71,7 +75,7 @@ class SubgraphDocument(TypedDict):
     condition: str | None
 
 
-type NodeDocument = StepDocument | SubgraphDocument
+type NodeDocument = LeafDocument | SubgraphDocument
 
 
 class InputPortDocument(TypedDict):

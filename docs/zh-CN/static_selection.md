@@ -3,22 +3,22 @@
 [English](../static_selection.md) | 简体中文
 
 `static.select()` 把全部候选分支保留在 Graph 声明中，编译时要求恰好一个条件成立。
-它返回 `GraphWiring`，可直接参与 `>>` / `|`；不新增执行选择逻辑的 action 或 Step，
-也不引入 GraphTemplate、第二套 Step 或第二套 Graph。
+它返回 `GraphWiring`，可直接参与 `>>` / `|`；不新增执行选择逻辑的 action 或 Node，
+也不引入 GraphTemplate、第二套 Node 或第二套 Graph。
 
 ## 完整条件与分支内容
 
 ```python
-from rivlet import Case, Execution, Step, static
+from rivlet import Graph, Leaf, Case, Execution, static
 
 platform = "android"
 version = 3
 
-prepare = Step(lambda: print("prepare"), label="prepare")
-modern = Step(lambda: print("modern Android"), label="modern")
-legacy = Step(lambda: print("legacy Android"), label="legacy")
-linux = Step(lambda: print("Linux"), label="linux")
-finish = Step(lambda: print("finish"), label="finish")
+prepare = Leaf(lambda: print("prepare"), label=("prepare"))
+modern = Leaf(lambda: print("modern Android"), label=("modern"))
+legacy = Leaf(lambda: print("legacy Android"), label=("legacy"))
+linux = Leaf(lambda: print("Linux"), label=("linux"))
+finish = Leaf(lambda: print("finish"), label=("finish"))
 
 graph = (
     prepare
@@ -32,15 +32,15 @@ graph = (
     >> finish
 ).graph()
 
-Execution(Step(graph, label="platform workflow")).run()
+Execution(Graph(structure=(graph).structure, label=("platform workflow"))).run()
 ```
 
 结果为 `prepare → modern → finish`。每个 `Case(condition, component)` 只有两个参数：
 
 - `condition` 是完整静态布尔条件，必须显式提供。既不表示匹配值，也不是判断函数；
   不会把字符串、函数等非布尔对象隐式转换为真。
-- `component` 是 Step；图结构先通过 `Step(graph)` 或 `graph.step()` 显式挂载。
-  `case.step` 是分支实际接入图的节点，可用于显式接线。
+- `component` 是 Leaf 或 Graph 节点；Graph 不需要额外包装。
+  `case.node` 是分支实际接入图的节点，可用于显式接线。
 - `static` 是 `rivlet.static` 模块，不是必须提供 evaluator 的 `StaticConditions` 实例。
 
 没有单独的匹配值、模式、guard、通配符或链式条件方法。不需要先把输入分类，
@@ -48,7 +48,7 @@ Execution(Step(graph, label="platform workflow")).run()
 依然用于带显式求值器的节点与边裁剪，不受此入口影响。
 
 Python 在调用 API 前计算布尔表达式，并构造所有候选组件。声明记录结果，编译时才
-检查唯一选择；它不延迟表达式或构图函数的执行，也不读取 Step 的运行结果。
+检查唯一选择；它不延迟表达式或构图函数的执行，也不读取 Node 的运行结果。
 `cases` 接受序列并保存为元组，不受调用方随后修改列表的影响。
 
 ## 恰好一个成立，不使用优先级
@@ -70,19 +70,21 @@ Python 在调用 API 前计算布尔表达式，并构造所有候选组件。�
 不使用 DSL 时，可以声明同一份选择和拓扑：
 
 ```python
-from rivlet import Case, Graph, Execution, StaticSelection, Step, Edge
+from rivlet import Graph, GraphStructure, Leaf, Case, Execution, StaticSelection, Edge
 
-first = Step(lambda: print("first"), label="first")
-second = Step(lambda: print("second"), label="second")
-finish = Step(lambda: print("finish"), label="finish")
+first = Leaf(lambda: print("first"), label=("first"))
+second = Leaf(lambda: print("second"), label=("second"))
+finish = Leaf(lambda: print("finish"), label=("finish"))
 cases = (Case(False, first), Case(True, second))
 
 graph = Graph(
-    steps=tuple(case.step for case in cases) + (finish,),
-    edges=tuple(Edge(case.step, finish) for case in cases),
-    static_selections=(StaticSelection(cases=cases),),
+    structure=GraphStructure(
+        nodes=(tuple(case.node for case in cases) + (finish,)),
+        edges=(tuple(Edge(case.node, finish) for case in cases)),
+        static_selections=((StaticSelection(cases=cases),)),
+    )
 )
-Execution(Step(graph)).run()
+Execution(Graph(structure=(graph).structure)).run()
 ```
 
 `Graph.from_wiring()` 和 `.graph()` 同样接受 `static_selections=`。DSL 自动携带声明，
@@ -91,11 +93,12 @@ Execution(Step(graph)).run()
 选中空子图时仍保留现有 composite 生命周期边界，不插入 no-op action。
 
 未选子图里的静态条件与嵌套选择不求值；外层图被静态裁剪时，其选择也不求值。
-已构造候选仍遵循既有声明校验。同一作用域不能重复声明同一个 Step；需要在多个分支
-复用实现时，传入可复用子图，各 Case 按已有挂载规则获得独立边界，不隐式合并节点。
+已构造候选仍遵循既有声明校验。同一作用域不能重复声明同一个 Node；需要在多个分支
+复用实现时，从同一 GraphStructure 显式创建不同 Graph 节点；重复传同一个 Graph
+不会隐式得到独立挂载，也不合并节点。
 每次编译、每次挂载独立选择，不把选中结果缓存到声明对象。
 
-选择不自动公开或转发子图端口。通过 `case.step` 可按现有 API 显式绑定端口；
+选择不自动公开或转发子图端口。通过 `case.node` 可按现有 API 显式绑定端口；
 仍活跃的消费者若需要未选分支的端口或结果，编译报错，不静默删除需求。
 运行时条件不会触发重新选择；结果输入、线程/异步执行继续使用既有规则。
 

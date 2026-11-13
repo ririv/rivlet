@@ -12,27 +12,27 @@ from .selection import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from .model import GraphWiring, Step
+    from .model import GraphWiring, Node, NodeKind
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class Case:
-    """Bind one complete static boolean condition to a mounted Step."""
+    """Bind one complete static boolean condition to a mounted Node."""
 
     condition: bool
-    step: Step
+    node: NodeKind
 
     def __init__(
         self,
         condition: bool,
-        component: Step,
+        component: NodeKind,
     ) -> None:
         if not isinstance(condition, bool):
             raise TypeError("Case condition must be a bool")
         object.__setattr__(self, "condition", condition)
         object.__setattr__(
             self,
-            "step",
+            "node",
             component,
         )
 
@@ -43,9 +43,9 @@ class StaticSelection:
 
     cases: tuple[Case, ...]
 
-    def selected_step(self) -> Step:
+    def selected_node(self) -> Node:
         # C 个分支时间 O(C)、额外空间 O(1)，不把声明顺序当作优先级。
-        selected: Step | None = None
+        selected: Node | None = None
         for case in self.cases:
             if not case.condition:
                 continue
@@ -53,7 +53,7 @@ class StaticSelection:
                 raise MultipleStaticBranchesSelectedError(
                     "static selection requires exactly one active case; multiple are active"
                 )
-            selected = case.step
+            selected = case.node
         if selected is None:
             raise NoStaticBranchSelectedError(
                 "static selection requires exactly one active case; none are active"
@@ -72,31 +72,31 @@ def select(*, cases: Sequence[Case]) -> GraphWiring:
 
     declaration = StaticSelection(cases=tuple(cases))
     return GraphWiring(
-        steps=tuple(case.step for case in declaration.cases),
+        nodes=tuple(case.node for case in declaration.cases),
         static_selections=(declaration,),
     )
 
 
 def resolve_selection_bindings(
-    selections: tuple[StaticSelection, ...], *, steps: tuple[Step, ...]
-) -> Mapping[Step, tuple[StaticSelection, Case]]:
+    selections: tuple[StaticSelection, ...], *, nodes: tuple[Node, ...]
+) -> Mapping[Node, tuple[StaticSelection, Case]]:
     from .errors import GraphError
 
     # 索引与成员校验 O(V + C)，不求值、不选择，也不重复扫描每个节点的分支。
-    bindings: dict[Step, tuple[StaticSelection, Case]] = {}
+    bindings: dict[Node, tuple[StaticSelection, Case]] = {}
     if selections:
-        known = set(steps)
+        known = set(nodes)
         for declaration in selections:
             for case in declaration.cases:
-                if case.step not in known:
+                if case.node not in known:
                     raise GraphError(
                         "static selection references a step outside this graph"
                     )
-                if case.step in bindings:
+                if case.node in bindings:
                     raise GraphError(
                         "static selection is already declared for this step"
                     )
-                bindings[case.step] = (declaration, case)
+                bindings[case.node] = (declaration, case)
     return MappingProxyType(bindings)
 
 

@@ -13,7 +13,7 @@ from rivlet import (
     AsyncRunOptions,
     Execution,
     Graph,
-    Step,
+    GraphStructure,
     ThreadRunOptions,
 )
 from rivlet._native import _native_process_graph
@@ -42,8 +42,8 @@ pathlib.Path('result.json').write_text(json.dumps({
 print('stdout marker', flush=True)
 print('stderr marker', file=sys.stderr, flush=True)
 """
-    native = Step(
-        _native_process_graph(
+    native = Graph(
+        structure=_native_process_graph(
             [
                 (
                     "process",
@@ -56,7 +56,10 @@ print('stderr marker', file=sys.stderr, flush=True)
             [],
         )
     )
-    Execution(Step(Graph(steps=(native,))), step_log_paths={native: log_path}).run(
+    Execution(
+        Graph(structure=GraphStructure(nodes=(native,))),
+        node_log_paths={native: log_path},
+    ).run(
         AsyncRunOptions(concurrency=2) if asynchronous else ThreadRunOptions(workers=2)
     )
     result = json.loads((directory / "result.json").read_text(encoding="utf-8"))

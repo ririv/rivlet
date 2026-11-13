@@ -13,8 +13,10 @@ from rivlet import (
     ExecutionState,
     Graph,
     GraphMode,
-    Step,
-    StepPath,
+    GraphStructure,
+    Leaf,
+    Node,
+    NodePath,
     ThreadRunOptions,
 )
 
@@ -51,11 +53,13 @@ def test_leaf_uses_constructor_log_path_snapshot(
     def action() -> None:
         observed.append(log.path.get())
 
-    step = Step(action, label="leaf")
+    step = Leaf(action, label=("leaf"))
     path = tmp_path / "leaf.log"
     bindings = {step: path}
     execution = Execution(
-        root=Step(Graph(steps=(step,))), step_log_paths=bindings, action_log=log
+        root=Graph(structure=GraphStructure(nodes=(step,))),
+        node_log_paths=bindings,
+        action_log=log,
     )
     bindings[step] = tmp_path / "changed.log"
 
@@ -79,13 +83,13 @@ def test_parallel_actions_keep_their_own_log_scope(tmp_path, mode, options):
         barrier.wait(timeout=5)
         observed.append((name, before, log.path.get()))
 
-    first = Step(lambda: record("first"))
-    second = Step(lambda: record("second"))
+    first = Leaf(lambda: record("first"))
+    second = Leaf(lambda: record("second"))
     first_log, second_log = tmp_path / "first.log", tmp_path / "second.log"
     Execution(
-        Step(Graph(steps=(first, second))),
+        Graph(structure=GraphStructure(nodes=(first, second))),
         action_log=log,
-        step_log_paths={first: first_log, second: second_log},
+        node_log_paths={first: first_log, second: second_log},
     ).run(options, mode=mode)
     assert set(observed) == {
         ("first", first_log, first_log),
@@ -113,10 +117,12 @@ def test_failed_action_appends_exception_to_its_bound_log(
         await asyncio.sleep(0)
         fail()
 
-    step = Step(fail_async if asynchronous else fail)
+    step = Leaf(fail_async if asynchronous else fail)
     with pytest.raises(RuntimeError, match="action failed"):
         Execution(
-            Step(Graph(steps=(step,))), action_log=log, step_log_paths={step: path}
+            Graph(structure=GraphStructure(nodes=(step,))),
+            action_log=log,
+            node_log_paths={step: path},
         ).run(options, mode=mode)
 
     assert len(log.appended) == 1
@@ -128,38 +134,38 @@ def test_failed_action_appends_exception_to_its_bound_log(
 def test_constructor_resolves_all_bindings_in_one_traversal(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    first = Step(lambda: None)
-    second = Step(lambda: None)
+    first = Leaf(lambda: None)
+    second = Leaf(lambda: None)
     traversals: list[Graph] = []
     original = Execution._index_mounted_step_paths
 
-    def index(execution: Execution) -> dict[Step, tuple[StepPath, ...]]:
-        assert isinstance(execution.root.node, Graph)
-        traversals.append(execution.root.node)
+    def index(execution: Execution) -> dict[Node, tuple[NodePath, ...]]:
+        assert isinstance(execution.root, Graph)
+        traversals.append(execution.root)
         return original(execution)
 
     monkeypatch.setattr(Execution, "_index_mounted_step_paths", index)
-    graph = Graph(steps=(first, second))
-    Execution(root=Step(graph))
+    graph = Graph(structure=GraphStructure(nodes=(first, second)))
+    Execution(root=graph)
     assert traversals == []
 
     Execution(
-        root=Step(graph),
-        step_log_paths={first: tmp_path / "first.log", second: tmp_path / "second.log"},
+        root=graph,
+        node_log_paths={first: tmp_path / "first.log", second: tmp_path / "second.log"},
     )
     assert traversals == [graph]
 
 
 def test_unmounted_binding_does_not_partially_configure_state(tmp_path: Path) -> None:
-    mounted = Step(lambda: None)
-    outside = Step(lambda: None)
+    mounted = Leaf(lambda: None)
+    outside = Leaf(lambda: None)
     state = ExecutionState()
 
     with pytest.raises(RuntimeError, match="is not mounted"):
         Execution(
-            root=Step(Graph(steps=(mounted,))),
+            root=Graph(structure=GraphStructure(nodes=(mounted,))),
             execution_state=state,
-            step_log_paths={
+            node_log_paths={
                 mounted: tmp_path / "first.log",
                 outside: tmp_path / "bad.log",
             },
@@ -167,7 +173,7 @@ def test_unmounted_binding_does_not_partially_configure_state(tmp_path: Path) ->
 
     assert (
         state.get_step_log_path(
-            StepPath(
+            NodePath(
                 (
                     0,
                     0,
@@ -179,12 +185,12 @@ def test_unmounted_binding_does_not_partially_configure_state(tmp_path: Path) ->
 
 
 def test_repeated_step_requires_an_unambiguous_binding(tmp_path: Path) -> None:
-    shared = Step(lambda: None)
-    first = Graph(steps=(shared,)).step()
-    second = Graph(steps=(shared,)).step()
+    shared = Leaf(lambda: None)
+    first = Graph(structure=GraphStructure(nodes=(shared,)))
+    second = Graph(structure=GraphStructure(nodes=(shared,)))
 
     with pytest.raises(RuntimeError, match="mounted more than once"):
         Execution(
-            root=Step(Graph(steps=(first, second))),
-            step_log_paths={shared: tmp_path / "ambiguous.log"},
+            root=Graph(structure=GraphStructure(nodes=(first, second))),
+            node_log_paths={shared: tmp_path / "ambiguous.log"},
         )

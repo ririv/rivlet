@@ -2,13 +2,13 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-static NEXT_STEP_ID: AtomicU64 = AtomicU64::new(1);
+static NEXT_NODE_ID: AtomicU64 = AtomicU64::new(1);
 
 /// A process-local declaration identity shared by all language adapters.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct StepId(u64);
+pub struct NodeIdentity(u64);
 
-impl StepId {
+impl NodeIdentity {
     /// Allocates one identity in O(1), without retaining a declaration registry.
     ///
     /// # Panics
@@ -16,11 +16,11 @@ impl StepId {
     #[must_use]
     pub fn allocate() -> Self {
         Self(
-            NEXT_STEP_ID
+            NEXT_NODE_ID
                 .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                     value.checked_add(1)
                 })
-                .expect("step identity space exhausted"),
+                .expect("node identity space exhausted"),
         )
     }
 

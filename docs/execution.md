@@ -13,7 +13,7 @@ Both public modes use the same Rust declaration compiler and execution session:
 
 str bindings use the same lowering in both modes. The runtime consumes
 GraphCompilation, not a second Python scheduling model. Runtime-returned graphs
-enter the same compilation pipeline with their parent StepPath, label path, and
+enter the same compilation pipeline with their parent NodePath, label path, and
 ancestor result scopes.
 
 ## Compilation preparation
@@ -34,12 +34,12 @@ Serial and thread drivers invoke a Python action, then inspect its return value:
 - Awaitables run to completion in a new event loop in the execution thread.
   This includes coroutine functions, synchronous functions returning coroutines,
   and custom awaitables.
-- A returned Graph executes as a dynamic subgraph before the outer Step completes.
+- A returned Graph executes as a dynamic subgraph before the outer Node completes.
 
 Checking only `async def` is insufficient: a synchronous function can return an
 awaitable. The async driver awaits async actions and bridges synchronous calls
 with `asyncio.to_thread()`. `arun()` uses the caller's existing event loop.
-See the [Step overhead benchmark](./step_overhead_benchmark.md).
+See the [Node overhead benchmark](./step_overhead_benchmark.md).
 
 ## Conditional execution
 
@@ -50,7 +50,7 @@ In both modes:
 
 - Static conditions are evaluated and removed during compilation.
 - Runtime edges become CompiledConditionalDependency values.
-- Runtime Step conditions become CompiledRuntimeCondition values.
+- Runtime Node conditions become CompiledRuntimeCondition values.
 - A false runtime node condition skips the node; a false edge condition removes
   only that dependency.
 - Each compiled condition instance is evaluated at most once per session.
@@ -61,9 +61,10 @@ In both modes:
 
 See [render/](../src/rivlet/render/).
 
-`render_graph(...)` and `render_graph_mermaid(...)` accept Graph or
-GraphCompilation and require an explicit `root_label`. They do not infer the
-execution root label from a Graph, which carries no label.
+`render_graph(...)` and `render_graph_mermaid(...)` accept a Leaf/Graph node,
+GraphStructure, or GraphCompilation and require an explicit inspection `root_label`.
+Node labels remain part of the declaration; execution views derive the actual
+root node's name rather than introducing a second execution label.
 
 - Dynamic mode renders the declaration structure. For GraphCompilation, it uses
   `source_graph`.
@@ -73,7 +74,7 @@ execution root label from a Graph, which carries no label.
 
 Execution views use recorded condition results; they do not rerun predicates.
 `render_execution(root_step, state)` and `render_live_execution(root_step, state)`
-receive the actual root Step and derive its name; they do not accept a second `root_label`.
+receive the actual root Node and derive its name; they do not accept a second `root_label`.
 
 ## Run options
 
@@ -105,15 +106,19 @@ prevents new dispatch, waits for already-started work, then reports cancellation
 Each execution has independent control by default:
 
 ```python
-execution = Execution(root=Step(graph))
+execution = Execution(root=Graph(structure=(graph).structure))
 ```
 
 A host may share control between sequential executions:
 
 ```python
 control = ExecutionControl()
-first_execution = Execution(root=Step(first_graph), execution_control=control)
-second_execution = Execution(root=Step(second_graph), execution_control=control)
+first_execution = Execution(
+    root=Graph(structure=(first_graph).structure), execution_control=control
+)
+second_execution = Execution(
+    root=Graph(structure=(second_graph).structure), execution_control=control
+)
 ```
 
 These remain separate runs with independent ExecutionState values. Sharing
@@ -130,12 +135,12 @@ a stop and waits for started actions to clean up. Stop handlers run outside the
 control lock; registering after a stop invokes the handler immediately. All stop
 handlers are called before any handler failures are raised together.
 
-## Step execution events
+## Node execution events
 
-Pass `events=StepEventSink` to Execution to receive `StepExecutionEvent`
-values with declaration `step_id`, mounted `step_path` (including `.labels`),
+Pass `events=NodeEventSink` to Execution to receive `NodeExecutionEvent`
+values with declaration `node_id`, mounted `node_path` (including `.labels`),
 typed `state_detail`, and a derived
-`state: StepExecutionState`:
+`state: NodeExecutionState`:
 `STARTED`, `COMPLETED`, `FAILED`, `BLOCKED`, or `SKIPPED`.
 Static and runtime-generated subgraphs and Rust-native actions use the same
 interface. Events describe committed transitions; composite events do not depend
@@ -146,7 +151,7 @@ label index are created. GraphObserver remains the separate presentation interfa
 
 ## Failure propagation
 
-An ordinary Step failure blocks only work that depends on it:
+An ordinary Node failure blocks only work that depends on it:
 
 ```text
 A (failed) → B (blocked, not executed)
@@ -223,7 +228,7 @@ Steps or changing results.
 
 ## DAG constraints
 
-At construction, Graph validates nonempty explicitly supplied labels, Step-only
+At construction, Graph validates nonempty explicitly supplied labels, Node-only
 node membership, duplicate mounting, local edge endpoints, and local acyclicity.
 Omitting a label is valid.
 

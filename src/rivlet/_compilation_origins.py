@@ -6,22 +6,22 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .model import StepPath
+    from .model import NodePath
 
 
 @dataclass(frozen=True, slots=True)
 class NodeConditionOrigin:
-    target: StepPath
+    target: NodePath
 
 
 @dataclass(frozen=True, slots=True)
 class EdgeConditionOrigin:
-    target: StepPath
+    target: NodePath
     edge_index: int
 
 
 @dataclass(frozen=True, slots=True)
 class CompilationOrigins:
-    parent_step_path: StepPath | None
-    disabled_edges: tuple[tuple[StepPath | None, int], ...]
+    parent_node_path: NodePath | None
+    disabled_edges: tuple[tuple[NodePath | None, int], ...]
     conditions: tuple[NodeConditionOrigin | EdgeConditionOrigin, ...]

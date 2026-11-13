@@ -1,30 +1,30 @@
-# 条件 Step
+# 条件 Node
 
 [English](../conditional_steps.md) | 简体中文
 
 ## 用途
 
-条件边决定依赖是否成立；Step.condition 决定节点自身是否参与执行。
-它适用于 Python 叶子、Python Graph 子图和 NativeGraph 子图。
+条件边决定依赖是否成立；Node.condition 决定节点自身是否参与执行。
+它适用于 Python 叶子、Python Graph 子图和 NativeGraphStructure 子图。
 
 ## 声明
 
-定义见 [step.py](../../src/rivlet/model/step.py)：
+定义见 [Leaf](../../src/rivlet/model/leaf.py) 与 [Graph](../../src/rivlet/model/graph.py)：
 
 ```python
-Step(node=..., label=..., condition=...)
+Leaf(..., label=(...), condition=(...))
 ```
 
 label 只用于展示。`condition` 接受 `None`、零参判断函数，或至少包含一个来源的
-扁平元组 `(predicate, source_step, ...)`。函数在前，每个后续元素都是来源 Step，
+扁平元组 `(predicate, source_step, ...)`。函数在前，每个后续元素都是来源 Node，
 不再套一层输入元组，也不是已算出的值。函数必须返回 bool，构图时不会执行。
 不再需要公开的 `runtime_condition()` 包装函数。
 
 ```python
-probe = Step(lambda: 42)
-build = Step(
+probe = Leaf(lambda: 42)
+build = Leaf(
     lambda ctx, result: build_source(),
-    condition=(lambda result: result.unwrap() == 42, probe),
+    condition=((lambda result: result.unwrap() == 42, probe)),
 )
 graph = Graph.from_wiring(
     (
@@ -35,8 +35,8 @@ graph = Graph.from_wiring(
 ```
 
 无输入时直接写 `condition=lambda: True`；子图挂载同样通过
-`child_graph.step(condition=...)` 接收这两种写法。条件的输入直接保存在条件声明中，
-不需要重复声明 action 结果边，也不新增 Step。
+`Graph(child_structure, condition=...)` 接收这两种写法。条件的输入直接保存在条件声明中，
+不需要重复声明 action 结果边，也不新增 Node。
 
 ## 语义
 
@@ -53,37 +53,45 @@ graph = Graph.from_wiring(
 
 ## 静态节点和子图
 
-静态条件不放在 Step.condition 中，而由 StaticConditions 绑定解释器后声明：
+静态条件不放在 Node.condition 中，而由 StaticConditions 绑定解释器后声明：
 
 ```python
 static = StaticConditions(evaluator=evaluate_target_condition)
 graph = (prepare >> static.when(is_android, android) >> build).graph()
-child_graph = static.when(is_android, Step(android_graph, label="android")).graph()
+child_graph = static.when(
+    is_android, Graph(structure=(android_graph).structure, label=("android"))
+).graph()
 ```
 
 条件为假时，编译器移除节点及关联边，不自动把前驱接到后继。声明图保持不变，
 可继续查看原始条件。子图必须先构造，静态规则不会延迟其 Python 构造函数。
 
-不用 DSL 时，同一个 API 通过 Graph.static 接入：
+不用 DSL 时，同一个 API 通过 GraphStructure.static 接入：
 
 ```python
 graph = Graph(
-    steps=(android, checks, build),
-    edges=(
-        Edge(source=android, target=build),
-        Edge(source=checks, target=build),
-    ),
-    static=StaticConditions(
-        evaluator=evaluate_target_condition,
-        conditions={
-            android: is_android,
-            (checks, build): wait_for_checks,
-        },
-    ),
+    structure=GraphStructure(
+        nodes=((android, checks, build)),
+        edges=(
+            (
+                Edge(source=android, target=build),
+                Edge(source=checks, target=build),
+            )
+        ),
+        static=(
+            StaticConditions(
+                evaluator=evaluate_target_condition,
+                conditions={
+                    android: is_android,
+                    (checks, build): wait_for_checks,
+                },
+            )
+        ),
+    )
 )
 ```
 
-规则必须引用图中已声明的节点或边。节点和边使用同一个映射，不需要两套 Step / Graph。
+规则必须引用图中已声明的节点或边。节点和边使用同一个映射，不需要两套 Node / Graph。
 条件只在编译时求值；同一声明可重复编译，但 evaluator 应保持纯函数语义。
 静态节点规则可以与节点自身的运行时 condition 同时存在：先静态裁剪，再运行时判断。
 
@@ -112,7 +120,7 @@ A --[condition]--> B
 - composite 保留子图边界，不占用 worker，也不成为 no-op leaf。
 
 [compile.py](../../src/rivlet/compile.py) 将条件边归一化为
-CompiledConditionalDependency，将运行时 Step.condition 归一化为节点的
+CompiledConditionalDependency，将运行时 Node.condition 归一化为节点的
 CompiledRuntimeCondition，不把节点条件改写成条件边。
 
 声明期子图的叶子加入统一执行结构，边界成为 CompiledComposite，保留依赖、后继、
@@ -120,18 +128,18 @@ observation 与 condition。激活后才释放直接子节点；空 composite �
 
 ## inputs 与执行前置
 
-`Step.wire(after=...)` 中的 `Results(...)` 只绑定 action 参数。条件在 `(predicate, source_step, ...)`
+`Node.wire(after=...)` 中的 `Results(...)` 只绑定 action 参数。条件在 `(predicate, source_step, ...)`
 中声明自己的来源。节点条件只等待自己的输入；节点启用后，action 才等待自己的输入
-以及 after 指定的前置步骤。两类输入均引用当前图的 Step，参与 DAG 校验和接线边界计算。
+以及 after 指定的前置步骤。两类输入均引用当前图的 Node，参与 DAG 校验和接线边界计算。
 
 ```python
-probe = Step(probe_cache, label="probe")
-prepare_a = Step(prepare_a_source, label="prepare_a")
-prepare_b = Step(prepare_b_source, label="prepare_b")
-heavy_build = Step(
+probe = Leaf(probe_cache, label=("probe"))
+prepare_a = Leaf(prepare_a_source, label=("prepare_a"))
+prepare_b = Leaf(prepare_b_source, label=("prepare_b"))
+heavy_build = Leaf(
     lambda ctx, result: build_source(),
-    label="heavy_build",
-    condition=(lambda result: bool(result.unwrap()), probe),
+    label=("heavy_build"),
+    condition=((lambda result: bool(result.unwrap()), probe)),
 )
 graph = Graph.from_wiring(
     wiring=(
@@ -163,17 +171,17 @@ probe 成功后即可求值，无需等待 prepare_a / prepare_b。条件为假�
 条件的扁平元组同时声明来源依赖和判断函数的位置参数：
 
 ```python
-count_step = Step(lambda: 42)
-approval_step = Step(lambda: True)
+count_step = Leaf(lambda: 42)
+approval_step = Leaf(lambda: True)
 
 
 def should_run(count: Option[object], approval: Option[object]) -> bool:
     return count.unwrap() == 42 and approval.unwrap_or(False) is True
 
 
-consumer = Step(
+consumer = Leaf(
     lambda ctx, count, approval: print(count.unwrap(), approval.unwrap()),
-    condition=(should_run, count_step, approval_step),
+    condition=((should_run, count_step, approval_step)),
 )
 graph = Graph.from_wiring(
     (
@@ -201,18 +209,18 @@ graph = Graph.from_wiring(
 - `unwrap_or(default)` 只替换 Nothing，不替换 Some(None) 或 Some(False)。
 - `bool(option)` 抛出 TypeError，必须明确判断存在性或解包。
 
-inputs 引用当前图中的 Step；同一子图挂载两次，各自读取自己挂载中的结果。
+inputs 引用当前图中的 Node；同一子图挂载两次，各自读取自己挂载中的结果。
 被静态裁剪的输入是编译错误，不是 Nothing。输入的顺序和重复项均保留，
 `condition=(predicate, probe, probe)` 会传两个参数，但等待的是同一个生产者。
 
-当前 Step 不是泛型，条件参数应标为 `Option[object]`，按需校验或收窄原值类型。
+当前 Node 不是泛型，条件参数应标为 `Option[object]`，按需校验或收窄原值类型。
 类型标注不会切换调用约定。action 接收 ctx 和属于自己的 Option 输入；ctx 不再
 查询结果。每个条件只等待自己绑定的来源。节点条件为假时，不必等待 action 或条件边
 的输入即可跳过目标；独立的生产者不会因此自动取消。
 
 ## 边界
 
-Step 条件和条件边共用条件类型，但语义不同。它们都不表达恰好选中一个分支；
+Node 条件和条件边共用条件类型，但语义不同。它们都不表达恰好选中一个分支；
 保留在声明中的选择见[static.select](./static_selection.md)，
 构图前选择见[select_one](./core_model.md#构图前静态选择)。
 失败、取消与结果记录遵循统一[执行语义](./execution.md)。

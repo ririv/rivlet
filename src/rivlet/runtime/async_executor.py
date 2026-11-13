@@ -16,14 +16,14 @@ if TYPE_CHECKING:
     from ..model import Leaf
     from ..observe import GraphObserver
     from ..option import Option
-    from ..results import StepRunContext
+    from ..results import NodeRunContext
     from .control import ExecutionControl
     from .run import ExecutableGraph
 
 
 async def _invoke_async_step_action(
     action: Leaf,
-    run_ctx: StepRunContext,
+    run_ctx: NodeRunContext,
     step_log_path: Path | None,
     action_log: ActionLog,
     inputs: tuple[Option[object], ...] = (),

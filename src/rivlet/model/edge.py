@@ -3,39 +3,40 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, overload
 
 from ..errors import GraphError
-from ..interface import _validate_port_name
+from ..interface import InputPort, OutputEndpoint, OutputPort, _validate_port_name
 from .condition import _normalize_condition, _RuntimeCondition
 from .leaf import Leaf
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from . import ConditionInput, StepPrerequisite
-    from .step import Step
+    from . import ConditionInput, NodePrerequisite
+    from .graph import Graph
+    from .node import Node
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class ConditionalPrerequisite:
-    step: Step
+    node: Node
     condition: _RuntimeCondition
 
-    def __init__(self, step: Step, *, condition: ConditionInput) -> None:
-        object.__setattr__(self, "step", step)
+    def __init__(self, node: Node, *, condition: ConditionInput) -> None:
+        object.__setattr__(self, "node", node)
         object.__setattr__(self, "condition", _normalize_condition(condition))
 
 
-def prerequisite_step(dep: StepPrerequisite) -> Step:
+def prerequisite_node(dep: NodePrerequisite) -> Node:
     if isinstance(dep, ConditionalPrerequisite):
-        return dep.step
+        return dep.node
     return dep
 
 
 def _condition_uses(
-    steps: tuple[Step, ...], edges: tuple[GraphEdge, ...]
-) -> Iterator[tuple[Step, _RuntimeCondition]]:
+    steps: tuple[Node, ...], edges: tuple[GraphEdge, ...]
+) -> Iterator[tuple[Node, _RuntimeCondition]]:
     for step in steps:
         if step.condition is not None:
             yield step, step.condition
@@ -48,14 +49,29 @@ def _condition_uses(
 class Edge:
     """An execution dependency, optionally carrying an action result."""
 
-    source: Step
-    target: Step
+    _source: OutputEndpoint
+    _target: Node | InputPort
     _connection: _ExecutionConnection | _ResultConnection
+
+    @overload
+    def __init__(
+        self, source: Node, target: Node, *, condition: ConditionInput | None = None
+    ) -> None: ...
+
+    @overload
+    def __init__(
+        self,
+        source: Graph,
+        target: Graph,
+        *,
+        ports: str | tuple[str, str],
+        condition: ConditionInput | None = None,
+    ) -> None: ...
 
     def __init__(
         self,
-        source: Step,
-        target: Step,
+        source: Node,
+        target: Node,
         *,
         ports: str | tuple[str, str] | None = None,
         condition: ConditionInput | None = None,
@@ -65,8 +81,8 @@ class Edge:
             output_name, input_name = names
             _validate_port_name(output_name)
             _validate_port_name(input_name)
-        object.__setattr__(self, "source", source)
-        object.__setattr__(self, "target", target)
+        object.__setattr__(self, "_source", source)
+        object.__setattr__(self, "_target", target)
         object.__setattr__(
             self,
             "_connection",
@@ -76,10 +92,12 @@ class Edge:
         )
 
     @staticmethod
-    def results(sources: tuple[Step, ...], target: Step) -> tuple[Edge, ...]:
-        """Connect local producer results to the target action in source order."""
+    def results(
+        sources: tuple[OutputEndpoint, ...], target: Leaf | InputPort
+    ) -> tuple[Edge, ...]:
+        """Connect node or graph-port results to an action in source order."""
 
-        if not isinstance(target.node, Leaf):
+        if not isinstance(target, (Leaf, InputPort)):
             raise GraphError("result target must have a callable action")
         if not sources:
             raise GraphError("result connections require at least one source")
@@ -89,11 +107,31 @@ class Edge:
         edges: list[Edge] = []
         for index, source in enumerate(sources):
             edge = object.__new__(Edge)
-            object.__setattr__(edge, "source", source)
-            object.__setattr__(edge, "target", target)
+            object.__setattr__(edge, "_source", source)
+            object.__setattr__(edge, "_target", target)
             object.__setattr__(edge, "_connection", _ResultConnection(group, index))
             edges.append(edge)
         return tuple(edges)
+
+    @property
+    def source(self) -> Node:
+        return (
+            self._source.graph if isinstance(self._source, OutputPort) else self._source
+        )
+
+    @property
+    def target(self) -> Node:
+        return (
+            self._target.graph if isinstance(self._target, InputPort) else self._target
+        )
+
+    @property
+    def result_source(self) -> OutputEndpoint:
+        return self._source
+
+    @property
+    def result_target(self) -> Node | InputPort:
+        return self._target
 
     @property
     def ports(self) -> tuple[str, str] | None:

@@ -4,13 +4,18 @@ from ..compile import GraphCompilation, compiled_prerequisite_node
 from ..errors import GraphError
 from ..model import (
     Edge,
-    Graph,
     GraphMode,
-    Step,
-    StepPath,
+    GraphStructure,
+    Leaf,
+    Node,
+    NodeKind,
+    NodePath,
     _condition_uses,
-    resolve_step_label,
-    step_paths_for_mount,
+    node_paths_for_mount,
+    resolve_node_label,
+)
+from ..model import (
+    Graph as GraphNode,
 )
 from .formatting import (
     ensure_compilation,
@@ -21,15 +26,18 @@ from .formatting import (
     render_selection_suffix,
     render_step_label,
     render_step_path,
+    result_edge_label,
 )
 
 
 def render_graph_mermaid(
-    subject: Graph | GraphCompilation,
+    subject: GraphStructure | NodeKind | GraphCompilation,
     *,
     root_label: str,
     mode: GraphMode = "dynamic",
 ) -> str:
+    if isinstance(subject, (Leaf, GraphNode)):
+        subject = GraphStructure(nodes=(subject,))
     match mode:
         case "compiled":
             return render_graph_compilation_mermaid(
@@ -47,14 +55,14 @@ def render_graph_mermaid(
             raise GraphError(f"unsupported graph render mode: {mode}")
 
 
-def render_graph_structure_mermaid(graph: Graph, *, root_label: str) -> str:
+def render_graph_structure_mermaid(graph: GraphStructure, *, root_label: str) -> str:
     lines = ["flowchart TD"]
     append_graph_mermaid(
         lines,
         graph,
         graph_label=root_label,
         graph_path=(root_label,),
-        parent_step_path=None,
+        parent_node_path=None,
         indent="    ",
     )
     return "\n".join(lines)
@@ -100,26 +108,26 @@ def render_graph_compilation_mermaid(
 
 def append_graph_mermaid(
     lines: list[str],
-    graph: Graph,
+    graph: GraphStructure,
     *,
     graph_label: str,
     graph_path: tuple[str, ...],
-    parent_step_path: StepPath | None,
+    parent_node_path: NodePath | None,
     indent: str,
 ) -> None:
     lines.append(
         f'{indent}subgraph {mermaid_graph_node_id(graph_path)}["{escape_label(graph_label)}"]'
     )
-    node_ids: dict[Step, str] = {}
-    step_paths = step_paths_for_mount(graph, parent_step_path=parent_step_path)
-    for index, step in enumerate(graph.steps):
-        step_path = step_paths[step]
-        step_label = resolve_step_label(step, step_path)
+    node_ids: dict[Node, str] = {}
+    step_paths = node_paths_for_mount(graph, parent_node_path=parent_node_path)
+    for index, step in enumerate(graph.nodes):
+        node_path = step_paths[step]
+        step_label = resolve_node_label(step, node_path)
         selection_suffix = render_selection_suffix(graph, step)
         node_id = mermaid_step_node_id(graph_path, step_label, index)
         node_ids[step] = node_id
-        action = step.node
-        if isinstance(action, Graph):
+        action = step.structure if isinstance(step, GraphNode) else step
+        if isinstance(action, GraphStructure):
             lines.append(
                 f'{indent}    {node_id}["{escape_label(step_label + selection_suffix)}"]'
             )
@@ -128,17 +136,18 @@ def append_graph_mermaid(
                 action,
                 graph_label=step_label,
                 graph_path=(*graph_path, step_label),
-                parent_step_path=step_path,
+                parent_node_path=node_path,
                 indent=indent + "    ",
             )
         else:
             lines.append(
-                f'{indent}    {node_id}["{escape_label(render_step_label(step, step_path=step_path) + selection_suffix)}"]'
+                f'{indent}    {node_id}["{escape_label(render_step_label(step, node_path=node_path) + selection_suffix)}"]'
             )
     for edge in graph.edges:
         if edge._result_index is not None:
+            label = result_edge_label(edge).replace("action input:", "action input")
             lines.append(
-                f'{indent}    {node_ids[edge.source]} -->|"action input {edge._result_index}"| {node_ids[edge.target]}'
+                f'{indent}    {node_ids[edge.source]} -->|"{escape_label(label)}"| {node_ids[edge.target]}'
             )
         elif isinstance(edge, Edge) and edge.ports is not None:
             label = (
@@ -155,7 +164,7 @@ def append_graph_mermaid(
             lines.append(
                 f"{indent}    {node_ids[edge.source]} --> {node_ids[edge.target]}"
             )
-    for target, condition in _condition_uses(graph.steps, graph.edges):
+    for target, condition in _condition_uses(graph.nodes, graph.edges):
         receiver = "condition" if condition is target.condition else "edge condition"
         for index, source in enumerate(condition.inputs):
             lines.append(

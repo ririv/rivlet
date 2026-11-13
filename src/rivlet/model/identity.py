@@ -4,15 +4,15 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from .._native import allocate_step_id
+from .._native import allocate_node_id
 from ..errors import GraphError
 
 
 @dataclass(frozen=True, order=True, slots=True)
-class StepId:
+class NodeId:
     """One process-local declaration identity, independent of its mounts."""
 
-    value: int = field(default_factory=allocate_step_id)
+    value: int = field(default_factory=allocate_node_id)
 
     def __post_init__(self) -> None:
         if self.value < 1:
@@ -23,7 +23,7 @@ class StepId:
 
 
 @dataclass(frozen=True, order=True, slots=True)
-class StepPath:
+class NodePath:
     """One mounted position; display labels never participate in identity."""
 
     segments: tuple[int, ...]
@@ -43,18 +43,18 @@ class StepPath:
         if not self.labels:
             object.__setattr__(self, "labels", tuple(map(str, self.segments)))
 
-    def child(self, index: int, *, label: str | None = None) -> StepPath:
+    def child(self, index: int, *, label: str | None = None) -> NodePath:
         if index < 0:
             raise GraphError(f"step child index must be non-negative: {index}")
         segments = (*self.segments, index)
         child_label = ".".join(map(str, segments)) if label is None else label
-        return StepPath(segments, labels=(*self.labels, child_label))
+        return NodePath(segments, labels=(*self.labels, child_label))
 
     def __str__(self) -> str:
         return ".".join(map(str, self.segments))
 
     @property
-    def parent(self) -> StepPath | None:
+    def parent(self) -> NodePath | None:
         if len(self.segments) == 1:
             return None
-        return StepPath(self.segments[:-1], labels=self.labels[:-1])
+        return NodePath(self.segments[:-1], labels=self.labels[:-1])

@@ -15,21 +15,21 @@ if TYPE_CHECKING:
     from ..model import Leaf
     from ..observe import GraphObserver
     from ..option import Option
-    from ..results import StepRunContext
+    from ..results import NodeRunContext
     from .control import ExecutionControl
     from .run import ExecutableGraph
 
 
 def _invoke_thread_action(
     action: Leaf,
-    ctx: StepRunContext,
+    ctx: NodeRunContext,
     step_log_path: Path | None,
     action_log: ActionLog,
     inputs: tuple[Option[object], ...] = (),
 ) -> object:
     thread = threading.current_thread()
     original_name = thread.name
-    thread.name = step_thread_name(ctx.step_path.labels)
+    thread.name = step_thread_name(ctx.node_path.labels)
     try:
         return invoke_sync_action(action, ctx, step_log_path, action_log, inputs)
     finally:

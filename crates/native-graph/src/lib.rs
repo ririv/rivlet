@@ -6,18 +6,18 @@ use std::fmt::{self, Display, Formatter};
 use action::NativeActionHandle;
 use rivlet::{
     Arc, DeclarationNode, DeclarationPrerequisite, DeclaredGraph, DeclaredNodeKind,
-    GraphCompilation, GraphDeclaration, GraphId, NodeActivation, NodeId, StepId,
+    GraphCompilation, GraphDeclaration, GraphId, NodeActivation, NodeId, NodeIdentity,
 };
 
-/// One Rust-owned executable step in a [`NativeGraph`].
+/// One Rust-owned executable step in a [`NativeGraphStructure`].
 #[derive(Clone, Debug)]
-pub struct NativeStep {
-    id: StepId,
+pub struct NativeLeaf {
+    id: NodeIdentity,
     label: String,
     action: NativeActionHandle,
 }
 
-impl NativeStep {
+impl NativeLeaf {
     /// Creates a native step with an explicit display label.
     ///
     /// # Errors
@@ -28,17 +28,17 @@ impl NativeStep {
     ) -> Result<Self, NativeGraphError> {
         let label = label.into();
         if label.is_empty() {
-            return Err(NativeGraphError::EmptyStepLabel);
+            return Err(NativeGraphError::EmptyNodeLabel);
         }
         Ok(Self {
-            id: StepId::allocate(),
+            id: NodeIdentity::allocate(),
             label,
             action,
         })
     }
 
     #[must_use]
-    pub const fn id(&self) -> StepId {
+    pub const fn id(&self) -> NodeIdentity {
         self.id
     }
 
@@ -55,23 +55,23 @@ impl NativeStep {
 
 /// A complete Rust declaration graph with Rust-owned leaf actions.
 #[derive(Clone, Debug)]
-pub struct NativeGraph {
-    steps: Vec<NativeStep>,
+pub struct NativeGraphStructure {
+    leaves: Vec<NativeLeaf>,
     arcs: Vec<Arc>,
 }
 
-impl NativeGraph {
+impl NativeGraphStructure {
     /// Creates a native graph while preserving edges as graph-owned topology.
     ///
     /// # Errors
     /// Returns an error when an edge references an unknown step or the declared
     /// topology contains a cycle.
     pub fn new(
-        steps: impl IntoIterator<Item = NativeStep>,
+        leaves: impl IntoIterator<Item = NativeLeaf>,
         arcs: impl IntoIterator<Item = Arc>,
     ) -> Result<Self, NativeGraphError> {
         let graph = Self {
-            steps: steps.into_iter().collect(),
+            leaves: leaves.into_iter().collect(),
             arcs: arcs.into_iter().collect(),
         };
         // 编译一次只用于验证完整声明。时间和额外空间均为 O(V + E)。
@@ -80,8 +80,8 @@ impl NativeGraph {
     }
 
     #[must_use]
-    pub fn steps(&self) -> &[NativeStep] {
-        &self.steps
+    pub fn leaves(&self) -> &[NativeLeaf] {
+        &self.leaves
     }
 
     #[must_use]
@@ -94,13 +94,13 @@ impl NativeGraph {
     /// # Errors
     /// Returns the common graph declaration error when the topology is invalid.
     pub fn compile_structure(&self) -> Result<GraphCompilation, NativeGraphError> {
-        let mut prerequisites = vec![Vec::new(); self.steps.len()];
+        let mut prerequisites = vec![Vec::new(); self.leaves.len()];
         for arc in &self.arcs {
             let Some(target) = prerequisites.get_mut(arc.target.index()) else {
-                return Err(NativeGraphError::UnknownStep(arc.target));
+                return Err(NativeGraphError::UnknownNode(arc.target));
             };
-            if arc.source.index() >= self.steps.len() {
-                return Err(NativeGraphError::UnknownStep(arc.source));
+            if arc.source.index() >= self.leaves.len() {
+                return Err(NativeGraphError::UnknownNode(arc.source));
             }
             target.push(DeclarationPrerequisite::Required(arc.source));
         }
@@ -127,16 +127,16 @@ impl NativeGraph {
 /// A native graph declaration failure detected before execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeGraphError {
-    EmptyStepLabel,
-    UnknownStep(NodeId),
+    EmptyNodeLabel,
+    UnknownNode(NodeId),
     Declaration(rivlet::DeclarationError),
 }
 
 impl Display for NativeGraphError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EmptyStepLabel => formatter.write_str("native step label must not be empty"),
-            Self::UnknownStep(step) => {
+            Self::EmptyNodeLabel => formatter.write_str("native step label must not be empty"),
+            Self::UnknownNode(step) => {
                 write!(
                     formatter,
                     "native graph edge references unknown step: {}",
@@ -162,7 +162,7 @@ mod tests {
     use action::{NativeAction, NativeActionContext, NativeActionError, NativeActionHandle};
     use rivlet::{Arc, NodeId};
 
-    use super::{NativeGraph, NativeStep};
+    use super::{NativeGraphStructure, NativeLeaf};
 
     struct Noop;
 
@@ -172,13 +172,13 @@ mod tests {
         }
     }
 
-    fn step(label: &str) -> NativeStep {
-        NativeStep::new(label, NativeActionHandle::new(Noop)).unwrap()
+    fn step(label: &str) -> NativeLeaf {
+        NativeLeaf::new(label, NativeActionHandle::new(Noop)).unwrap()
     }
 
     #[test]
     fn native_graph_uses_the_common_compiled_execution_graph() {
-        let graph = NativeGraph::new(
+        let graph = NativeGraphStructure::new(
             [step("prepare"), step("compile")],
             [Arc::new(NodeId::new(0), NodeId::new(1))],
         )

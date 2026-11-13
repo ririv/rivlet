@@ -7,7 +7,7 @@ import statistics
 import time
 from typing import TYPE_CHECKING
 
-from rivlet import Graph, Step
+from rivlet import Graph, Leaf, Node
 from rivlet.compile import compile_graph
 from rivlet.runtime import (
     ExecutionControl,
@@ -23,9 +23,9 @@ if TYPE_CHECKING:
 
 def _recipe_graph(*, steps: int) -> Graph:
     wiring = []
-    previous: Step | None = None
+    previous: Node | None = None
     for phase_index in range(steps):
-        phase = Step(lambda: None, label=f"phase-{phase_index}")
+        phase = Leaf(lambda: None, label=(f"phase-{phase_index}"))
         wiring.append(phase.wire(after=() if previous is None else (previous,)))
         previous = phase
     return Graph.from_wiring(
@@ -35,8 +35,8 @@ def _recipe_graph(*, steps: int) -> Graph:
 
 def _root_graph(*, recipes: int, steps: int, lanes: int) -> Graph:
     components = tuple(
-        Step(
-            _recipe_graph(steps=steps),
+        Graph(
+            structure=_recipe_graph(steps=steps).structure,
             label=f"recipe-{recipe_index}",
         )
         for recipe_index in range(recipes)
@@ -71,7 +71,7 @@ def _compile_samples(
 
     def _compile() -> None:
         nonlocal compilation
-        compilation = compile_graph(graph, root_label="all-recipes")
+        compilation = compile_graph(graph.structure, root_label="all-recipes")
 
     samples = _measure(_compile, repeats=repeats)
     if compilation is None:

@@ -9,17 +9,17 @@ import rivlet.model as model
 def test_model_and_root_exports_identify_the_same_declarations():
     names = (
         "Graph",
-        "Step",
-        "StepId",
-        "StepPath",
+        "GraphStructure",
+        "Node",
+        "NodeId",
+        "NodePath",
         "Edge",
         "GraphWiring",
-        "StepWiring",
+        "NodeWiring",
         "Results",
         "Leaf",
         "ConditionInput",
-        "Node",
-        "NodeInput",
+        "NodeKind",
     )
     for name in names:
         assert getattr(model, name) is getattr(rivlet, name)
@@ -27,10 +27,9 @@ def test_model_and_root_exports_identify_the_same_declarations():
 
 def test_public_union_aliases_resolve_real_types_at_runtime():
     names = (
-        "Node",
-        "NodeInput",
+        "NodeKind",
         "ConditionInput",
-        "StepPrerequisite",
+        "NodePrerequisite",
         "GraphWiringOperand",
         "GraphWiringInput",
     )

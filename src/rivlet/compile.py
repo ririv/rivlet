@@ -13,11 +13,11 @@ from ._native import (
     NativeActionBindings,
     NativeCompiledExecutionGraph,
     NativeDeclarationCompilation,
-    NativeGraph,
+    NativeGraphStructure,
     compile_declaration,
 )
 from .errors import GraphError
-from .model import Graph, GraphObservationMessages, StepId, StepPath
+from .model import GraphObservationMessages, GraphStructure, NodeId, NodePath
 from .results import GraphScope
 
 if TYPE_CHECKING:
@@ -26,29 +26,29 @@ if TYPE_CHECKING:
     from .model import (
         ConditionalEdgePredicate,
         Leaf,
-        Step,
-        StepLabelPath,
+        Node,
+        NodeLabelPath,
     )
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledStepRef:
+class CompiledLeafRef:
     """引用一个会实际执行 action 的编译叶子。"""
 
-    path: StepPath
+    path: NodePath
 
 
 @dataclass(frozen=True, slots=True)
 class CompiledCompositeRef:
     """引用一个只承担组合生命周期的编译边界。"""
 
-    path: StepPath
+    path: NodePath
 
 
-type CompiledNodeRef = CompiledStepRef | CompiledCompositeRef
+type CompiledNodeRef = CompiledLeafRef | CompiledCompositeRef
 
 
-def compiled_node_path(ref: CompiledNodeRef) -> StepPath:
+def compiled_node_path(ref: CompiledNodeRef) -> NodePath:
     """取得编译节点引用指向的全局唯一 id。"""
 
     return ref.path
@@ -88,7 +88,7 @@ def compiled_prerequisite_node(
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledStepContext:
+class CompiledNodeContext:
     """编译节点映射回声明图作用域所需的上下文。
 
     编译会把嵌套节点编码成全局唯一 id，但运行期条件、结果引用和日志
@@ -96,82 +96,82 @@ class CompiledStepContext:
     composite 共用，不携带调度状态。
     """
 
-    step_id: StepId
-    graph_step_paths: Mapping[Step, StepPath]
+    node_id: NodeId
+    graph_node_paths: Mapping[Node, NodePath]
     ancestor_graph_scopes: tuple[GraphScope, ...]
-    ancestor_composite_ids: tuple[StepPath, ...]
+    ancestor_composite_ids: tuple[NodePath, ...]
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledStep:
+class CompiledPythonLeaf:
     """由 Python 执行器调用的 Python 叶子节点。"""
 
-    ref: CompiledStepRef
+    ref: CompiledLeafRef
     action: Leaf
     after: tuple[CompiledPrerequisite, ...]
     condition: CompiledRuntimeCondition | None
     owner: CompiledCompositeRef | None
-    context: CompiledStepContext
+    context: CompiledNodeContext
     inputs: tuple[CompiledNodeRef, ...] = ()
 
     @property
-    def path(self) -> StepPath:
+    def path(self) -> NodePath:
         return self.ref.path
 
     @property
-    def id(self) -> StepId:
-        return self.context.step_id
+    def id(self) -> NodeId:
+        return self.context.node_id
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledNativeStep:
+class CompiledNativeLeaf:
     """由 Rust 执行器直接调用的原生叶子节点。"""
 
-    ref: CompiledStepRef
+    ref: CompiledLeafRef
     after: tuple[CompiledPrerequisite, ...]
     condition: CompiledRuntimeCondition | None
     owner: CompiledCompositeRef | None
-    context: CompiledStepContext
+    context: CompiledNodeContext
 
     @property
-    def path(self) -> StepPath:
+    def path(self) -> NodePath:
         return self.ref.path
 
     @property
-    def id(self) -> StepId:
-        return self.context.step_id
+    def id(self) -> NodeId:
+        return self.context.node_id
 
 
 @dataclass(frozen=True, slots=True)
 class CompiledComposite:
     """原始子图在编译产物中的非执行生命周期投影。
 
-    子图 action 已经展开为 `CompiledStep`；该类型只保留直接子节点、依赖、
+    子图 action 已经展开为 `CompiledPythonLeaf`；该类型只保留直接子节点、依赖、
     条件和 observation。runtime 会追踪它的进入与完成，但不会把它提交
     给 worker，也不会为它生成伪造的 no-op step。
     """
 
     ref: CompiledCompositeRef
-    source_graph: Graph | NativeGraph
+    source_graph: GraphStructure | NativeGraphStructure
     graph_label: str
     children: tuple[CompiledNodeRef, ...]
     after: tuple[CompiledPrerequisite, ...]
     condition: CompiledRuntimeCondition | None
     owner: CompiledCompositeRef | None
     observation: GraphObservationMessages
-    context: CompiledStepContext
-    graph_step_paths: Mapping[Step, StepPath]
+    context: CompiledNodeContext
+    graph_node_paths: Mapping[Node, NodePath]
 
     @property
-    def path(self) -> StepPath:
+    def path(self) -> NodePath:
         return self.ref.path
 
     @property
-    def id(self) -> StepId:
-        return self.context.step_id
+    def id(self) -> NodeId:
+        return self.context.node_id
 
 
-type CompiledLeaf = CompiledStep | CompiledNativeStep
+type CompiledLeaf = CompiledPythonLeaf | CompiledNativeLeaf
 type CompiledNode = CompiledLeaf | CompiledComposite
 
 
@@ -203,13 +203,13 @@ class GraphCompilation:
     只描述原始子图边界；`roots` 则明确给出根图直接拥有的节点。
     """
 
-    source_graph: Graph
+    source_graph: GraphStructure
     label: str
     steps: tuple[CompiledLeaf, ...]
     composites: tuple[CompiledComposite, ...]
     roots: tuple[CompiledNodeRef, ...]
-    root_label_path: StepLabelPath = ()
-    root_graph_step_paths: Mapping[Step, StepPath] = field(
+    root_label_path: NodeLabelPath = ()
+    root_graph_node_paths: Mapping[Node, NodePath] = field(
         default_factory=lambda: MappingProxyType({})
     )
     _structure_origins: CompilationOrigins | None = field(
@@ -230,7 +230,7 @@ class GraphCompilation:
         repr=False,
         compare=False,
     )
-    _native_node_indexes: Mapping[StepPath, int] = field(
+    _native_node_indexes: Mapping[NodePath, int] = field(
         init=False,
         repr=False,
         compare=False,
@@ -268,10 +268,10 @@ class GraphCompilation:
         # 单次建立节点、owner 和声明作用域索引。设 V 为节点数、S 为所有不同
         # 声明作用域中的 step 总数：时间 O(V + S)，额外空间 O(V + S)。后续
         # composite 校验必须查询这些索引，不能为每个 composite 重扫全部节点。
-        nodes: dict[StepPath, CompiledNode] = {}
-        child_ids_by_owner: dict[CompiledCompositeRef, set[StepPath]] = {}
-        ownerless_node_ids: set[StepPath] = set()
-        scope_step_paths: dict[int, frozenset[StepPath]] = {}
+        nodes: dict[NodePath, CompiledNode] = {}
+        child_ids_by_owner: dict[CompiledCompositeRef, set[NodePath]] = {}
+        ownerless_node_ids: set[NodePath] = set()
+        scope_step_paths: dict[int, frozenset[NodePath]] = {}
         for node in (*self.steps, *self.composites):
             if node.path in nodes:
                 raise GraphError(f"compiled graph has duplicate node id: {node.path}")
@@ -280,7 +280,7 @@ class GraphCompilation:
                 ownerless_node_ids.add(node.path)
             else:
                 child_ids_by_owner.setdefault(node.owner, set()).add(node.path)
-            scope = node.context.graph_step_paths
+            scope = node.context.graph_node_paths
             scope_key = id(scope)
             if scope_key not in scope_step_paths:
                 scope_step_paths[scope_key] = frozenset(scope.values())
@@ -301,14 +301,14 @@ class GraphCompilation:
             _validate_compiled_node(
                 nodes,
                 step,
-                scope_step_paths=scope_step_paths[id(step.context.graph_step_paths)],
+                scope_step_paths=scope_step_paths[id(step.context.graph_node_paths)],
             )
         for composite in self.composites:
             _validate_compiled_node(
                 nodes,
                 composite,
                 scope_step_paths=scope_step_paths[
-                    id(composite.context.graph_step_paths)
+                    id(composite.context.graph_node_paths)
                 ],
             )
             child_ids = tuple(child.path for child in composite.children)
@@ -430,7 +430,7 @@ class GraphCompilation:
         *,
         graph: NativeCompiledExecutionGraph,
         nodes: tuple[CompiledNode, ...],
-        node_indexes: dict[StepPath, int],
+        node_indexes: dict[NodePath, int],
         conditions: tuple[CompiledRuntimeCondition, ...],
         native_actions: NativeActionBindings,
     ) -> None:
@@ -446,7 +446,7 @@ class GraphCompilation:
             MappingProxyType(node_indexes),
         )
 
-    def _dependent_refs(self, node_id: StepPath) -> tuple[CompiledNodeRef, ...]:
+    def _dependent_refs(self, node_id: NodePath) -> tuple[CompiledNodeRef, ...]:
         node_index = self._native_node_indexes[node_id]
         return tuple(
             self._native_nodes[index].ref
@@ -461,19 +461,19 @@ class GraphCompilation:
 
 
 def _require_compiled_node(
-    nodes: dict[StepPath, CompiledNode],
+    nodes: dict[NodePath, CompiledNode],
     ref: CompiledNodeRef,
 ) -> CompiledNode:
     """解析 typed ref，并验证引用类别与实际节点类别一致。
 
-    `StepPath` 在扁平图中全局唯一，但只有 id 存在还不够：
-    `CompiledStepRef` 不能指向 `CompiledComposite`，反之亦然。
+    `NodePath` 在扁平图中全局唯一，但只有 id 存在还不够：
+    `CompiledLeafRef` 不能指向 `CompiledComposite`，反之亦然。
     """
 
     node = nodes.get(ref.path)
     if node is None:
         raise GraphError(f"compiled graph references unknown node: {ref.path}")
-    if isinstance(ref, CompiledStepRef) != (not isinstance(node, CompiledComposite)):
+    if isinstance(ref, CompiledLeafRef) != (not isinstance(node, CompiledComposite)):
         raise GraphError(
             f"compiled graph reference kind does not match node: {ref.path}"
         )
@@ -481,10 +481,10 @@ def _require_compiled_node(
 
 
 def _validate_compiled_node(
-    nodes: dict[StepPath, CompiledNode],
+    nodes: dict[NodePath, CompiledNode],
     node: CompiledNode,
     *,
-    scope_step_paths: frozenset[StepPath],
+    scope_step_paths: frozenset[NodePath],
 ) -> None:
     """验证单个节点的声明作用域、所有权和直接依赖引用。"""
 
@@ -505,14 +505,14 @@ def _validate_compiled_node(
             _validate_compiled_condition(nodes, prerequisite.condition)
     if node.condition is not None:
         _validate_compiled_condition(nodes, node.condition)
-    if isinstance(node, CompiledStep):
+    if isinstance(node, CompiledPythonLeaf):
         node.action.validate_inputs(len(node.inputs))
         for ref in node.inputs:
             _require_compiled_node(nodes, ref)
 
 
 def _validate_compiled_condition(
-    nodes: dict[StepPath, CompiledNode],
+    nodes: dict[NodePath, CompiledNode],
     condition: CompiledRuntimeCondition,
 ) -> None:
     """验证运行期条件读取的每个结果来源仍存在于编译产物中。"""
@@ -523,7 +523,7 @@ def _validate_compiled_condition(
 
 def _materialize_native_execution_graph(
     nodes: tuple[CompiledNode, ...],
-    node_indexes: Mapping[StepPath, int],
+    node_indexes: Mapping[NodePath, int],
 ) -> tuple[
     NativeCompiledExecutionGraph,
     tuple[CompiledRuntimeCondition, ...],
@@ -568,7 +568,7 @@ def _materialize_native_execution_graph(
                 for prerequisite in node.after
             ]
         )
-        if isinstance(node, CompiledStep):
+        if isinstance(node, CompiledPythonLeaf):
             prerequisites[-1].extend(
                 (node_indexes[ref.path], None) for ref in node.inputs
             )
@@ -605,23 +605,23 @@ def _materialize_native_execution_graph(
 
 
 def compile_graph(
-    source_graph: Graph,
+    source_graph: GraphStructure,
     *,
     root_label: str,
-    parent_step_path: StepPath | None = None,
-    root_label_path: StepLabelPath = (),
+    parent_node_path: NodePath | None = None,
+    root_label_path: NodeLabelPath = (),
     ancestor_graph_scopes: tuple[GraphScope, ...] = (),
 ) -> GraphCompilation:
     """把完整 Python 声明一次性交给 Rust 编译，并恢复不透明宿主对象侧表。"""
 
-    if parent_step_path is not None and not root_label_path:
-        root_label_path = parent_step_path.labels
+    if parent_node_path is not None and not root_label_path:
+        root_label_path = parent_node_path.labels
     try:
         native = compile_declaration(
             source_graph,
             root_label,
             list(root_label_path),
-            [] if parent_step_path is None else list(parent_step_path.segments),
+            [] if parent_node_path is None else list(parent_node_path.segments),
         )
     except ValueError as exc:
         raise GraphError(str(exc)) from exc
@@ -633,7 +633,7 @@ def compile_graph(
 
 
 def _materialize_native_compilation(
-    source_graph: Graph,
+    source_graph: GraphStructure,
     native: NativeDeclarationCompilation,
     *,
     external_ancestor_graph_scopes: tuple[GraphScope, ...] = (),
@@ -644,21 +644,21 @@ def _materialize_native_compilation(
     declaration_to_compiled = {
         declaration: index for index, declaration in enumerate(active_declarations)
     }
-    step_ids = tuple(StepId(value) for value in native.node_step_ids())
+    step_ids = tuple(NodeId(value) for value in native.node_ids())
     labels = native.node_labels()
     node_graphs = native.node_graphs()
     child_graphs = native.node_child_graphs()
     source_steps = tuple(
-        None if value is None else cast("Step", value)
+        None if value is None else cast("Node", value)
         for value in native.source_steps()
     )
     actions = native.actions()
     graph_labels = native.graph_labels()
     graph_label_paths = tuple(tuple(value) for value in native.graph_label_paths())
     step_paths = tuple(
-        StepPath(tuple(value), labels=(*graph_label_paths[graph_index], label))
+        NodePath(tuple(value), labels=(*graph_label_paths[graph_index], label))
         for value, graph_index, label in zip(
-            native.node_step_paths(), node_graphs, labels, strict=True
+            native.node_paths(), node_graphs, labels, strict=True
         )
     )
     graph_owners = native.graph_owners()
@@ -667,17 +667,17 @@ def _materialize_native_compilation(
 
     refs_by_declaration: dict[int, CompiledNodeRef] = {}
     for compiled_index, declaration in enumerate(active_declarations):
-        step_path = step_paths[compiled_index]
+        node_path = step_paths[compiled_index]
         refs_by_declaration[declaration] = (
-            CompiledCompositeRef(step_path)
+            CompiledCompositeRef(node_path)
             if child_graphs[compiled_index] is not None
-            else CompiledStepRef(step_path)
+            else CompiledLeafRef(node_path)
         )
 
-    graph_step_paths = tuple(
+    graph_node_paths = tuple(
         MappingProxyType(
             {
-                cast("Step", source_steps[compiled_index]): step_paths[compiled_index]
+                cast("Node", source_steps[compiled_index]): step_paths[compiled_index]
                 for declaration in local_nodes
                 if declaration in declaration_to_compiled
                 for compiled_index in (declaration_to_compiled[declaration],)
@@ -690,16 +690,16 @@ def _materialize_native_compilation(
     # 同一图的节点共享不可变祖先上下文。深度 D：从 O(V_active * D)
     # 收敛为 O(G_active * D + V_active)，祖先对象也只按图创建。
     scopes_by_graph: dict[int, tuple[GraphScope, ...]] = {}
-    ancestors_by_graph: dict[int, tuple[StepPath, ...]] = {}
+    ancestors_by_graph: dict[int, tuple[NodePath, ...]] = {}
 
     def resolve_ancestors(graph_index: int) -> None:
         scopes: list[GraphScope] = []
-        ancestors: list[StepPath] = []
+        ancestors: list[NodePath] = []
         current = graph_index
         while (owner := graph_owners[current]) is not None:
             owner_index = declaration_to_compiled[owner]
             parent_graph = node_graphs[owner_index]
-            scopes.append(GraphScope(step_paths=graph_step_paths[parent_graph]))
+            scopes.append(GraphScope(node_paths=graph_node_paths[parent_graph]))
             ancestors.append(step_paths[owner_index])
             current = parent_graph
         scopes_by_graph[graph_index] = (*scopes, *external_ancestor_graph_scopes)
@@ -735,9 +735,9 @@ def _materialize_native_compilation(
         graph_index = node_graphs[compiled_index]
         if graph_index not in scopes_by_graph:
             resolve_ancestors(graph_index)
-        context = CompiledStepContext(
-            step_id=step_ids[compiled_index],
-            graph_step_paths=graph_step_paths[graph_index],
+        context = CompiledNodeContext(
+            node_id=step_ids[compiled_index],
+            graph_node_paths=graph_node_paths[graph_index],
             ancestor_graph_scopes=scopes_by_graph[graph_index],
             ancestor_composite_ids=ancestors_by_graph[graph_index],
         )
@@ -758,16 +758,16 @@ def _materialize_native_compilation(
             action = actions[compiled_index]
             compiled_step: CompiledLeaf
             if action is None:
-                compiled_step = CompiledNativeStep(
-                    ref=cast("CompiledStepRef", ref),
+                compiled_step = CompiledNativeLeaf(
+                    ref=cast("CompiledLeafRef", ref),
                     after=after,
                     condition=condition,
                     owner=owner,
                     context=context,
                 )
             else:
-                compiled_step = CompiledStep(
-                    ref=cast("CompiledStepRef", ref),
+                compiled_step = CompiledPythonLeaf(
+                    ref=cast("CompiledLeafRef", ref),
                     action=cast("Leaf", action),
                     after=after,
                     condition=condition,
@@ -782,7 +782,7 @@ def _materialize_native_compilation(
             ordered_nodes.append(compiled_step)
             continue
         component_source_graph = cast(
-            "Graph | NativeGraph",
+            "GraphStructure | NativeGraphStructure",
             source_graphs[child_graph],
         )
         composite = CompiledComposite(
@@ -799,11 +799,11 @@ def _materialize_native_compilation(
             owner=owner,
             observation=(
                 component_source_graph.observation
-                if isinstance(component_source_graph, Graph)
+                if isinstance(component_source_graph, GraphStructure)
                 else GraphObservationMessages()
             ),
             context=context,
-            graph_step_paths=graph_step_paths[child_graph],
+            graph_node_paths=graph_node_paths[child_graph],
         )
         composites.append(composite)
         ordered_nodes.append(composite)
@@ -820,17 +820,17 @@ def _materialize_native_compilation(
         composites=tuple(composites),
         roots=roots,
         root_label_path=graph_label_paths[0],
-        root_graph_step_paths=graph_step_paths[0],
+        root_graph_node_paths=graph_node_paths[0],
         _structure_origins=CompilationOrigins(
-            parent_step_path=StepPath(tuple(prefix)) if prefix else None,
+            parent_node_path=NodePath(tuple(prefix)) if prefix else None,
             disabled_edges=tuple(
-                (None if owner is None else StepPath(tuple(owner)), index)
+                (None if owner is None else NodePath(tuple(owner)), index)
                 for owner, index in disabled_edges
             ),
             conditions=tuple(
-                NodeConditionOrigin(StepPath(tuple(target)))
+                NodeConditionOrigin(NodePath(tuple(target)))
                 if edge_index is None
-                else EdgeConditionOrigin(StepPath(tuple(target)), edge_index)
+                else EdgeConditionOrigin(NodePath(tuple(target)), edge_index)
                 for target, edge_index in condition_origins
             ),
         ),

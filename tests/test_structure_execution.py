@@ -11,9 +11,10 @@ from rivlet import (
     Execution,
     Graph,
     GraphError,
+    GraphStructure,
+    Leaf,
     StaticCondition,
     StaticConditions,
-    Step,
     compile_graph,
     export_graph,
 )
@@ -34,13 +35,13 @@ def test_actual_run_compilation_is_available_before_actions(asynchronous) -> Non
     async def async_action():
         observed.append(execution.compilation)
 
-    step = Step(async_action if asynchronous else action)
+    step = Leaf(async_action if asynchronous else action)
     graph = (
         StaticConditions(evaluator=evaluate)
         .when(StaticCondition(object(), "private"), step)
         .graph()
     )
-    execution = Execution(Step(graph))
+    execution = Execution(Graph(structure=graph.structure))
     assert execution.compilation is None
     prepared = execution.compile()
     assert execution.compilation is prepared
@@ -71,10 +72,10 @@ def test_failed_preparation_is_not_committed_and_can_be_retried() -> None:
 
     graph = (
         StaticConditions(evaluator=evaluate)
-        .when(StaticCondition(object(), "condition"), Step(lambda: None))
+        .when(StaticCondition(object(), "condition"), Leaf(lambda: None))
         .graph()
     )
-    execution = Execution(Step(graph))
+    execution = Execution(Graph(structure=graph.structure))
     with pytest.raises(GraphError, match="preparation failed"):
         execution.compile()
     assert execution.compilation is None
@@ -88,25 +89,25 @@ def test_new_execution_and_standalone_compilation_make_fresh_static_decisions() 
     enabled = [True]
     graph = (
         StaticConditions(evaluator=lambda _condition: enabled[0])
-        .when(StaticCondition(object(), "condition"), Step(lambda: None))
+        .when(StaticCondition(object(), "condition"), Leaf(lambda: None))
         .graph()
     )
-    first = Execution(Step(graph))
+    first = Execution(Graph(structure=graph.structure))
     prepared = first.compile()
     assert len(prepared.steps) == 1
     enabled[0] = False
     first.run()
     assert first.compile() is prepared
     assert len(first.compile().steps) == 1
-    assert Execution(Step(graph)).compile().steps == ()
-    assert compile_graph(graph, root_label="independent").steps == ()
+    assert Execution(Graph(structure=graph.structure)).compile().steps == ()
+    assert compile_graph(graph.structure, root_label="independent").steps == ()
 
 
 def test_failed_action_keeps_this_run_compilation() -> None:
     def fail():
         raise ValueError("private failure")
 
-    execution = Execution(Step(Graph(steps=(Step(fail),))))
+    execution = Execution(Graph(structure=GraphStructure(nodes=(Leaf(fail),))))
     with pytest.raises(ValueError, match="private failure"):
         execution.run()
     assert execution.compilation is not None
@@ -116,7 +117,7 @@ def test_failed_action_keeps_this_run_compilation() -> None:
 
 
 def test_run_with_async_options_records_same_arun_compilation() -> None:
-    execution = Execution(Step(Graph()))
+    execution = Execution(Graph(structure=GraphStructure()))
     execution.run(AsyncRunOptions())
     assert execution.compilation is not None
 
@@ -131,10 +132,10 @@ def test_concurrent_preparation_commits_one_successful_compilation() -> None:
 
     graph = (
         StaticConditions(evaluator=evaluate)
-        .when(StaticCondition(object(), "condition"), Step(lambda: None))
+        .when(StaticCondition(object(), "condition"), Leaf(lambda: None))
         .graph()
     )
-    execution = Execution(Step(graph))
+    execution = Execution(Graph(structure=graph.structure))
     with ThreadPoolExecutor(max_workers=4) as pool:
         prepared = list(pool.map(lambda _: execution.compile(), range(4)))
     assert all(compilation is prepared[0] for compilation in prepared)

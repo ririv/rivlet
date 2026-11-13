@@ -14,10 +14,10 @@ from .static_condition import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from .model import GraphWiring, Step
+    from .model import GraphWiring, Node, NodeKind
 
 
-type StaticTarget = Step | tuple[Step, Step]
+type StaticTarget = Node | tuple[Node, Node]
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,20 +53,20 @@ class StaticConditions:
             conditions={**self.conditions, target: condition},
         )
 
-    def when(self, condition: StaticCondition, component: Step) -> GraphWiring:
+    def when(self, condition: StaticCondition, component: NodeKind) -> GraphWiring:
         from .model import GraphWiring
 
         return GraphWiring(
-            steps=(component,), static=(self._append(component, condition),)
+            nodes=(component,), static=(self._append(component, condition),)
         )
 
     def edge(
-        self, source: Step, target: Step, *, condition: StaticCondition
+        self, source: NodeKind, target: NodeKind, *, condition: StaticCondition
     ) -> GraphWiring:
         from .model import Edge, GraphWiring
 
         return GraphWiring(
-            steps=(source, target),
+            nodes=(source, target),
             edges=(Edge(source=source, target=target),),
             static=(self._append((source, target), condition),),
         )
@@ -82,13 +82,13 @@ def static_groups(value: StaticConditionsInput) -> tuple[StaticConditions, ...]:
 def resolve_static_bindings(
     groups: tuple[StaticConditions, ...],
     *,
-    steps: tuple[Step, ...],
-    edge_pairs: set[tuple[Step, Step]],
+    nodes: tuple[Node, ...],
+    edge_pairs: set[tuple[Node, Node]],
 ) -> Mapping[StaticTarget, BoundStaticCondition]:
     # V 个节点、E 条边、S 条静态规则：索引与校验总时间 O(V + E + S)。
     if not groups:
         return MappingProxyType({})
-    known = set(steps)
+    known = set(nodes)
     bindings: dict[StaticTarget, BoundStaticCondition] = {}
     for group in groups:
         for target, condition in group.conditions.items():

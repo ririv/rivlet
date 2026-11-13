@@ -9,19 +9,19 @@ this model.
 
 ## Event model
 
-`StepExecutionEvent` contains declaration `step_id`, mounted `step_path`, and `state_detail`.
-Display labels are available through `step_path.labels`; repeated mounts share
+`NodeExecutionEvent` contains declaration `node_id`, mounted `node_path`, and `state_detail`.
+Display labels are available through `node_path.labels`; repeated mounts share
 their declaration ID but not their event location.
 The read-only `state` property is derived from `state_detail`, not stored as a
 second independent fact. It describes the state recorded by this event, not a
-live snapshot of the step. `StepExecutionStateDetail` is the union of lifecycle
+live snapshot of the step. `NodeExecutionStateDetail` is the union of lifecycle
 states and typed failure/blockage causes.
 
 | State detail | State | Meaning |
 | --- | --- | --- |
-| `StepExecutionState.STARTED` | STARTED | The node started |
-| `StepExecutionState.COMPLETED` | COMPLETED | The node completed |
-| `StepExecutionState.SKIPPED` | SKIPPED | The node was skipped |
+| `NodeExecutionState.STARTED` | STARTED | The node started |
+| `NodeExecutionState.COMPLETED` | COMPLETED | The node completed |
+| `NodeExecutionState.SKIPPED` | SKIPPED | The node was skipped |
 | `ActionFailed()` | FAILED | The node's own Python or native action failed |
 | `SubgraphFailed(source)` | FAILED | An actual child failed or was blocked |
 | `BlockedByDependency(source)` | BLOCKED | A required predecessor failed or was blocked |
@@ -32,43 +32,43 @@ states and typed failure/blockage causes.
 `condition` is either `NodeConditionSite(condition_index)` for the node's guard or
 `EdgeConditionSite(condition_index, prerequisite)` for an incoming edge's guard.
 The index belongs to the current execution session, not a durable predicate ID.
-The event's mounted `step_path` identifies its consumer. Every related `source` and
-`prerequisite` is also a mounted `StepPath`; repeated mounts remain independent.
+The event's mounted `node_path` identifies its consumer. Every related `source` and
+`prerequisite` is also a mounted `NodePath`; repeated mounts remain independent.
 
 ```python
 from rivlet import (
-    Step,
+    Graph,
     ActionFailed,
     BlockedByCondition,
     BlockedByConditionInput,
     BlockedByDependency,
     BlockedByParent,
     Execution,
-    StepExecutionEvent,
+    NodeExecutionEvent,
     SubgraphFailed,
 )
 
 
 class Events:
-    def emit(self, event: StepExecutionEvent) -> None:
+    def emit(self, event: NodeExecutionEvent) -> None:
         match event.state_detail:
             case ActionFailed():
-                print(event.step_path, "action failed")
+                print(event.node_path, "action failed")
             case SubgraphFailed(source=source):
-                print(event.step_path, "child failed:", source)
+                print(event.node_path, "child failed:", source)
             case BlockedByDependency(source=source):
-                print(event.step_path, "blocked by predecessor:", source)
+                print(event.node_path, "blocked by predecessor:", source)
             case BlockedByCondition(condition=site):
-                print(event.step_path, "predicate failed:", site)
+                print(event.node_path, "predicate failed:", site)
             case BlockedByConditionInput(condition=site, source=source):
-                print(event.step_path, "predicate input failed:", site, source)
+                print(event.node_path, "predicate input failed:", site, source)
             case BlockedByParent(source=source):
-                print(event.step_path, "parent blocked:", source)
+                print(event.node_path, "parent blocked:", source)
             case _:
-                print(event.step_path, event.state)
+                print(event.node_path, event.state)
 
 
-Execution(Step(graph), events=Events()).run()
+Execution(Graph(structure=(graph).structure), events=Events()).run()
 ```
 
 ## Direct witnesses
@@ -110,7 +110,7 @@ unchanged. Hosts remain responsible for labels and the data they persist.
 ## Construction compatibility
 
 Compared with 0.1.0, subscribers use `event.state` instead of `event.phase`, and
-`StepExecutionState` replaces `StepExecutionPhase`. Manual construction uses
+`NodeExecutionState` replaces `StepExecutionPhase`. Manual construction uses
 `state_detail=` instead of the old `phase=` field. Failed and blocked states
 require their typed details, not an optional cause that could contradict a state.
 There are no aliases for the old names. This changes the reading API, construction,
