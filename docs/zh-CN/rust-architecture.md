@@ -15,7 +15,7 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 提供不回调 Python 的进程 action
   - 不依赖 PyO3、Tokio 或 Graph core
 - `crates/graph`
-  - 提供真实 Rust `Leaf/Graph`、共同 `Node` trait、`GraphStructure`、端口/边与错误
+  - 提供真实 Rust `Step/Graph`、共同 `Node` trait、`GraphStructure`、端口/边与错误
   - 原生 adapter 以整图为边界接入，不向 Python 暴露单个 action
 - `crates/execution`
   - 组合 graph/action/core，提供单次使用的同步 Rust Execution 和类型化节点终态
@@ -47,7 +47,7 @@ Rust 公共类型表达职责，不重复标注实现语言：`action::Action`�
 有序输入协议叫 `ActionInputs`，与 action 自身的 `Inputs` 关联类型区分。
 
 Python 中需要区分所有权的类型使用明确的 Rust 限定：`RustGraphStructure`、
-`CompiledRustLeaf`、`RustActionBindings`。私有编译/执行绑定则按职责命名：
+`CompiledRustStep`、`RustActionBindings`。私有编译/执行绑定则按职责命名：
 `CompiledExecutionGraph`、`DeclarationCompilation`、`ExecutionSession`、
 `MixedExecutionSession`。惰性结果视图叫私有 `_RustResult`，不是第二套 recipe API。
 
@@ -79,10 +79,10 @@ executor adapter crate
 
 ## 当前执行边界
 
-Leaf/Graph 是真实节点，Node 只是协议，不是包装；GraphStructure 保存复用结构。
-PyO3 直接收集节点并 lower 到现有 Rust leaf/composite 和类型，不增加第二套调度器
+Step/Graph 是真实节点，Node 只是协议，不是包装；GraphStructure 保存复用结构。
+PyO3 直接收集节点并 lower 到现有 Rust step/composite 和类型，不增加第二套调度器
 或实现继承。Rust NodeIdentity 是进程内声明身份，整数 NodeId 是编译/拓扑索引。
-Rust graph::GraphStructure 持有封闭的 NodeKind（Leaf/Graph）联合。Graph 拥有独立身份
+Rust graph::GraphStructure 持有封闭的 NodeKind（Step/Graph）联合。Graph 拥有独立身份
 和有方向的接口，结构通过 Arc 复用；Projection 解析挂载作用域与端口后，调用现有
 GraphDeclaration 编译器。Python 的 RustGraphStructure 只是该不透明结构的适配包装，
 混合语言时由 Python Graph 节点组合。原生 composite 没有 action handle，不使用空动作
@@ -133,7 +133,7 @@ Python 在有状态变化时通过 `start/advance` 与 session
 - 混合 driver 批量取走 Rust completion，再和 Python 完成节点一起推进同一 session
 - 没有 timer polling；没有工作时，线程或 asyncio executor 等待实际 action 完成
 
-声明期已知子图由 Rust 编译为 composite 与 leaf；子图边界不会被隐式删除。action 在
+声明期已知子图由 Rust 编译为 composite 与 step；子图边界不会被隐式删除。action 在
 运行期返回的新 `Graph` 无法提前编译，因此会以当前 step id、label path 和父作用域作为
 显式输入，再次进入同一个 Rust 编译器，并创建嵌套 session，而不是回到 Python dynamic scheduler。
 Python driver 协调活跃 session 并分配统一动作预算，节点 ready 判定和状态转换仍由
@@ -154,7 +154,7 @@ Rust 负责。父 action 等待子图期间不占动作名额；Python session �
 Rust lowering 接受图作用域和节点成员关系，而不是同时接受 `owner`、roots 和 children：
 
 - graph scope 使用 `Root | OwnedBy(NodeId)` 表达互斥状态
-- node 使用 `Leaf | Composite { child_graph }` 表达互斥行为
+- node 使用 `Step | Composite { child_graph }` 表达互斥行为
 - 每个 node 只声明自己属于哪个 `GraphId`
 
 Rust 会校验 composite 与 child graph 的双向关系，再从 graph membership 派生 node
@@ -165,7 +165,7 @@ lower 为普通 prerequisite；Python 展示模型从 Rust 的最终 prerequisit
 
 节点行为使用和类型区分：
 
-- leaf
+- step
 - composite
 
 prerequisite 同样使用和类型区分：

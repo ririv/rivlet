@@ -10,10 +10,10 @@ composites, and Graph nodes containing RustGraphStructure.
 
 ## Declaration
 
-Defined in [Leaf](../src/rivlet/model/leaf.py) and [Graph](../src/rivlet/model/graph.py):
+Defined in [Step](../src/rivlet/model/step.py) and [Graph](../src/rivlet/model/graph.py):
 
 ```python
-Leaf(..., label=(...), condition=(...))
+Step(..., label=(...), condition=(...))
 ```
 
 Label is optional presentation. `condition` accepts `None`, a zero-argument
@@ -23,8 +23,8 @@ an already computed value. Every predicate must return bool. Declaration never
 calls it. The public `runtime_condition()` helper is no longer needed.
 
 ```python
-probe = Leaf(lambda: 42)
-build = Leaf(
+probe = Step(lambda: 42)
+build = Step(
     lambda ctx, result: build_source(),
     condition=((lambda result: result.unwrap() == 42, probe)),
 )
@@ -130,7 +130,7 @@ requested in a batch and returns results through advance.
 - Inputs must be satisfied before evaluation; failed inputs block the affected node.
 - Once the condition is false, other after prerequisites are not awaited.
 - A skipped node no longer blocks downstream work by waiting on unused prerequisites.
-- A composite remains a real subgraph boundary, not a no-op leaf.
+- A composite remains a real subgraph boundary, not a no-op step.
 
 In [compile.py](../src/rivlet/compile.py), conditional edges lower to
 CompiledConditionalDependency, while runtime Node.condition lowers to
@@ -151,10 +151,10 @@ Both kinds of inputs must reference nodes in the current graph and participate
 in DAG validation and wiring entry/exit calculation.
 
 ```python
-probe = Leaf(probe_cache, label=("probe"))
-prepare_a = Leaf(prepare_a_source, label=("prepare_a"))
-prepare_b = Leaf(prepare_b_source, label=("prepare_b"))
-heavy_build = Leaf(
+probe = Step(probe_cache, label=("probe"))
+prepare_a = Step(prepare_a_source, label=("prepare_a"))
+prepare_b = Step(prepare_b_source, label=("prepare_b"))
+heavy_build = Step(
     lambda ctx, result: build_source(),
     label=("heavy_build"),
     condition=((lambda result: bool(result.unwrap()), probe)),
@@ -196,15 +196,15 @@ independent ordering constraints.
 The flat condition tuple declares dependencies and positional predicate arguments:
 
 ```python
-count_step = Leaf(lambda: 42)
-approval_step = Leaf(lambda: True)
+count_step = Step(lambda: 42)
+approval_step = Step(lambda: True)
 
 
 def should_run(count: Option[object], approval: Option[object]) -> bool:
     return count.unwrap() == 42 and approval.unwrap_or(False) is True
 
 
-consumer = Leaf(
+consumer = Step(
     lambda ctx, count, approval: print(count.unwrap(), approval.unwrap()),
     condition=((should_run, count_step, approval_step)),
 )
@@ -230,7 +230,7 @@ Graphs without inputs retain optional result recording.
 
 - `Some(value)` contains a recorded result. `Some(None)` is a successful return of None.
 - `Nothing()` means no recorded result, such as a skipped Node or a composite with no
-  leaf return value. It is not a failed producer: producer failure blocks the consumer.
+  step return value. It is not a failed producer: producer failure blocks the consumer.
 - `is_some()` and `is_none()` test presence.
 - `unwrap()` returns the value, or raises ValueError for Nothing.
 - `unwrap_or(default)` substitutes only for Nothing, never for Some(None) or Some(False).

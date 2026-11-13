@@ -11,7 +11,7 @@ There is no implicit JSON conversion and no result lookup added to action contex
 ```rust
 use std::sync::Arc;
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, GraphStructure, Leaf};
+use graph::{Edge, GraphStructure, Step};
 
 struct Plan { count: i64 }
 struct Design;
@@ -36,8 +36,8 @@ impl Action for Apply {
 }
 
 fn workflow() -> Result<graph::Compilation, graph::GraphError> {
-    let design = Leaf::new("design", ActionHandle::new(Design))?;
-    let apply = Leaf::new("apply", ActionHandle::new(Apply))?;
+    let design = Step::new("design", ActionHandle::new(Design))?;
+    let apply = Step::new("apply", ActionHandle::new(Apply))?;
     let results = Edge::results([&design], &apply)?;
     GraphStructure::new([design.into(), apply.into()], [results])?.compile_structure()
 }
@@ -137,7 +137,7 @@ exchange between dynamic libraries.
 
 A custom Rust value with no converter is valid on Rust-only edges. Reading it from
 Python fails at that reader with an explicit missing-converter error. An invalid
-Python input fails its native receiving leaf. Python representation mutation is not
+Python input fails its native receiving step. Python representation mutation is not
 automatically mirrored into the original Rust value; converters define value views,
 not shared mutable state.
 

@@ -12,8 +12,8 @@ from .edge import _condition_uses, _ResultConnection
 from .graph import Graph
 from .graph_structure import GraphStructure
 from .identity import NodePath
-from .leaf import Leaf
 from .node import Node, resolve_node_label
+from .step import Step
 
 if TYPE_CHECKING:
     from ..interface import GraphInterface, InputEndpoint
@@ -44,7 +44,7 @@ def _validate_result_target(endpoint: InputEndpoint, count: int) -> None:
                     raise GraphError(
                         f"native action expects {arity} result inputs, received {count}"
                     )
-    elif isinstance(endpoint, Leaf):
+    elif isinstance(endpoint, Step):
         endpoint.validate_inputs(count)
     else:
         raise GraphError("result target must have a callable action")
@@ -77,7 +77,7 @@ def _validate_result_bindings(graph: GraphStructure) -> None:
         for node in _input_nodes(target)
     }
     for node in graph.nodes:
-        if isinstance(node, Leaf) and node not in exposed and node not in slots:
+        if isinstance(node, Step) and node not in exposed and node not in slots:
             node.validate_inputs(0)
     for _, condition in _condition_uses(graph.nodes, graph.edges):
         count = len(condition.inputs)
@@ -92,8 +92,8 @@ def _validate_result_bindings(graph: GraphStructure) -> None:
 def _validated_nodes(nodes: tuple[Node, ...], *, graph_label: str) -> set[Node]:
     known: set[Node] = set()
     for index, node in enumerate(nodes):
-        if not isinstance(node, (Leaf, Graph)):
-            raise GraphError("GraphStructure.nodes accepts only Leaf or Graph nodes")
+        if not isinstance(node, (Step, Graph)):
+            raise GraphError("GraphStructure.nodes accepts only Step or Graph nodes")
         if node in known:
             raise GraphError(
                 f"graph '{graph_label}' contains the same node more than once: "

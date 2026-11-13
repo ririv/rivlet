@@ -4,9 +4,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..compile import (
-    CompiledLeaf,
-    CompiledPythonLeaf,
-    CompiledRustLeaf,
+    CompiledPythonStep,
+    CompiledRustStep,
+    CompiledStep,
     GraphCompilation,
 )
 from ..errors import GraphError
@@ -60,7 +60,7 @@ type ExecutableGraph = GraphCompilation
 class RuntimeStep:
     """当前可执行 step 及其内部挂载作用域。"""
 
-    step: CompiledPythonLeaf
+    step: CompiledPythonStep
     label_path: NodeLabelPath
     graph_node_paths: Mapping[Node, NodePath]
     ancestor_graph_scopes: tuple[GraphScope, ...]
@@ -90,7 +90,7 @@ class CompiledGraphRun:
         return self.compilation.source_graph
 
     @property
-    def steps(self) -> tuple[CompiledLeaf, ...]:
+    def steps(self) -> tuple[CompiledStep, ...]:
         return self.compilation.steps
 
     @property
@@ -118,7 +118,7 @@ class CompiledGraphRun:
     def step_log_path_for(
         self,
         state: ExecutionState,
-        step: CompiledPythonLeaf | CompiledRustLeaf,
+        step: CompiledPythonStep | CompiledRustStep,
     ) -> Path | None:
         """Resolve a step's explicit or inherited log path without creating a run context."""
 
@@ -138,11 +138,11 @@ class CompiledGraphRun:
         self,
         state: ExecutionState,
     ) -> list[tuple[int, str | None]]:
-        """Project native leaf log contexts without exposing their actions."""
+        """Project native step log contexts without exposing their actions."""
 
         contexts: list[tuple[int, str | None]] = []
         for node, compiled_node in enumerate(self.compilation._execution_nodes):
-            if not isinstance(compiled_node, CompiledRustLeaf):
+            if not isinstance(compiled_node, CompiledRustStep):
                 continue
             step_log_path = self.step_log_path_for(state, compiled_node)
             contexts.append(
@@ -155,7 +155,7 @@ class CompiledGraphRun:
 
     def child_graph_scope(
         self,
-        step: CompiledPythonLeaf,
+        step: CompiledPythonStep,
         *,
         graph_node_paths: Mapping[Node, NodePath],
     ) -> GraphScope:

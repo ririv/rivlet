@@ -33,7 +33,7 @@ pub enum DeclaredGraph {
 /// Mutually exclusive behaviors of one node before hierarchy lowering.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum DeclaredNodeKind {
-    Leaf,
+    Step,
     Composite { child_graph: GraphId },
 }
 
@@ -48,14 +48,14 @@ pub struct DeclaredNode {
 
 impl DeclaredNode {
     #[must_use]
-    pub fn leaf(
+    pub fn step(
         graph: GraphId,
         prerequisites: impl IntoIterator<Item = Prerequisite>,
         condition: Option<ConditionId>,
     ) -> Self {
         Self {
             graph,
-            kind: DeclaredNodeKind::Leaf,
+            kind: DeclaredNodeKind::Step,
             prerequisites: prerequisites.into_iter().collect(),
             condition,
         }
@@ -189,8 +189,8 @@ impl ExecutionGraphDeclaration {
                 DeclaredGraph::OwnedBy(owner) => Some(owner),
             };
             match node.kind {
-                DeclaredNodeKind::Leaf => {
-                    ExecutionNode::leaf(owner, node.prerequisites, node.condition)
+                DeclaredNodeKind::Step => {
+                    ExecutionNode::step(owner, node.prerequisites, node.condition)
                 }
                 DeclaredNodeKind::Composite { .. } => {
                     ExecutionNode::composite(owner, node.prerequisites, node.condition)
@@ -279,7 +279,7 @@ mod tests {
             [DeclaredGraph::Root, DeclaredGraph::OwnedBy(NodeId::new(0))],
             [
                 DeclaredNode::composite(GraphId::new(0), GraphId::new(1), [], None),
-                DeclaredNode::leaf(GraphId::new(1), [], None),
+                DeclaredNode::step(GraphId::new(1), [], None),
             ],
             [],
             [],
@@ -300,7 +300,7 @@ mod tests {
             [DeclaredGraph::Root, DeclaredGraph::OwnedBy(NodeId::new(1))],
             [
                 DeclaredNode::composite(GraphId::new(0), GraphId::new(1), [], None),
-                DeclaredNode::leaf(GraphId::new(0), [], None),
+                DeclaredNode::step(GraphId::new(0), [], None),
             ],
             [],
             [],

@@ -14,7 +14,7 @@ measurements, not real software builds or model-request benchmarks.
 - Empty-step cases: nine samples after warm-up, median runtime, reused compilation.
 - Recipe scale: 2,000 static subgraphs, six Steps each, 20 dependency lanes, eight
   workers; nine samples with fresh execution state.
-- Dynamic case: branching width three, depth three, 108 leaf actions sleeping
+- Dynamic case: branching width three, depth three, 108 step actions sleeping
   1 ms, requested capacity eight; seven samples after warm-up. Runtime includes
   dynamic graph construction and compilation.
 - No event subscription, action log, or execution-file output. Groups ran

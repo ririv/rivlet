@@ -6,16 +6,17 @@ This records the adopted direction; the specification is in the [core model](../
 
 ## Problem in the wrapper design
 
-The former `Step(node=Leaf | Graph)` put identity, label and condition on a wrapper
-and made it every edge's endpoint. Graph owned its interface on another layer.
+The former generic Step wrapper held either an action or a subgraph, put identity,
+label and condition on that wrapper, and made it every edge's endpoint. Graph owned
+its interface on another layer.
 This unified lifecycle, but hid concrete capabilities: `(step, "plan")` appeared
-to reference a port even when that Step held a leaf. Forwarding an original graph's
+to reference a port even when that wrapper held only an action. Forwarding an original graph's
 interface could also lose which mount was intended. Construction shortcuts reduce
 spelling but do not resolve that ownership gap.
 
 ## Adopted model
 
-Leaf and Graph are actual nodes, each composing common metadata. Only Graph exposes
+Step and Graph are actual nodes, each composing common metadata. Only Graph exposes
 an interface. Node is their shared protocol; NodeKind is their closed union.
 GraphStructure holds the reusable body. Edges reference actual nodes, and result
 edges can reference typed ports obtained from that actual graph:
@@ -28,14 +29,14 @@ edges = Edge.results(
 )
 ```
 
-Reusing a structure does not require guessing the mount. Leaf does not gain an
+Reusing a structure does not require guessing the mount. Step does not gain an
 interface through wrapping. Forwarded port references retain their owning graph.
 
 ## Composition and trade-offs
 
 | Former form | Current form |
 | --- | --- |
-| Step(action, label=...) | Leaf(action, label=...) |
+| Step(action, label=...) as a generic wrapper | Step(action, label=...) as an action node |
 | Step(graph, label=...) | Graph(structure, label=...) |
 | Graph(steps=..., edges=...) | Graph(GraphStructure(nodes=..., edges=...)) |
 | wiring.step(label=...) | wiring.graph(label=...) |
@@ -46,8 +47,12 @@ interface through wrapping. Forwarded port references retain their owning graph.
 Recipe functions still return Graph. Execution receives that actual node directly.
 Events and mounted identity types likewise use the Node prefix.
 
+The action node retains the familiar Step name (the intermediate Leaf name is
+removed without an alias). This does not restore the former wrapper: Step cannot
+hold a Graph, Graph is directly composable, and only Graph owns an interface.
+
 A protocol is not implementation inheritance. Common metadata remains composed
-into concrete types; the compiler still uses leaf/composite sum variants. Node
+into concrete types; the compiler still uses step/composite sum variants. Node
 supplies no mutable base implementation and does not register arbitrary node kinds.
 
 The former wrapper was not universally inferior: it centralized lifecycle metadata

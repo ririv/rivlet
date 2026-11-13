@@ -268,7 +268,7 @@ impl CompiledExecutionGraph {
                 });
                 let condition = condition.map(ConditionId::new);
                 match child_graphs.get(&index) {
-                    None => DeclaredNode::leaf(GraphId::new(graph), prerequisites, condition),
+                    None => DeclaredNode::step(GraphId::new(graph), prerequisites, condition),
                     Some(child_graph) => DeclaredNode::composite(
                         GraphId::new(graph),
                         GraphId::new(*child_graph),

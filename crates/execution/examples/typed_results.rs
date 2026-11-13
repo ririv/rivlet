@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use action::{Action, ActionContext, ActionError, ActionHandle};
 use execution::{Execution, ExecutionOptions, ExecutionStatus, NodeOutcome};
-use graph::{Edge, Graph, GraphStructure, Leaf};
+use graph::{Edge, Graph, GraphStructure, Step};
 
 // 故意不实现 Clone，验证跨节点共享原始 Rust 结果，而不是复制载荷。
 struct Plan {
@@ -32,8 +32,8 @@ impl Action for Apply {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let design = Leaf::new("design", ActionHandle::new(Design))?;
-    let apply = Leaf::new("apply", ActionHandle::new(Apply))?;
+    let design = Step::new("design", ActionHandle::new(Design))?;
+    let apply = Step::new("apply", ActionHandle::new(Apply))?;
     let edge = Edge::results([&design], &apply)?;
     let graph = Graph::new(
         "workflow",

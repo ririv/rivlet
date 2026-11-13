@@ -7,8 +7,8 @@ from rivlet import (
     ExecutionState,
     Graph,
     GraphStructure,
-    Leaf,
     ResultStore,
+    Step,
     export_graph,
 )
 from rivlet._native import _rust_process_graph
@@ -71,7 +71,7 @@ def test_export_does_not_include_results_shared_state_or_callable_representation
             raise AssertionError("secret object was inspected")
 
     secret = Secret()
-    step = Leaf(lambda: secret, label=("public label"))
+    step = Step(lambda: secret, label=("public label"))
     graph = Graph(structure=GraphStructure(nodes=(step,)))
     execution = Execution(
         Graph(structure=graph.structure),

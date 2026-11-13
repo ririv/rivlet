@@ -70,7 +70,7 @@ impl Prerequisite {
 /// Mutually exclusive execution behavior of a compiled node.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionNodeKind {
-    Leaf,
+    Step,
     Composite,
 }
 
@@ -128,13 +128,13 @@ pub struct ExecutionNode {
 
 impl ExecutionNode {
     #[must_use]
-    pub fn leaf(
+    pub fn step(
         owner: Option<NodeId>,
         prerequisites: impl IntoIterator<Item = Prerequisite>,
         condition: Option<ConditionId>,
     ) -> Self {
         Self {
-            kind: ExecutionNodeKind::Leaf,
+            kind: ExecutionNodeKind::Step,
             owner,
             prerequisites: prerequisites.into_iter().collect(),
             condition,
@@ -183,7 +183,7 @@ pub enum ExecutionGraphError {
         node: NodeId,
         owner: NodeId,
     },
-    LeafOwner {
+    StepOwner {
         node: NodeId,
         owner: NodeId,
     },
@@ -214,9 +214,9 @@ impl Display for ExecutionGraphError {
                 node.index(),
                 owner.index()
             ),
-            Self::LeafOwner { node, owner } => write!(
+            Self::StepOwner { node, owner } => write!(
                 formatter,
-                "execution node {} has leaf owner {}",
+                "execution node {} has step owner {}",
                 node.index(),
                 owner.index()
             ),
@@ -332,7 +332,7 @@ impl CompiledExecutionGraph {
                 });
             };
             if owner_node.kind != ExecutionNodeKind::Composite {
-                return Err(ExecutionGraphError::LeafOwner {
+                return Err(ExecutionGraphError::StepOwner {
                     node: node_id,
                     owner,
                 });
@@ -549,8 +549,8 @@ mod tests {
         let graph = CompiledExecutionGraph::new(
             [
                 ExecutionNode::composite(None, [], None),
-                ExecutionNode::leaf(Some(node(0)), [], None),
-                ExecutionNode::leaf(
+                ExecutionNode::step(Some(node(0)), [], None),
+                ExecutionNode::step(
                     Some(node(0)),
                     [Prerequisite::Required(node(1))],
                     Some(condition(0)),
@@ -566,18 +566,18 @@ mod tests {
     }
 
     #[test]
-    fn graph_rejects_a_leaf_owner() {
+    fn graph_rejects_a_step_owner() {
         let result = CompiledExecutionGraph::new(
             [
-                ExecutionNode::leaf(None, [], None),
-                ExecutionNode::leaf(Some(node(0)), [], None),
+                ExecutionNode::step(None, [], None),
+                ExecutionNode::step(Some(node(0)), [], None),
             ],
             [],
         );
 
         assert_eq!(
             result,
-            Err(ExecutionGraphError::LeafOwner {
+            Err(ExecutionGraphError::StepOwner {
                 node: node(1),
                 owner: node(0),
             })
@@ -608,8 +608,8 @@ mod tests {
     fn graph_rejects_a_dependency_cycle_through_condition_reads() {
         let result = CompiledExecutionGraph::new(
             [
-                ExecutionNode::leaf(None, [], Some(condition(0))),
-                ExecutionNode::leaf(None, [Prerequisite::Required(node(0))], None),
+                ExecutionNode::step(None, [], Some(condition(0))),
+                ExecutionNode::step(None, [Prerequisite::Required(node(0))], None),
             ],
             [RuntimeCondition::new([node(1)])],
         );
@@ -628,8 +628,8 @@ mod tests {
     fn graph_lowers_port_connection_to_required_dependency() {
         let graph = CompiledExecutionGraph::lower(
             [
-                ExecutionNode::leaf(None, [], None),
-                ExecutionNode::leaf(None, [], None),
+                ExecutionNode::step(None, [], None),
+                ExecutionNode::step(None, [], None),
             ],
             [],
             [PortConnection::new(node(0), node(1))],
@@ -651,11 +651,11 @@ mod tests {
         };
         let graph = CompiledExecutionGraph::lower(
             [
-                ExecutionNode::leaf(None, [], None),
-                ExecutionNode::leaf(None, [], None),
-                ExecutionNode::leaf(None, [], None),
-                ExecutionNode::leaf(None, [conditional, Prerequisite::Required(node(1))], None),
-                ExecutionNode::leaf(None, [], None),
+                ExecutionNode::step(None, [], None),
+                ExecutionNode::step(None, [], None),
+                ExecutionNode::step(None, [], None),
+                ExecutionNode::step(None, [conditional, Prerequisite::Required(node(1))], None),
+                ExecutionNode::step(None, [], None),
             ],
             [RuntimeCondition::new([])],
             [

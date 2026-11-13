@@ -12,7 +12,7 @@ from .state import ExecutionState
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ..model import Leaf
+    from ..model import Step
     from ..observe import GraphObserver
     from ..option import Option
     from ..results import NodeRunContext
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
 
 def _invoke_thread_action(
-    action: Leaf,
+    action: Step,
     ctx: NodeRunContext,
     step_log_path: Path | None,
     action_log: ActionLog,

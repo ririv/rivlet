@@ -68,14 +68,14 @@ def render_live_execution(
     graph = GraphStructure(nodes=(root,))
     root_label = resolve_node_label(root, NodePath((0,)))
     snapshot = state.snapshot()
-    leaf_steps = collect_leaf_steps(graph)
+    steps = collect_steps(graph)
     running_step_paths = deepest_running_step_paths(snapshot)
     running_labels = [
         snapshot.step_label_paths[node_path] for node_path in running_step_paths
     ]
     remaining_count = sum(
         1
-        for node_path, _label_path in leaf_steps
+        for node_path, _label_path in steps
         if node_path not in snapshot.completed_steps
         and node_path not in snapshot.skipped_steps
         and node_path not in snapshot.node_failures
@@ -323,7 +323,7 @@ def collect_step_labels(
     return tuple(out)
 
 
-def collect_leaf_steps(
+def collect_steps(
     graph: GraphStructure,
     *,
     label_path: tuple[str, ...] = (),
@@ -337,7 +337,7 @@ def collect_leaf_steps(
         step_label_path = (*label_path, resolve_node_label(step, node_path))
         if isinstance(step, GraphNode) and isinstance(step.structure, GraphStructure):
             out.extend(
-                collect_leaf_steps(
+                collect_steps(
                     step.structure,
                     label_path=step_label_path,
                     parent_node_path=node_path,

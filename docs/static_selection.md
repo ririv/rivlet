@@ -10,16 +10,16 @@ GraphTemplate, or second Node/Graph API.
 ## Complete conditions and branch contents
 
 ```python
-from rivlet import Graph, Leaf, Case, Execution, static
+from rivlet import Graph, Step, Case, Execution, static
 
 platform = "android"
 version = 3
 
-prepare = Leaf(lambda: print("prepare"), label=("prepare"))
-modern = Leaf(lambda: print("modern Android"), label=("modern"))
-legacy = Leaf(lambda: print("legacy Android"), label=("legacy"))
-linux = Leaf(lambda: print("Linux"), label=("linux"))
-finish = Leaf(lambda: print("finish"), label=("finish"))
+prepare = Step(lambda: print("prepare"), label=("prepare"))
+modern = Step(lambda: print("modern Android"), label=("modern"))
+legacy = Step(lambda: print("legacy Android"), label=("legacy"))
+linux = Step(lambda: print("Linux"), label=("linux"))
+finish = Step(lambda: print("finish"), label=("finish"))
 
 graph = (
     prepare
@@ -40,7 +40,7 @@ This runs `prepare → modern → finish`. Each `Case(condition, component)` has
 
 - `condition` is a required, complete static bool, not a matching value or predicate.
   Strings, functions, and other non-boolean objects are not implicitly made true.
-- `component` is a Leaf or Graph node; Graph needs no wrapper.
+- `component` is a Step or Graph node; Graph needs no wrapper.
   `case.node` is the actual node available for explicit wiring.
 - `static` is the `rivlet.static` module, not a `StaticConditions` evaluator instance.
 
@@ -74,11 +74,11 @@ fail.” Another true condition still produces a conflict. There is no implicit 
 The same rules and topology can be declared without the DSL:
 
 ```python
-from rivlet import Graph, GraphStructure, Leaf, Case, Execution, StaticSelection, Edge
+from rivlet import Graph, GraphStructure, Step, Case, Execution, StaticSelection, Edge
 
-first = Leaf(lambda: print("first"), label=("first"))
-second = Leaf(lambda: print("second"), label=("second"))
-finish = Leaf(lambda: print("finish"), label=("finish"))
+first = Step(lambda: print("first"), label=("first"))
+second = Step(lambda: print("second"), label=("second"))
+finish = Step(lambda: print("finish"), label=("finish"))
 cases = (Case(False, first), Case(True, second))
 
 graph = Graph(

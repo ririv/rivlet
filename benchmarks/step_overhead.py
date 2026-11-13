@@ -8,7 +8,7 @@ import time
 from functools import partial
 from typing import TYPE_CHECKING
 
-from rivlet import Graph, GraphStructure, Leaf
+from rivlet import Graph, GraphStructure, Step
 from rivlet.compile import compile_graph
 from rivlet.runtime import (
     ExecutionControl,
@@ -29,7 +29,7 @@ def _noop() -> None:
 def _declare(nodes: int) -> Graph:
     return Graph(
         structure=GraphStructure(
-            nodes=tuple(Leaf(_noop, label=f"step-{i}") for i in range(nodes))
+            nodes=tuple(Step(_noop, label=f"step-{i}") for i in range(nodes))
         )
     )
 

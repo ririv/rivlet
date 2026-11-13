@@ -258,10 +258,10 @@ action 日志端口。需要日志或执行视图时，宿主必须显式传入�
 
 ## DAG 约束
 
-Leaf/Graph 校验自身元信息；GraphStructure 在构造阶段校验结构：
+Step/Graph 校验自身元信息；GraphStructure 在构造阶段校验结构：
 
 - 显式提供的 graph label 非空；省略 label 合法
-- GraphStructure.nodes 只包含 Leaf 或 Graph
+- GraphStructure.nodes 只包含 Step 或 Graph
 - 同一个 Node 对象没有重复挂载
 - edge 的 source / target 都属于当前图
 - 无环

@@ -16,13 +16,13 @@ from rivlet import (
     Graph,
     GraphInterface,
     GraphStructure,
-    Leaf,
     NodeExecutionEvent,
     NodeExecutionState,
     NodeRunContext,
     Option,
     Results,
     ResultStore,
+    Step,
     ThreadRunOptions,
     resolve_port_requirements,
 )
@@ -69,13 +69,13 @@ change(-1)
             structure=GraphStructure(
                 nodes=(
                     Graph(structure=native),
-                    Leaf(python_action),
-                    Leaf(python_action),
+                    Step(python_action),
+                    Step(python_action),
                 )
             )
         ).structure
 
-    graph = Graph(structure=GraphStructure(nodes=tuple(Leaf(branch) for _ in range(4))))
+    graph = Graph(structure=GraphStructure(nodes=tuple(Step(branch) for _ in range(4))))
     events: list[NodeExecutionEvent] = []
 
     class Sink:
@@ -111,12 +111,12 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
     asynchronous,
 ) -> None:
     calls = []
-    prepared = Leaf(lambda: "prepared", label=("prepared"))
+    prepared = Step(lambda: "prepared", label=("prepared"))
     port = "ready"
 
     def expand(_ctx: NodeRunContext, result: Option[object]) -> GraphStructure:
         source = result.unwrap()
-        ready = Leaf(lambda: calls.append(source), label=("ready"))
+        ready = Step(lambda: calls.append(source), label=("ready"))
         provider = Graph(
             structure=GraphStructure(
                 nodes=(ready,), interface=GraphInterface(outputs={port: ready})
@@ -127,7 +127,7 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
             assert calls == ["prepared"]
             calls.append("consumed")
 
-        use = Leaf(consume, label=("consume"))
+        use = Step(consume, label=("consume"))
         consumer = Graph(
             structure=GraphStructure(
                 nodes=(use,), interface=GraphInterface(inputs={port: use})
@@ -146,7 +146,7 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
     graph = Graph.from_wiring(
         (
             prepared.wire(),
-            Leaf(expand, label=("expand")).wire(after=(Results(prepared),)),
+            Step(expand, label=("expand")).wire(after=(Results(prepared),)),
         )
     )
     Execution(

@@ -7,10 +7,10 @@ from ..model import (
     Edge,
     GraphMode,
     GraphStructure,
-    Leaf,
     Node,
     NodeKind,
     NodePath,
+    Step,
     _condition_uses,
     node_paths_for_mount,
     resolve_node_label,
@@ -38,7 +38,7 @@ def render_graph_mermaid(
     root_label: str,
     mode: GraphMode = "dynamic",
 ) -> str:
-    if isinstance(subject, (Leaf, GraphNode)):
+    if isinstance(subject, (Step, GraphNode)):
         subject = GraphStructure(nodes=(subject,))
     match mode:
         case "compiled":

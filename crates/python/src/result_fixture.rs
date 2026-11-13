@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{GraphInterface, GraphStructure, Leaf};
+use graph::{GraphInterface, GraphStructure, Step};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -92,8 +92,8 @@ fn pair<T: Clone + Send + Sync + 'static>(
     value: T,
     codecs: ValueCodecs,
 ) -> PyResult<(RustGraphStructure, RustGraphStructure)> {
-    let seed = Leaf::new("seed", ActionHandle::new(Constant(value))).map_err(invalid)?;
-    let echo = Leaf::new("echo", ActionHandle::new(Echo::<T>(PhantomData))).map_err(invalid)?;
+    let seed = Step::new("seed", ActionHandle::new(Constant(value))).map_err(invalid)?;
+    let echo = Step::new("echo", ActionHandle::new(Echo::<T>(PhantomData))).map_err(invalid)?;
     bodies(seed, echo, codecs)
 }
 
@@ -102,8 +102,8 @@ fn invalid(error: impl std::fmt::Display) -> PyErr {
 }
 
 fn bodies(
-    seed: Leaf,
-    echo: Leaf,
+    seed: Step,
+    echo: Step,
     codecs: ValueCodecs,
 ) -> PyResult<(RustGraphStructure, RustGraphStructure)> {
     let output = GraphInterface::default()
@@ -144,8 +144,8 @@ pub(crate) fn rust_result_fixture(
         }
         ResultFixtureKind::Opaque => pair(Plan { value: 42 }, codecs),
         ResultFixtureKind::Unit => bodies(
-            Leaf::new("unit", ActionHandle::new(Constant(()))).map_err(invalid)?,
-            Leaf::new("presence", ActionHandle::new(Present)).map_err(invalid)?,
+            Step::new("unit", ActionHandle::new(Constant(()))).map_err(invalid)?,
+            Step::new("presence", ActionHandle::new(Present)).map_err(invalid)?,
             codecs,
         ),
     }

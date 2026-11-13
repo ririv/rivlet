@@ -103,7 +103,7 @@ pub(crate) fn run(
         results.events(batch.events())?;
         for node in batch.actions() {
             let projected = compilation.node(*node);
-            let ProjectedKind::Leaf(action) = projected.kind() else {
+            let ProjectedKind::Step(action) = projected.kind() else {
                 return Err(ExecutionError::UnexpectedComposite(*node));
             };
             let inputs = projected

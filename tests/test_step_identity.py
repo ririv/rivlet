@@ -10,13 +10,13 @@ from rivlet import (
     Graph,
     GraphMode,
     GraphStructure,
-    Leaf,
     NodeExecutionEvent,
     NodeId,
     NodePath,
     NodeRunContext,
     Option,
     Results,
+    Step,
     ThreadRunOptions,
     export_graph,
 )
@@ -57,8 +57,8 @@ def test_repeated_mounts_share_declaration_id_not_results(
     def consume(ctx: NodeRunContext, result: Option[object]) -> None:
         received.append((ctx.node_id, ctx.node_path, result.unwrap()))
 
-    producer = Leaf(produce, label=("source"))
-    consumer = Leaf(consume, label=("use"))
+    producer = Step(produce, label=("source"))
+    consumer = Step(consume, label=("use"))
     child = Graph.from_wiring(
         (consumer.wire(after=(Results(producer),)), producer.wire())
     )
@@ -103,13 +103,13 @@ def test_dynamic_child_keeps_identity_and_full_path_labels():
     def record(ctx: NodeRunContext) -> None:
         seen.append(ctx)
 
-    leaf = Leaf(record, label=("leaf"))
-    child = Graph(structure=GraphStructure(nodes=(leaf,)))
+    step = Step(record, label=("leaf"))
+    child = Graph(structure=GraphStructure(nodes=(step,)))
     graph = Graph(
-        structure=GraphStructure(nodes=(Leaf(lambda: child.structure, label="expand"),))
+        structure=GraphStructure(nodes=(Step(lambda: child.structure, label="expand"),))
     )
     Execution(Graph(structure=graph.structure)).run()
-    assert seen[0].node_id == leaf.id
+    assert seen[0].node_id == step.id
     assert seen[0].node_path.segments == (0, 0, 0)
     assert seen[0].node_path.labels == ("0", "expand", "leaf")
     assert seen[0].node_path.parent is not None
@@ -120,7 +120,7 @@ def test_native_declaration_ids_survive_compilation_and_repeated_mounts():
     native = _rust_process_graph(
         [("leaf", sys.executable, ["-c", "pass"], ".", {})], []
     )
-    python_step = Leaf(lambda: None)
+    python_step = Step(lambda: None)
     graph = Graph(
         structure=GraphStructure(
             nodes=(

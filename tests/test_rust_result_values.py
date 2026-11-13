@@ -17,10 +17,10 @@ from rivlet import (
     GraphInterface,
     GraphNodeFailure,
     GraphStructure,
-    Leaf,
     NodePath,
     ResultStore,
     SerialGraphExecutor,
+    Step,
     ThreadRunOptions,
     export_graph,
     render_graph,
@@ -73,7 +73,7 @@ def test_rust_to_rust_to_python_preserves_actual_typed_values(
     )
     native = Graph(body, label="native")
     seen: list[object] = []
-    sink = Leaf(lambda ctx, value: seen.append(value.unwrap()), label="sink")
+    sink = Step(lambda ctx, value: seen.append(value.unwrap()), label="sink")
     execution = Execution(
         Graph(
             GraphStructure(
@@ -101,9 +101,9 @@ def test_python_to_rust_and_back_uses_receiver_type(
 ) -> None:
     _, body = _rust_result_fixture(kind)
     native = Graph(body, label="native")
-    producer = Leaf(lambda: value)
+    producer = Step(lambda: value)
     seen: list[object] = []
-    sink = Leaf(lambda ctx, result: seen.append(result.unwrap()))
+    sink = Step(lambda ctx, result: seen.append(result.unwrap()))
     execution = Execution(
         Graph(
             GraphStructure(
@@ -145,7 +145,7 @@ def test_native_option_distinguishes_skipped_from_successful_unit(
     producer = Graph(source, condition=(lambda: False) if skipped else None)
     consumer = Graph(target)
     seen: list[object] = []
-    sink = Leaf(lambda ctx, value: seen.append(value.unwrap()))
+    sink = Step(lambda ctx, value: seen.append(value.unwrap()))
     execution = Execution(
         Graph(
             GraphStructure(
@@ -181,10 +181,10 @@ def test_bad_python_import_fails_receiver_only(
 ) -> None:
     _, body = _rust_result_fixture(kind)
     native = Graph(body, label="receiver")
-    producer = Leaf(lambda: bad_value)
+    producer = Step(lambda: bad_value)
     seen: list[str] = []
-    independent = Leaf(lambda: seen.append("independent"))
-    blocked = Leaf(lambda: seen.append("blocked"))
+    independent = Step(lambda: seen.append("independent"))
+    blocked = Step(lambda: seen.append("blocked"))
     execution = Execution(
         Graph(
             GraphStructure(
@@ -210,9 +210,9 @@ def test_unregistered_native_export_fails_python_reader_not_native_producer(
 ) -> None:
     source, _ = _rust_result_fixture(Kind.Opaque)
     native = Graph(source)
-    reader = Leaf(lambda ctx, value: value.unwrap())
+    reader = Step(lambda ctx, value: value.unwrap())
     seen: list[str] = []
-    independent = Leaf(lambda: seen.append("independent"))
+    independent = Step(lambda: seen.append("independent"))
     execution = Execution(
         Graph(
             GraphStructure(
@@ -241,9 +241,9 @@ def test_forwarded_reused_consumers_keep_values_bound_to_each_mount(
         nodes=(inner,), interface=GraphInterface(inputs=inner, outputs=inner)
     )
     left, right = Graph(shared, label="left"), Graph(shared, label="right")
-    first, second = Leaf(lambda: {"value": 1}), Leaf(lambda: {"value": 2})
+    first, second = Step(lambda: {"value": 1}), Step(lambda: {"value": 2})
     seen: list[object] = []
-    sink = Leaf(lambda ctx, a, b: seen.extend((a.unwrap(), b.unwrap())))
+    sink = Step(lambda ctx, a, b: seen.extend((a.unwrap(), b.unwrap())))
     execution = Execution(
         Graph(
             GraphStructure(
@@ -273,8 +273,8 @@ def test_custom_export_is_cached_for_fanout_and_retained_results(
     body, _ = _rust_result_fixture(Kind.Custom)
     native = Graph(body)
     seen: list[object] = []
-    one = Leaf(lambda ctx, value: seen.append(value.unwrap()))
-    two = Leaf(lambda ctx, value: seen.append(value.unwrap()))
+    one = Step(lambda ctx, value: seen.append(value.unwrap()))
+    two = Step(lambda ctx, value: seen.append(value.unwrap()))
     graph = Graph(
         GraphStructure(
             nodes=(native, one, two),

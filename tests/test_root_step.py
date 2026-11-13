@@ -18,13 +18,13 @@ from rivlet import (
     GraphError,
     GraphMode,
     GraphStructure,
-    Leaf,
     NodeExecutionEvent,
     NodeExecutionState,
     NodePath,
     NodeRunContext,
     ResultStore,
     SerialGraphExecutor,
+    Step,
     SubgraphFailed,
     ThreadRunOptions,
     export_graph,
@@ -59,7 +59,7 @@ class Events:
 
 @pytest.mark.parametrize("backend", ["serial", "thread", "async"])
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
-def test_leaf_root_is_the_executed_declaration(
+def test_step_root_is_the_executed_declaration(
     backend: Backend, mode: GraphMode
 ) -> None:
     contexts: list[NodeRunContext] = []
@@ -68,7 +68,7 @@ def test_leaf_root_is_the_executed_declaration(
         contexts.append(ctx)
         return 42
 
-    root = Leaf(action, label=("single action"), condition=(lambda: True))
+    root = Step(action, label=("single action"), condition=(lambda: True))
     events = Events()
     execution = Execution(
         root,
@@ -96,7 +96,7 @@ def test_false_root_condition_skips_the_entire_graph(
     backend: Backend, mode: GraphMode
 ) -> None:
     calls: list[str] = []
-    child = Leaf(lambda: calls.append("child"), label=("child"))
+    child = Step(lambda: calls.append("child"), label=("child"))
     root = Graph(
         structure=GraphStructure(nodes=(child,)),
         label="pipeline",
@@ -127,7 +127,7 @@ def test_root_failure_keeps_its_direct_child_as_the_witness(backend: Backend) ->
     def fail() -> None:
         raise ValueError("failure")
 
-    child = Leaf(fail, label=("child"))
+    child = Step(fail, label=("child"))
     root = Graph(structure=GraphStructure(nodes=(child,)), label="pipeline")
     events = Events()
     execution = Execution(root, events=events)
@@ -145,7 +145,7 @@ def test_root_failure_keeps_its_direct_child_as_the_witness(backend: Backend) ->
 
 
 def test_root_condition_cannot_wait_for_its_own_descendant() -> None:
-    child = Leaf(lambda: True)
+    child = Step(lambda: True)
     root = Graph(
         structure=GraphStructure(nodes=(child,)),
         condition=(lambda value: value.unwrap(), child),
@@ -167,7 +167,7 @@ def test_root_identity_is_preserved_in_declaration_and_compiled_exports() -> Non
     assert len(execution.compile().composites) == 1
 
 
-def test_async_leaf_root_runs_in_the_callers_loop() -> None:
+def test_async_step_root_runs_in_the_callers_loop() -> None:
     async def scenario() -> None:
         loop = asyncio.get_running_loop()
 
@@ -175,7 +175,7 @@ def test_async_leaf_root_runs_in_the_callers_loop() -> None:
             assert asyncio.get_running_loop() is loop
             return loop
 
-        root = Leaf(action)
+        root = Step(action)
         execution = Execution(
             root, execution_state=ExecutionState(results=ResultStore())
         )
@@ -185,10 +185,10 @@ def test_async_leaf_root_runs_in_the_callers_loop() -> None:
     asyncio.run(scenario())
 
 
-def test_runtime_graph_returned_by_leaf_root_keeps_the_same_root_identity() -> None:
+def test_runtime_graph_returned_by_step_root_keeps_the_same_root_identity() -> None:
     contexts: list[NodeRunContext] = []
-    child = Leaf(lambda ctx: contexts.append(ctx), label=("child"))
-    root = Leaf(
+    child = Step(lambda ctx: contexts.append(ctx), label=("child"))
+    root = Step(
         lambda: Graph(structure=GraphStructure(nodes=(child,))).structure,
         label=("expand"),
     )
@@ -238,7 +238,7 @@ def test_native_graph_root_uses_the_outer_steps_condition_and_label(
 
 
 def test_log_binding_can_reference_the_root_declaration(tmp_path: Path) -> None:
-    root = Leaf(lambda: None, label=("root"))
+    root = Step(lambda: None, label=("root"))
     log_path = tmp_path / "root.log"
     execution = Execution(root, node_log_paths={root: log_path})
     assert execution.execution_state.get_step_log_path(NodePath((0,))) == log_path

@@ -5,8 +5,8 @@ from typing import TYPE_CHECKING
 
 from ..compile import (
     CompiledComposite,
-    CompiledPythonLeaf,
-    CompiledRustLeaf,
+    CompiledPythonStep,
+    CompiledRustStep,
     GraphCompilation,
 )
 from ..errors import GraphError
@@ -32,7 +32,7 @@ if TYPE_CHECKING:
     from ..model import NodePath
     from ..observe import GraphObserver
     from .control import ExecutionControl
-    from .session_tree import BatchExecutionHost, LeafInvocation
+    from .session_tree import BatchExecutionHost, StepInvocation
     from .state import ExecutionState
 
 logger = logging.getLogger(__name__)
@@ -47,7 +47,7 @@ class CompiledExecutionHost:
         state: ExecutionState,
         *,
         observer: GraphObserver | None,
-        run_leaf: Callable[[CompiledPythonLeaf], LeafInvocation],
+        run_step: Callable[[CompiledPythonStep], StepInvocation],
         execution_control: ExecutionControl | None = None,
         record_composites_as_steps: bool = False,
     ) -> None:
@@ -62,13 +62,13 @@ class CompiledExecutionHost:
             self._rust_import_sources
             or any(condition.inputs for condition in compilation._execution_conditions)
             or any(
-                isinstance(step, CompiledPythonLeaf) and step.inputs
+                isinstance(step, CompiledPythonStep) and step.inputs
                 for step in compilation.steps
             )
         ):
             state._enable_results()
         self.observer = observer
-        self.run_leaf_callback = run_leaf
+        self.run_step_callback = run_step
         self.execution_control = execution_control
         self.record_composites_as_steps = record_composites_as_steps
         # 初始化一次遍历 V 个 native 节点，时间/空间均为 O(V)；之后每次
@@ -167,7 +167,7 @@ class CompiledExecutionHost:
         rust_results: Sequence[tuple[int, _RustResult]] = (),
     ) -> None:
         for node, value in rust_results:
-            self.state.record_result(self._require_rust_leaf(node).path, value)
+            self.state.record_result(self._require_rust_step(node).path, value)
         for event in events:
             match event:
                 case (0, node, value):
@@ -182,10 +182,10 @@ class CompiledExecutionHost:
                     node_path = self.compilation._execution_node(node).path
                     self.state.record_skipped_step(node_path)
                 case (5, node):
-                    step = self._require_rust_leaf(node)
+                    step = self._require_rust_step(node)
                     self.state.record_step(step.path, step.path.labels)
                 case (6, node):
-                    step = self._require_rust_leaf(node)
+                    step = self._require_rust_step(node)
                     self.state.complete_step(step.path)
                 case (7, node):
                     node_path = self._failure_step(node)
@@ -323,13 +323,13 @@ class CompiledExecutionHost:
             phase=GraphObservationPhase.AFTER_SUCCESS,
         )
 
-    def run_leaf(self, node: int) -> LeafInvocation:
+    def run_step(self, node: int) -> StepInvocation:
         compiled_node = self.compilation._execution_node(node)
-        if not isinstance(compiled_node, CompiledPythonLeaf):
+        if not isinstance(compiled_node, CompiledPythonStep):
             raise GraphError(
-                f"native scheduler submitted non-leaf node: {compiled_node.path}"
+                f"native scheduler submitted non-step node: {compiled_node.path}"
             )
-        return self.run_leaf_callback(compiled_node)
+        return self.run_step_callback(compiled_node)
 
     def stop_requested(self) -> bool:
         return (
@@ -350,14 +350,14 @@ class CompiledExecutionHost:
         compiled_node = self.compilation._execution_node(node)
         if not isinstance(compiled_node, CompiledComposite):
             raise GraphError(
-                "native scheduler emitted composite lifecycle for leaf: "
+                "native scheduler emitted composite lifecycle for step: "
                 f"{compiled_node.path}"
             )
         return compiled_node
 
-    def _require_rust_leaf(self, node: int) -> CompiledRustLeaf:
+    def _require_rust_step(self, node: int) -> CompiledRustStep:
         compiled_node = self.compilation._execution_node(node)
-        if not isinstance(compiled_node, CompiledRustLeaf):
+        if not isinstance(compiled_node, CompiledRustStep):
             raise GraphError(
                 f"native action lifecycle references non-native node: {compiled_node.path}"
             )

@@ -104,7 +104,7 @@ def run_serial_definition(root: SessionDefinition) -> None:
                 continue
             node = actions[0]
             try:
-                result = host.run_leaf(node)
+                result = host.run_step(node)
                 if isinstance(result, DynamicSubgraph):
                     stack.append(
                         _frame(result.definition, _Child(node, result.complete))

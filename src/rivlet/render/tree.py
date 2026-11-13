@@ -9,10 +9,10 @@ from ..model import (
 from ..model import (
     GraphMode,
     GraphStructure,
-    Leaf,
     Node,
     NodeKind,
     NodePath,
+    Step,
     node_paths_for_mount,
     resolve_node_label,
 )
@@ -36,7 +36,7 @@ def render_graph(
     root_label: str,
     mode: GraphMode = "dynamic",
 ) -> str:
-    if isinstance(subject, (Leaf, GraphNode)):
+    if isinstance(subject, (Step, GraphNode)):
         subject = GraphStructure(nodes=(subject,))
     match mode:
         case "compiled":

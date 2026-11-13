@@ -4,9 +4,9 @@
 
 ```text
 Node（共同协议）
-├── Leaf：身份 + label + condition + callable
+├── Step：身份 + label + condition + callable
 └── Graph：身份 + label + condition + GraphStructure
-                                      ├── nodes: Leaf | Graph
+                                      ├── nodes: Step | Graph
                                       ├── edges
                                       └── 接口声明 / 静态规则
                         ↓ Execution(root).compile()
@@ -15,17 +15,18 @@ Node（共同协议）
                    ExecutionState
 ```
 
-不再有 Step 包装。Leaf/Graph 内部组合共同元信息，不继承 Node 的实现。Node 描述
-共同操作；`NodeKind = Leaf | Graph` 是结构和执行支持的封闭联合，仅实现外形相同
+不再有通用节点包装：Step 只承载 action，不承载 Graph。Step/Graph 内部组合共同元信息，
+不继承 Node 的实现。Node 描述
+共同操作；`NodeKind = Step | Graph` 是结构和执行支持的封闭联合，仅实现外形相同
 的协议不会注册新的执行类型。旧包装的归属问题和选择理由见[建模讨论](./design/node-modeling.md)。
 
 ## 节点与可复用结构
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphStructure, Leaf
+from rivlet import Edge, Execution, Graph, GraphStructure, Step
 
-prepare = Leaf(lambda: print("prepare"), label="prepare")
-finish = Leaf(lambda: print("finish"), label="finish")
+prepare = Step(lambda: print("prepare"), label="prepare")
+finish = Step(lambda: print("finish"), label="finish")
 body = GraphStructure(nodes=(prepare, finish), edges=(Edge(prepare, finish),))
 workflow = Graph(body, label="workflow", condition=lambda: True)
 Execution(workflow).run()
@@ -37,7 +38,7 @@ two_runs = (left | right).graph(label="two runs")
 
 GraphStructure 保存节点、边、GraphInterface 声明、观察消息、静态条件和选择；没有
 自身身份、label、运行时 condition 或状态。Graph 组合结构，通过 graph.interface
-暴露端口；Leaf 没有 interface 属性。Rust 的不透明结构 RustGraphStructure 也用
+暴露端口；Step 没有 interface 属性。Rust 的不透明结构 RustGraphStructure 也用
 `Graph(native_structure, label="native")` 组合。
 
 共享结构时创建不同 Graph 节点。内部共享声明的身份不变，但每次挂载有自己的
@@ -49,7 +50,7 @@ GraphStructure 保存节点、边、GraphInterface 声明、观察消息、静�
 - NodePath 是挂载位置，例如 0.1.0；segments、labels、parent 表达位置与展示。
   labels 不参与相等判断和哈希。
 - label 可重复；未指定时显示数值路径。
-- Execution 的真实 Leaf/Graph 根在 0，子节点从 0.0 开始，不制造包装身份或空 action。
+- Execution 的真实 Step/Graph 根在 0，子节点从 0.0 开始，不制造包装身份或空 action。
 - 声明 ID 不是持久业务 ID 或缓存 key。Rust 声明身份叫 NodeIdentity，低层拓扑中的
   NodeId 则是整数索引，二者用途不同。
 
@@ -65,7 +66,7 @@ with_dsl = (prepare >> (left | right) >> finish).graph(label="pipeline")
 
 NodeWiring 是构造输入，不是执行包装。GraphStructure 保存归一化 Edge。`>>` 连接
 结构出口与入口，`|` 不加依赖；返回 GraphWiring，调用 graph(...) 得到真实 Graph。
-操作数是 Leaf、Graph 或 GraphWiring，不接受裸函数；没有 step() 物化入口。
+操作数是 Step、Graph 或 GraphWiring，不接受裸函数；没有 step() 物化入口。
 子图不自动展平；DSL 边界不是具名端口，不隐式转发或连接接口。
 
 边引用实际的局部节点，不用 label 查找。ConditionalPrerequisite 只决定是否等待，
@@ -77,14 +78,14 @@ NodeWiring 是构造输入，不是执行包装。GraphStructure 保存归一化
 ```python
 from rivlet import NodeRunContext, Option, Results
 
-plan = Leaf(lambda: "plan")
-review = Leaf(lambda: True)
+plan = Step(lambda: "plan")
+review = Step(lambda: True)
 
 def implement(ctx: NodeRunContext, plan: Option[object], review: Option[object]) -> None:
     ctx.control.require_running()
     print(plan.unwrap(), review.unwrap())
 
-work = Leaf(implement)
+work = Step(implement)
 root = Graph.from_wiring((
     prepare.wire(), plan.wire(), review.wire(),
     work.wire(after=(prepare, Results(plan, review))),
@@ -136,7 +137,7 @@ control 和 shared(ExpectedType)，没有结果查询、日志路径或 scope �
 
 ## 条件与选择
 
-Leaf/Graph 接受相同 condition：无参 bool 判断函数，或扁平的
+Step/Graph 接受相同 condition：无参 bool 判断函数，或扁平的
 `(predicate, source_node, ...)`，来源按 Option 传入，独立于 action 的 Results。
 为假跳过节点，Graph 为假则跳过整棵子树。边条件只移除等待。
 StaticConditions 聚合宿主 evaluator 与编译规则；裁剪不补连路径。
@@ -153,7 +154,7 @@ select_one 接收 StaticBranch(active=bool, value=...)，返回原始选中值�
 
 ## 执行与编译
 
-Execution 接受 Leaf/Graph；首次成功编译由 compile/run/arun 复用，重新求静态规则
+Execution 接受 Step/Graph；首次成功编译由 compile/run/arun 复用，重新求静态规则
 需新建 Execution。State 单次使用。各驱动共用 Rust 编译和调度，动态子图共享并发
 预算。GraphCompilation 包含 Python 叶子、原生叶子和复合生命周期，不是空任务。
 低层 compile_graph 接收 GraphStructure，用于结构检查或展开。

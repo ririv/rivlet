@@ -37,7 +37,7 @@ if TYPE_CHECKING:
 class Execution:
     """Bind one declared root Node to a single execution.
 
-    根与内部 Node 使用相同的身份、条件和生命周期；根可承载 Graph、Leaf
+    根与内部 Node 使用相同的身份、条件和生命周期；根可承载 Graph、Step
     或原生图结构。这里只绑定运行状态，不重命名或替换声明。
 
     它持有：
@@ -85,9 +85,9 @@ class Execution:
         node_log_paths: Mapping[NodeKind, Path] | None,
         events: NodeEventSink | None,
     ) -> None:
-        from .model import Graph, GraphStructure, Leaf
+        from .model import Graph, GraphStructure, Step
 
-        if not isinstance(self.root, (Leaf, Graph)):
+        if not isinstance(self.root, (Step, Graph)):
             raise TypeError("Execution requires a root Node")
         # 根 Node 是唯一真实根节点。此 Graph 只是编译输入的结构作用域，
         # 不分配身份、不生成空 action，也不再次包装已有节点。

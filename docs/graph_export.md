@@ -12,12 +12,12 @@ It has no HTTP, frontend, or Pydantic dependency and is not an executable input 
 
 ```python
 import json
-from rivlet import Graph, Leaf, Case, Execution, export_graph, static
+from rivlet import Graph, Step, Case, Execution, export_graph, static
 
 graph = static.select(
     cases=(
-        Case(True, Leaf(lambda: "private result", label=("keep"))),
-        Case(False, Leaf(lambda: None, label=("drop"))),
+        Case(True, Step(lambda: "private result", label=("keep"))),
+        Case(False, Step(lambda: None, label=("drop"))),
     )
 ).graph()
 
@@ -89,7 +89,9 @@ condition tuple at several sites can produce multiple compiled instances.
 - Interfaces retain their port names and exact input/output node references in `ports`.
   Port forwarding appears on the scope that explicitly exposes it.
 
-Node kinds are leaf/subgraph; an opaque Rust body's actions are also leaf nodes.
+Schema v2 retains the wire kinds `"leaf"`/`"subgraph"`; `"leaf"` describes an action
+node declared with Step, including actions in an opaque Rust body. Renaming the
+declaration API does not change these wire tags or the schema version.
 A result edge through ports retains source/target component IDs and, as applicable,
 source_port/provider_node or target_port/consumer_nodes. Resolved fields identify
 actual internal endpoints, including forwarded ports.

@@ -13,10 +13,10 @@ from rivlet import (
     Edge,
     Graph,
     GraphStructure,
-    Leaf,
     Node,
     StaticCondition,
     StaticConditions,
+    Step,
     compile_graph,
 )
 
@@ -28,15 +28,15 @@ def declaration(case: Case, recipes: int, steps: int) -> Graph:
         pass
 
     if case == "flat":
-        leaves = tuple(Leaf(noop) for _ in range(recipes * steps))
+        leaves = tuple(Step(noop) for _ in range(recipes * steps))
         return Graph(structure=GraphStructure(nodes=leaves))
     children: list[Node] = []
     for _ in range(recipes):
-        leaves = tuple(Leaf(noop) for _ in range(steps))
+        leaves = tuple(Step(noop) for _ in range(steps))
         if case == "runtime":
             leaves = (
                 leaves[0],
-                Leaf(
+                Step(
                     lambda _ctx, _result: None,
                     condition=((lambda _result: True, leaves[0])),
                 ),

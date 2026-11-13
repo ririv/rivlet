@@ -7,7 +7,7 @@ use execution::{
     Execution, ExecutionError, ExecutionOptions, ExecutionOutcome, ExecutionStatus, NodeFailure,
     NodeOutcome,
 };
-use graph::{Compilation, Edge, Graph, GraphInterface, GraphStructure, Leaf};
+use graph::{Compilation, Edge, Graph, GraphInterface, GraphStructure, Step};
 use rivlet::{BlockCause, NodeId};
 
 fn node_id(compilation: &Compilation, path: &[usize]) -> NodeId {
@@ -46,8 +46,8 @@ impl Action for Apply {
 #[test]
 fn compilation_is_shared_but_executions_and_results_are_independent() {
     let calls = Arc::new(AtomicUsize::new(0));
-    let design = Leaf::new("design", ActionHandle::new(Design(Arc::clone(&calls)))).unwrap();
-    let apply = Leaf::new("apply", ActionHandle::new(Apply)).unwrap();
+    let design = Step::new("design", ActionHandle::new(Design(Arc::clone(&calls)))).unwrap();
+    let apply = Step::new("apply", ActionHandle::new(Apply)).unwrap();
     let compilation = Arc::new(
         GraphStructure::new(
             [apply.clone().into(), design.clone().into()],
@@ -73,7 +73,7 @@ fn compilation_is_shared_but_executions_and_results_are_independent() {
 
 #[test]
 fn graph_owned_ports_and_repeated_mounts_keep_distinct_results() {
-    let design = Leaf::new("design", ActionHandle::new(Design(Arc::default()))).unwrap();
+    let design = Step::new("design", ActionHandle::new(Design(Arc::default()))).unwrap();
     let producer = Graph::new(
         "producer",
         Arc::new(
@@ -86,7 +86,7 @@ fn graph_owned_ports_and_repeated_mounts_keep_distinct_results() {
         ),
     )
     .unwrap();
-    let apply = Leaf::new("apply", ActionHandle::new(Apply)).unwrap();
+    let apply = Step::new("apply", ActionHandle::new(Apply)).unwrap();
     let consumer = Graph::new(
         "consumer",
         Arc::new(
@@ -141,8 +141,8 @@ fn graph_owned_ports_and_repeated_mounts_keep_distinct_results() {
 
 #[test]
 fn explicit_skip_is_missing_input_and_does_not_leak_to_the_next_run() {
-    let design = Leaf::new("design", ActionHandle::new(Design(Arc::default()))).unwrap();
-    let apply = Leaf::new("apply", ActionHandle::new(Apply)).unwrap();
+    let design = Step::new("design", ActionHandle::new(Design(Arc::default()))).unwrap();
+    let apply = Step::new("apply", ActionHandle::new(Apply)).unwrap();
     let compilation = Arc::new(
         GraphStructure::new(
             [design.clone().into(), apply.clone().into()],
@@ -194,7 +194,7 @@ impl Action for ReadUnit {
 fn empty_composite_unit_is_present_but_skipped_composite_is_absent() {
     let present = Graph::new("present", Arc::new(GraphStructure::new([], []).unwrap())).unwrap();
     let absent = Graph::new("absent", Arc::new(GraphStructure::new([], []).unwrap())).unwrap();
-    let read = Leaf::new("read", ActionHandle::new(ReadUnit)).unwrap();
+    let read = Step::new("read", ActionHandle::new(ReadUnit)).unwrap();
     let compilation = GraphStructure::new(
         [
             present.clone().into(),
@@ -228,9 +228,9 @@ impl Action for Fail {
 
 #[test]
 fn failure_blocks_dependents_but_not_an_independent_branch() {
-    let failed = Leaf::new("failed", ActionHandle::new(Fail)).unwrap();
-    let blocked = Leaf::new("blocked", ActionHandle::new(Unit)).unwrap();
-    let independent = Leaf::new("independent", ActionHandle::new(Unit)).unwrap();
+    let failed = Step::new("failed", ActionHandle::new(Fail)).unwrap();
+    let blocked = Step::new("blocked", ActionHandle::new(Unit)).unwrap();
+    let independent = Step::new("independent", ActionHandle::new(Unit)).unwrap();
     let root = Graph::new(
         "root",
         Arc::new(
@@ -271,8 +271,8 @@ fn failure_blocks_dependents_but_not_an_independent_branch() {
 
 #[test]
 fn failed_subgraph_does_not_retract_a_successful_exported_result() {
-    let design = Leaf::new("design", ActionHandle::new(Design(Arc::default()))).unwrap();
-    let failed = Leaf::new("failed sibling", ActionHandle::new(Fail)).unwrap();
+    let design = Step::new("design", ActionHandle::new(Design(Arc::default()))).unwrap();
+    let failed = Step::new("failed sibling", ActionHandle::new(Fail)).unwrap();
     let producer = Graph::new(
         "producer",
         Arc::new(
@@ -285,7 +285,7 @@ fn failed_subgraph_does_not_retract_a_successful_exported_result() {
         ),
     )
     .unwrap();
-    let apply = Leaf::new("apply", ActionHandle::new(Apply)).unwrap();
+    let apply = Step::new("apply", ActionHandle::new(Apply)).unwrap();
     let compilation = GraphStructure::new(
         [producer.clone().into(), apply.clone().into()],
         [Edge::results([producer.interface().output("plan").unwrap()], &apply).unwrap()],
@@ -308,8 +308,8 @@ fn invalid_execution_input_is_rejected_before_actions_start() {
         Err(ExecutionError::InvalidWorkers)
     ));
     let calls = Arc::new(AtomicUsize::new(0));
-    let leaf = Leaf::new("design", ActionHandle::new(Design(Arc::clone(&calls)))).unwrap();
-    let compilation = GraphStructure::new([leaf.into()], [])
+    let step = Step::new("design", ActionHandle::new(Design(Arc::clone(&calls)))).unwrap();
+    let compilation = GraphStructure::new([step.into()], [])
         .unwrap()
         .compile_structure()
         .unwrap();
@@ -332,10 +332,10 @@ fn empty_and_fully_skipped_graphs_finish_without_action_dispatch() {
         .unwrap();
     assert_eq!(outcome.status(), ExecutionStatus::Succeeded);
     assert_eq!(outcome.nodes().len(), 0);
-    let leaf = Leaf::new("must not run", ActionHandle::new(Fail)).unwrap();
+    let step = Step::new("must not run", ActionHandle::new(Fail)).unwrap();
     let root = Graph::new(
         "root",
-        Arc::new(GraphStructure::new([leaf.into()], []).unwrap()),
+        Arc::new(GraphStructure::new([step.into()], []).unwrap()),
     )
     .unwrap();
     let compilation = root.compile().unwrap();
@@ -391,7 +391,7 @@ impl Action for ConcurrentWork {
 fn workers_bound_the_whole_run_across_multiple_completion_batches() {
     let concurrency = Arc::new(Concurrency::default());
     let leaves = (0..12).map(|index| {
-        Leaf::new(
+        Step::new(
             index.to_string(),
             ActionHandle::new(ConcurrentWork(Arc::clone(&concurrency))),
         )

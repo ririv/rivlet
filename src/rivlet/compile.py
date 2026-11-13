@@ -25,14 +25,14 @@ if TYPE_CHECKING:
 
     from .model import (
         ConditionalEdgePredicate,
-        Leaf,
         Node,
         NodeLabelPath,
+        Step,
     )
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledLeafRef:
+class CompiledStepRef:
     """引用一个会实际执行 action 的编译叶子。"""
 
     path: NodePath
@@ -45,7 +45,7 @@ class CompiledCompositeRef:
     path: NodePath
 
 
-type CompiledNodeRef = CompiledLeafRef | CompiledCompositeRef
+type CompiledNodeRef = CompiledStepRef | CompiledCompositeRef
 
 
 def compiled_node_path(ref: CompiledNodeRef) -> NodePath:
@@ -92,7 +92,7 @@ class CompiledNodeContext:
     """编译节点映射回声明图作用域所需的上下文。
 
     编译会把嵌套节点编码成全局唯一 id，但运行期条件、结果引用和日志
-    仍使用声明时的路径与图作用域。该对象保存这种映射，供 leaf 和
+    仍使用声明时的路径与图作用域。该对象保存这种映射，供 step 和
     composite 共用，不携带调度状态。
     """
 
@@ -103,11 +103,11 @@ class CompiledNodeContext:
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledPythonLeaf:
+class CompiledPythonStep:
     """由 Python 执行器调用的 Python 叶子节点。"""
 
-    ref: CompiledLeafRef
-    action: Leaf
+    ref: CompiledStepRef
+    action: Step
     after: tuple[CompiledPrerequisite, ...]
     condition: CompiledRuntimeCondition | None
     owner: CompiledCompositeRef | None
@@ -124,10 +124,10 @@ class CompiledPythonLeaf:
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledRustLeaf:
+class CompiledRustStep:
     """由 Rust 执行器直接调用的原生叶子节点。"""
 
-    ref: CompiledLeafRef
+    ref: CompiledStepRef
     after: tuple[CompiledPrerequisite, ...]
     condition: CompiledRuntimeCondition | None
     owner: CompiledCompositeRef | None
@@ -147,7 +147,7 @@ class CompiledRustLeaf:
 class CompiledComposite:
     """原始子图在编译产物中的非执行生命周期投影。
 
-    子图 action 已经展开为 `CompiledPythonLeaf`；该类型只保留直接子节点、依赖、
+    子图 action 已经展开为 `CompiledPythonStep`；该类型只保留直接子节点、依赖、
     条件和 observation。runtime 会追踪它的进入与完成，但不会把它提交
     给 worker，也不会为它生成伪造的 no-op step。
     """
@@ -172,8 +172,8 @@ class CompiledComposite:
         return self.context.node_id
 
 
-type CompiledLeaf = CompiledPythonLeaf | CompiledRustLeaf
-type CompiledNode = CompiledLeaf | CompiledComposite
+type CompiledStep = CompiledPythonStep | CompiledRustStep
+type CompiledNode = CompiledStep | CompiledComposite
 
 
 @dataclass(frozen=True, slots=True)
@@ -206,7 +206,7 @@ class GraphCompilation:
 
     source_graph: GraphStructure
     label: str
-    steps: tuple[CompiledLeaf, ...]
+    steps: tuple[CompiledStep, ...]
     composites: tuple[CompiledComposite, ...]
     roots: tuple[CompiledNodeRef, ...]
     root_label_path: NodeLabelPath = ()
@@ -474,13 +474,13 @@ def _require_compiled_node(
     """解析 typed ref，并验证引用类别与实际节点类别一致。
 
     `NodePath` 在扁平图中全局唯一，但只有 id 存在还不够：
-    `CompiledLeafRef` 不能指向 `CompiledComposite`，反之亦然。
+    `CompiledStepRef` 不能指向 `CompiledComposite`，反之亦然。
     """
 
     node = nodes.get(ref.path)
     if node is None:
         raise GraphError(f"compiled graph references unknown node: {ref.path}")
-    if isinstance(ref, CompiledLeafRef) != (not isinstance(node, CompiledComposite)):
+    if isinstance(ref, CompiledStepRef) != (not isinstance(node, CompiledComposite)):
         raise GraphError(
             f"compiled graph reference kind does not match node: {ref.path}"
         )
@@ -512,7 +512,7 @@ def _validate_compiled_node(
             _validate_compiled_condition(nodes, prerequisite.condition)
     if node.condition is not None:
         _validate_compiled_condition(nodes, node.condition)
-    if isinstance(node, CompiledPythonLeaf):
+    if isinstance(node, CompiledPythonStep):
         node.action.validate_inputs(len(node.inputs))
         for ref in node.inputs:
             _require_compiled_node(nodes, ref)
@@ -575,7 +575,7 @@ def _materialize_execution_graph(
                 for prerequisite in node.after
             ]
         )
-        if isinstance(node, CompiledPythonLeaf):
+        if isinstance(node, CompiledPythonStep):
             prerequisites[-1].extend(
                 (node_indexes[ref.path], None) for ref in node.inputs
             )
@@ -678,7 +678,7 @@ def _bind_declaration_compilation(
         refs_by_declaration[declaration] = (
             CompiledCompositeRef(node_path)
             if child_graphs[compiled_index] is not None
-            else CompiledLeafRef(node_path)
+            else CompiledStepRef(node_path)
         )
 
     graph_node_paths = tuple(
@@ -735,7 +735,7 @@ def _bind_declaration_compilation(
             condition=compiled_conditions[condition],
         )
 
-    steps: list[CompiledLeaf] = []
+    steps: list[CompiledStep] = []
     composites: list[CompiledComposite] = []
     ordered_nodes: list[CompiledNode] = []
     for compiled_index, declaration in enumerate(active_declarations):
@@ -763,10 +763,10 @@ def _bind_declaration_compilation(
         child_graph = child_graphs[compiled_index]
         if child_graph is None:
             action = actions[compiled_index]
-            compiled_step: CompiledLeaf
+            compiled_step: CompiledStep
             if action is None:
-                compiled_step = CompiledRustLeaf(
-                    ref=cast("CompiledLeafRef", ref),
+                compiled_step = CompiledRustStep(
+                    ref=cast("CompiledStepRef", ref),
                     after=after,
                     condition=condition,
                     owner=owner,
@@ -777,9 +777,9 @@ def _bind_declaration_compilation(
                     ),
                 )
             else:
-                compiled_step = CompiledPythonLeaf(
-                    ref=cast("CompiledLeafRef", ref),
-                    action=cast("Leaf", action),
+                compiled_step = CompiledPythonStep(
+                    ref=cast("CompiledStepRef", ref),
+                    action=cast("Step", action),
                     after=after,
                     condition=condition,
                     owner=owner,

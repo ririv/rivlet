@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use action::{Action, ActionContext, ActionError, ActionHandle};
 use graph::{
-    Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, Leaf, ProjectedKind,
+    Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, ProjectedKind, Step,
 };
 use rivlet::{ExecutionSession, ExecutionUpdate, NodeState, SessionStatus};
 
@@ -22,16 +22,16 @@ impl Action for Record {
     }
 }
 
-fn leaf(name: &'static str, events: &Arc<Mutex<Vec<&'static str>>>) -> Leaf {
-    leaf_with_outcome(name, events, Ok(()))
+fn step(name: &'static str, events: &Arc<Mutex<Vec<&'static str>>>) -> Step {
+    step_with_outcome(name, events, Ok(()))
 }
 
-fn leaf_with_outcome(
+fn step_with_outcome(
     name: &'static str,
     events: &Arc<Mutex<Vec<&'static str>>>,
     outcome: Result<(), ActionError>,
-) -> Leaf {
-    Leaf::new(
+) -> Step {
+    Step::new(
         name,
         ActionHandle::new(Record {
             name,
@@ -52,7 +52,7 @@ fn run(compilation: &Compilation) -> (SessionStatus, ExecutionSession) {
             .actions()
             .iter()
             .map(|id| {
-                let ProjectedKind::Leaf(action) = compilation.node(*id).kind() else {
+                let ProjectedKind::Step(action) = compilation.node(*id).kind() else {
                     panic!("a composite was dispatched as an action");
                 };
                 (
@@ -74,7 +74,7 @@ fn run(compilation: &Compilation) -> (SessionStatus, ExecutionSession) {
 #[test]
 fn nested_shared_structure_preserves_identity_paths_and_real_composites() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let task = leaf("task", &events);
+    let task = step("task", &events);
     let body = Arc::new(GraphStructure::new([task.clone().into()], []).unwrap());
     let left = Graph::new("left", Arc::clone(&body)).unwrap();
     let right = Graph::new("right", Arc::clone(&body)).unwrap();
@@ -102,8 +102,8 @@ fn nested_shared_structure_preserves_identity_paths_and_real_composites() {
 #[test]
 fn forwarded_ports_allow_interleaving_without_false_component_cycle() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let start = leaf("start", &events);
-    let finish = leaf("finish", &events);
+    let start = step("start", &events);
+    let finish = step("finish", &events);
     let first_body = Arc::new(
         GraphStructure::with_interface(
             [start.clone().into(), finish.clone().into()],
@@ -130,7 +130,7 @@ fn forwarded_ports_allow_interleaving_without_false_component_cycle() {
         .unwrap(),
     );
     let wrapper = Graph::new("wrapper", wrapper_body).unwrap();
-    let middle = leaf("middle", &events);
+    let middle = step("middle", &events);
     let second = Graph::new(
         "second",
         Arc::new(
@@ -171,7 +171,7 @@ fn forwarded_ports_allow_interleaving_without_false_component_cycle() {
 #[test]
 fn failed_output_blocks_only_its_consumers_and_not_independent_work() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let fail = leaf_with_outcome("failed", &events, Err(ActionError::new("failure")));
+    let fail = step_with_outcome("failed", &events, Err(ActionError::new("failure")));
     let provider = Graph::new(
         "provider",
         Arc::new(
@@ -184,7 +184,7 @@ fn failed_output_blocks_only_its_consumers_and_not_independent_work() {
         ),
     )
     .unwrap();
-    let blocked = leaf("blocked", &events);
+    let blocked = step("blocked", &events);
     let consumer = Graph::new(
         "consumer",
         Arc::new(
@@ -199,7 +199,7 @@ fn failed_output_blocks_only_its_consumers_and_not_independent_work() {
         ),
     )
     .unwrap();
-    let independent = leaf("independent", &events);
+    let independent = step("independent", &events);
     let structure = GraphStructure::new(
         [
             provider.clone().into(),
@@ -234,10 +234,10 @@ fn failed_output_blocks_only_its_consumers_and_not_independent_work() {
 #[test]
 fn port_fanout_does_not_wait_for_unrelated_provider_completion() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let ready = leaf("ready", &events);
-    let later_fail = leaf_with_outcome("later-fail", &events, Err(ActionError::new("late")));
-    let first = leaf("first", &events);
-    let second = leaf("second", &events);
+    let ready = step("ready", &events);
+    let later_fail = step_with_outcome("later-fail", &events, Err(ActionError::new("late")));
+    let first = step("first", &events);
+    let second = step("second", &events);
     let consumer = Graph::new(
         "consumer",
         Arc::new(
@@ -297,7 +297,7 @@ fn port_fanout_does_not_wait_for_unrelated_provider_completion() {
 #[test]
 fn resolved_port_cycle_is_rejected_by_the_common_compiler() {
     let events = Arc::new(Mutex::new(Vec::new()));
-    let task = leaf("task", &events);
+    let task = step("task", &events);
     let body = Arc::new(
         GraphStructure::with_interface(
             [task.clone().into()],

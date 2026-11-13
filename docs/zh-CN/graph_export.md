@@ -11,12 +11,12 @@
 
 ```python
 import json
-from rivlet import Graph, Leaf, Case, Execution, export_graph, static
+from rivlet import Graph, Step, Case, Execution, export_graph, static
 
 graph = static.select(
     cases=(
-        Case(True, Leaf(lambda: "private result", label=("keep"))),
-        Case(False, Leaf(lambda: None, label=("drop"))),
+        Case(True, Step(lambda: "private result", label=("keep"))),
+        Case(False, Step(lambda: None, label=("drop"))),
     )
 ).graph()
 
@@ -86,7 +86,8 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 
 ## 边的语义
 
-节点 kind 为 leaf/subgraph，原生结构动作也属于 leaf。跨端口结果边保留外层
+schema v2 保留 `"leaf"`/`"subgraph"` wire tag；`"leaf"` 对应 Step 声明的动作节点，
+包括 Rust 不透明结构中的动作。声明 API 改名不改变这些标签或 schema 版本。跨端口结果边保留外层
 source/target，并按方向包含 source_port/provider_node 或 target_port/consumer_nodes，
 这些解析字段指向真实内部端点，转发不会丢失归属。
 

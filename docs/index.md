@@ -22,7 +22,7 @@ English | [简体中文](./zh-CN/index.md)
 
 ## Design goals
 
-Leaf and Graph are actual nodes; GraphStructure holds reusable structure.
+Step and Graph are actual nodes; GraphStructure holds reusable structure.
 Execution owns one run. Declarations reference actual nodes. Internal `NodePath` values are assigned to mounted
 nodes, while labels serve presentation only.
 

@@ -12,9 +12,9 @@ from rivlet import (
     Graph,
     GraphError,
     GraphStructure,
-    Leaf,
     StaticCondition,
     StaticConditions,
+    Step,
     compile_graph,
     export_graph,
 )
@@ -35,7 +35,7 @@ def test_actual_run_compilation_is_available_before_actions(asynchronous) -> Non
     async def async_action():
         observed.append(execution.compilation)
 
-    step = Leaf(async_action if asynchronous else action)
+    step = Step(async_action if asynchronous else action)
     graph = (
         StaticConditions(evaluator=evaluate)
         .when(StaticCondition(object(), "private"), step)
@@ -72,7 +72,7 @@ def test_failed_preparation_is_not_committed_and_can_be_retried() -> None:
 
     graph = (
         StaticConditions(evaluator=evaluate)
-        .when(StaticCondition(object(), "condition"), Leaf(lambda: None))
+        .when(StaticCondition(object(), "condition"), Step(lambda: None))
         .graph()
     )
     execution = Execution(Graph(structure=graph.structure))
@@ -89,7 +89,7 @@ def test_new_execution_and_standalone_compilation_make_fresh_static_decisions() 
     enabled = [True]
     graph = (
         StaticConditions(evaluator=lambda _condition: enabled[0])
-        .when(StaticCondition(object(), "condition"), Leaf(lambda: None))
+        .when(StaticCondition(object(), "condition"), Step(lambda: None))
         .graph()
     )
     first = Execution(Graph(structure=graph.structure))
@@ -107,7 +107,7 @@ def test_failed_action_keeps_this_run_compilation() -> None:
     def fail():
         raise ValueError("private failure")
 
-    execution = Execution(Graph(structure=GraphStructure(nodes=(Leaf(fail),))))
+    execution = Execution(Graph(structure=GraphStructure(nodes=(Step(fail),))))
     with pytest.raises(ValueError, match="private failure"):
         execution.run()
     assert execution.compilation is not None
@@ -132,7 +132,7 @@ def test_concurrent_preparation_commits_one_successful_compilation() -> None:
 
     graph = (
         StaticConditions(evaluator=evaluate)
-        .when(StaticCondition(object(), "condition"), Leaf(lambda: None))
+        .when(StaticCondition(object(), "condition"), Step(lambda: None))
         .graph()
     )
     execution = Execution(Graph(structure=graph.structure))

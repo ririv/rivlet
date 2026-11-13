@@ -8,13 +8,13 @@ from rivlet import (
     Graph,
     GraphObservationEvent,
     GraphObservationMessages,
-    Leaf,
     NodePath,
     NodeRunContext,
     Option,
     Results,
     ResultStore,
     ResultView,
+    Step,
     ThreadRunOptions,
 )
 
@@ -60,13 +60,13 @@ def test_state_snapshot_keeps_its_result_records() -> None:
 def test_actions_receive_bound_results_and_observers_receive_read_only_view() -> None:
     state = ExecutionState(results=ResultStore())
     received: list[ResultView] = []
-    prepare = Leaf(lambda: "source")
+    prepare = Step(lambda: "source")
 
     def consume(_ctx: NodeRunContext, source: Option[object]) -> str:
         assert source.unwrap() == "source"
         return "output"
 
-    finish = Leaf(consume)
+    finish = Step(consume)
 
     class Observer:
         def emit(self, event: GraphObservationEvent) -> None:

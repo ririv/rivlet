@@ -14,7 +14,7 @@ from rivlet import (
     Execution,
     Graph,
     GraphStructure,
-    Leaf,
+    Step,
     ThreadRunOptions,
 )
 
@@ -69,13 +69,13 @@ def main() -> None:
             if depth == 0:
                 return Graph(
                     structure=GraphStructure(
-                        nodes=tuple(Leaf(activity.work) for _ in range(args.leaves))
+                        nodes=tuple(Step(activity.work) for _ in range(args.leaves))
                     )
                 )
             return Graph(
                 structure=GraphStructure(
                     nodes=tuple(
-                        Leaf(lambda: branch(depth - 1)) for _ in range(args.width)
+                        Step(lambda: branch(depth - 1)) for _ in range(args.width)
                     )
                 )
             )

@@ -19,8 +19,8 @@ if TYPE_CHECKING:
     from ..model import NodePath
 
 
-type LeafOutcome = DynamicSubgraph | None
-type LeafInvocation = LeafOutcome | Awaitable[LeafOutcome]
+type StepOutcome = DynamicSubgraph | None
+type StepInvocation = StepOutcome | Awaitable[StepOutcome]
 
 
 class BatchExecutionHost(Protocol):
@@ -44,7 +44,7 @@ class BatchExecutionHost(Protocol):
         self, completed: list[tuple[int, bool]]
     ) -> list[tuple[int, object]]: ...
     def retains_rust_results(self) -> bool: ...
-    def run_leaf(self, node: int) -> LeafInvocation: ...
+    def run_step(self, node: int) -> StepInvocation: ...
     def stop_requested(self) -> bool: ...
     def request_stop(self) -> None: ...
     def require_running(self) -> None: ...
@@ -144,7 +144,7 @@ class SessionTree:
             self._queued.add(run)
             self._ready.append(run)
 
-    def complete(self, work: PythonWork, outcome: LeafOutcome) -> None:
+    def complete(self, work: PythonWork, outcome: StepOutcome) -> None:
         run = work.session
         run.python_running -= 1
         self._occupied -= 1

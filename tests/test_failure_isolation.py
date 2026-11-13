@@ -19,9 +19,9 @@ from rivlet import (
     GraphInterface,
     GraphNodeFailure,
     GraphStructure,
-    Leaf,
     NodePath,
     SerialGraphExecutor,
+    Step,
     ThreadRunOptions,
     render_execution,
     render_live_execution,
@@ -56,10 +56,10 @@ def fail() -> None:
 
 def test_failure_blocks_only_downstream_and_renders_terminal_states(execute):
     calls = []
-    failed = Leaf(fail, label=("failed"))
-    blocked = Leaf(lambda: calls.append("blocked"), label=("blocked"))
-    good = Leaf(lambda: calls.append("good"), label=("good"))
-    later = Leaf(lambda: calls.append("later"), label=("later"))
+    failed = Step(fail, label=("failed"))
+    blocked = Step(lambda: calls.append("blocked"), label=("blocked"))
+    good = Step(lambda: calls.append("good"), label=("good"))
+    later = Step(lambda: calls.append("later"), label=("later"))
     graph = Graph.from_wiring(
         (
             failed.wire(),
@@ -106,7 +106,7 @@ def test_multiple_independent_errors_are_reported_together(execute):
 
     graph = Graph(
         structure=GraphStructure(
-            nodes=(Leaf(fail, label="first"), Leaf(other, label="second"))
+            nodes=(Step(fail, label="first"), Step(other, label="second"))
         )
     )
     with pytest.raises(ExceptionGroup) as caught:
@@ -129,9 +129,9 @@ def test_condition_exception_blocks_all_users_without_stopping_other_work(execut
     graph = Graph(
         structure=GraphStructure(
             nodes=(
-                Leaf(lambda: calls.append("wrong-a"), condition=condition),
-                Leaf(lambda: calls.append("wrong-b"), condition=condition),
-                Leaf(lambda: calls.append("good")),
+                Step(lambda: calls.append("wrong-a"), condition=condition),
+                Step(lambda: calls.append("wrong-b"), condition=condition),
+                Step(lambda: calls.append("good")),
             )
         )
     )
@@ -159,7 +159,7 @@ def test_condition_exception_blocks_all_users_without_stopping_other_work(execut
 
 def test_condition_does_not_read_failed_action_result(execute):
     calls = []
-    producer = Leaf(fail)
+    producer = Step(fail)
 
     def needs_result(_ctx) -> bool:
         calls.append("wrong-condition")
@@ -170,12 +170,12 @@ def test_condition_does_not_read_failed_action_result(execute):
             nodes=(
                 producer,
                 (
-                    consumer_134 := Leaf(
+                    consumer_134 := Step(
                         lambda _ctx, *_inputs: None,
                         condition=(_needs_result_condition := (needs_result, producer)),
                     )
                 ),
-                Leaf(lambda: calls.append("good")),
+                Step(lambda: calls.append("good")),
             ),
             edges=(*Edge.results((producer,), consumer_134),),
         )
@@ -199,12 +199,12 @@ def test_condition_does_not_read_failed_action_result(execute):
 
 def test_inactive_conditional_edge_does_not_propagate_failure(execute):
     calls = []
-    producer = Leaf(fail)
+    producer = Step(fail)
 
     def disabled() -> bool:
         return False
 
-    consumer = Leaf(lambda: calls.append("consumer"))
+    consumer = Step(lambda: calls.append("consumer"))
     graph = Graph.from_wiring(
         (
             producer.wire(),
@@ -221,22 +221,22 @@ def test_inactive_conditional_edge_does_not_propagate_failure(execute):
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_port_success_survives_failure_in_another_subgraph_branch(mode):
     calls = []
-    ready = Leaf(lambda: calls.append("ready"))
+    ready = Step(lambda: calls.append("ready"))
     port = "ready"
     provider = Graph(
         structure=GraphStructure(
-            nodes=(Leaf(fail), ready), interface=GraphInterface(outputs={port: ready})
+            nodes=(Step(fail), ready), interface=GraphInterface(outputs={port: ready})
         ),
         label="provider",
     )
-    consume = Leaf(lambda: calls.append("consume"))
+    consume = Step(lambda: calls.append("consume"))
     consumer = Graph(
         structure=GraphStructure(
             nodes=(consume,), interface=GraphInterface(inputs={port: consume})
         ),
         label="consumer",
     )
-    whole = Leaf(lambda: calls.append("wrong-whole"))
+    whole = Step(lambda: calls.append("wrong-whole"))
     bindings = resolve_port_requirements(
         (provider, consumer),
         (ExactProviderRequirement(consumer=consumer, provider=provider, port=port),),
@@ -277,13 +277,13 @@ def test_port_success_survives_failure_in_another_subgraph_branch(mode):
 
 def test_blocked_composite_marks_descendants_without_entering_them(execute):
     calls = []
-    producer = Leaf(fail)
+    producer = Step(fail)
     inner = Graph(
         structure=GraphStructure(
             nodes=(
                 Graph(
                     structure=GraphStructure(
-                        nodes=(Leaf(lambda: calls.append("wrong")),)
+                        nodes=(Step(lambda: calls.append("wrong")),)
                     )
                 ),
             )
@@ -304,14 +304,14 @@ def test_blocked_composite_marks_descendants_without_entering_them(execute):
 def test_failed_port_blocks_input_but_not_consumer_preparation(execute):
     calls = []
     port = "ready"
-    ready = Leaf(fail)
+    ready = Step(fail)
     provider = Graph(
         structure=GraphStructure(
             nodes=(ready,), interface=GraphInterface(outputs={port: ready})
         )
     )
-    prepare = Leaf(lambda: calls.append("prepare"))
-    consume = Leaf(lambda: calls.append("wrong"))
+    prepare = Step(lambda: calls.append("prepare"))
+    consume = Step(lambda: calls.append("wrong"))
     consumer = (prepare >> consume).graph(
         interface=GraphInterface(inputs={port: consume}),
     )
@@ -348,15 +348,15 @@ def test_dynamic_returned_graph_failure_is_local_to_its_parent_action(execute):
     calls = []
     inner = Graph(
         structure=GraphStructure(
-            nodes=(Leaf(fail), Leaf(lambda: calls.append("inner")))
+            nodes=(Step(fail), Step(lambda: calls.append("inner")))
         )
     )
-    parent = Leaf(lambda: inner.structure)
+    parent = Step(lambda: inner.structure)
     graph = Graph.from_wiring(
         (
             parent.wire(),
-            Leaf(lambda: calls.append("wrong")).wire(after=(parent,)),
-            Leaf(lambda: calls.append("outer")).wire(),
+            Step(lambda: calls.append("wrong")).wire(after=(parent,)),
+            Step(lambda: calls.append("outer")).wire(),
         )
     )
     with pytest.raises(RuntimeError, match="action failed"):
@@ -387,7 +387,7 @@ def test_native_failure_preserves_successes_in_same_completion_batch(execute, tm
     calls = []
     graph = Graph(
         structure=GraphStructure(
-            nodes=(Graph(structure=native), Leaf(lambda: calls.append("python")))
+            nodes=(Graph(structure=native), Step(lambda: calls.append("python")))
         )
     )
     with pytest.raises(RuntimeError, match=r"exited with status .*7"):
@@ -404,7 +404,7 @@ def test_explicit_stop_still_prevents_unrelated_pending_actions(options):
     control = ExecutionControl()
     graph = Graph(
         structure=GraphStructure(
-            nodes=(Leaf(control.request_stop), Leaf(lambda: calls.append("wrong")))
+            nodes=(Step(control.request_stop), Step(lambda: calls.append("wrong")))
         )
     )
     plan = Execution(root=Graph(structure=graph.structure), execution_control=control)
@@ -432,14 +432,14 @@ def test_cancellation_from_condition_waits_for_started_async_action():
         control.require_running()
         return True
 
-    ready = Leaf(prepare)
+    ready = Step(prepare)
     graph = Graph(
         structure=GraphStructure(
             nodes=(
-                Leaf(survive),
+                Step(survive),
                 ready,
                 (
-                    consumer_337 := Leaf(
+                    consumer_337 := Step(
                         lambda _ctx, *_inputs: None,
                         condition=(_cancel_condition := (cancel, ready)),
                     )

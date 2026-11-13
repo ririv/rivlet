@@ -12,12 +12,12 @@ from rivlet import (
     Graph,
     GraphMode,
     GraphStructure,
-    Leaf,
     NodeControl,
     NodeId,
     NodePath,
     NodeRunContext,
     SerialGraphExecutor,
+    Step,
     ThreadRunOptions,
 )
 
@@ -47,14 +47,14 @@ def test_shared_object_reaches_parallel_and_nested_actions(
 
     def expand(ctx: NodeRunContext) -> GraphStructure:
         record(ctx)
-        return Graph(structure=GraphStructure(nodes=(Leaf(record_async),))).structure
+        return Graph(structure=GraphStructure(nodes=(Step(record_async),))).structure
 
     graph = Graph(
         structure=GraphStructure(
             nodes=(
-                *(Leaf(record) for _ in range(12)),
-                Graph(structure=GraphStructure(nodes=(Leaf(record),))),
-                Leaf(expand),
+                *(Step(record) for _ in range(12)),
+                Graph(structure=GraphStructure(nodes=(Step(record),))),
+                Step(expand),
             )
         )
     )

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, overload
 from ..errors import GraphError
 from ..interface import InputPort, OutputEndpoint, OutputPort, _validate_port_name
 from .condition import _normalize_condition, _RuntimeCondition
-from .leaf import Leaf
+from .step import Step
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -93,11 +93,11 @@ class Edge:
 
     @staticmethod
     def results(
-        sources: tuple[OutputEndpoint, ...], target: Leaf | InputPort
+        sources: tuple[OutputEndpoint, ...], target: Step | InputPort
     ) -> tuple[Edge, ...]:
         """Connect node or graph-port results to an action in source order."""
 
-        if not isinstance(target, (Leaf, InputPort)):
+        if not isinstance(target, (Step, InputPort)):
             raise GraphError("result target must have a callable action")
         if not sources:
             raise GraphError("result connections require at least one source")

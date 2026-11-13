@@ -5,23 +5,23 @@ import traceback
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..compile import CompiledPythonLeaf, GraphCompilation, compile_graph
+from ..compile import CompiledPythonStep, GraphCompilation, compile_graph
 from ..observe import GraphObservationPhase
 from ..option import Nothing, Option
 from .executor_common import as_graph_result, emit_graph_observation
 from .run import CompiledGraphRun, RuntimeStep
 from .session_tree import (
     DynamicSubgraph,
-    LeafInvocation,
-    LeafOutcome,
     SessionDefinition,
+    StepInvocation,
+    StepOutcome,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from pathlib import Path
 
-    from ..model import Leaf
+    from ..model import Step
     from ..observe import GraphObserver
     from ..results import NodeRunContext
     from .action_log import ActionLog
@@ -41,7 +41,7 @@ class PythonActionRuntime:
     record_composites_as_steps: bool
     invoke: Callable[
         [
-            Leaf,
+            Step,
             NodeRunContext,
             Path | None,
             ActionLog,
@@ -69,7 +69,7 @@ class PythonActionRuntime:
             observer=self.observer,
             execution_control=self.control,
             record_composites_as_steps=self.record_composites_as_steps,
-            run_leaf=lambda step: self._run_step(run, step),
+            run_step=lambda step: self._run_step(run, step),
         )
         return SessionDefinition(
             compilation._execution_graph,
@@ -90,8 +90,8 @@ class PythonActionRuntime:
         )
 
     def _run_step(
-        self, run: CompiledGraphRun, step: CompiledPythonLeaf
-    ) -> LeafInvocation:
+        self, run: CompiledGraphRun, step: CompiledPythonStep
+    ) -> StepInvocation:
         self.control.require_running()
         context = step.context
         self.state.record_step(step.path, step.path.labels)
@@ -133,10 +133,10 @@ class PythonActionRuntime:
     async def _await_step(
         self,
         run: CompiledGraphRun,
-        step: CompiledPythonLeaf,
+        step: CompiledPythonStep,
         step_log_path: Path | None,
         value: Awaitable[object],
-    ) -> LeafOutcome:
+    ) -> StepOutcome:
         try:
             return self._finish_step(run, step, step_log_path, await value)
         except Exception:
@@ -146,10 +146,10 @@ class PythonActionRuntime:
     def _finish_step(
         self,
         run: CompiledGraphRun,
-        step: CompiledPythonLeaf,
+        step: CompiledPythonStep,
         step_log_path: Path | None,
         value: object,
-    ) -> LeafOutcome:
+    ) -> StepOutcome:
         expansion = as_graph_result(value)
         if expansion is not None:
             compilation = compile_graph(

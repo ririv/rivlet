@@ -65,9 +65,9 @@ condition = all_(
 假设 archive 仅在 Android 上需要等待环境 shim。此例只控制依赖边，shim Node 始终启用：
 
 ```python
-build = Leaf(build_archive_input, label=("build"))
-write_android_env_shim = Leaf(write_shim, label=("write_android_env_shim"))
-archive = Leaf(create_archive, label=("archive"))
+build = Step(build_archive_input, label=("build"))
+write_android_env_shim = Step(write_shim, label=("write_android_env_shim"))
+archive = Step(create_archive, label=("archive"))
 
 condition = StaticCondition(
     payload=AndroidOnlyPayload(),
@@ -144,10 +144,10 @@ predicate 按扁平元组中来源 Node 的顺序接收各个 `Option[object]`�
 节点条件和每条条件边可以读取不同来源，不再通过 receiver 查找条件对象。
 
 ```python
-permission = Leaf(lambda: True)
-design = Leaf(lambda: "implement login")
-environment_check = Leaf(lambda: True)
-prepare = Leaf(lambda: print("prepare environment"))
+permission = Step(lambda: True)
+design = Step(lambda: "implement login")
+environment_check = Step(lambda: True)
+prepare = Step(lambda: print("prepare environment"))
 
 prepare_dependency = ConditionalPrerequisite(
     prepare,
@@ -156,7 +156,7 @@ prepare_dependency = ConditionalPrerequisite(
         environment_check,
     ),
 )
-implementation = Leaf(
+implementation = Step(
     lambda ctx, plan: print(plan.unwrap()),
     condition=(
         (
@@ -181,7 +181,7 @@ graph = Graph.from_wiring(
 )
 ```
 
-节点条件读取 permission，条件边读取 environment_check，action 读取 design。节点条件为假时跳过 implementation；条件边为假仅取消等待 prepare，不跳过 implementation，也不取消 prepare。匿名函数不需要额外手动包装成 Leaf。
+节点条件读取 permission，条件边读取 environment_check，action 读取 design。节点条件为假时跳过 implementation；条件边为假仅取消等待 prepare，不跳过 implementation，也不取消 prepare。匿名函数不需要额外手动包装成 Step。
 
 每个使用位置有独立求值实例，复用同一个函数或元组不会合并求值。
 不同元组可以把同一个判断函数绑定到不同来源。
@@ -194,9 +194,9 @@ ConditionId、inputs 与条件依赖；Python predicate 保存在 adapter 侧表
 编译后的 after 概念上类似：
 
 ```text
-CompiledLeafRef(probe)
+CompiledStepRef(probe)
 CompiledConditionalDependency(
-    node=CompiledLeafRef(configure),
+    node=CompiledStepRef(configure),
     condition=CompiledRuntimeCondition(inputs=(probe,), when=predicate),
 )
 ```

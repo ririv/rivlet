@@ -13,8 +13,8 @@ from ..model import (
 )
 from ..model import (
     GraphStructure,
-    Leaf,
     NodePath,
+    Step,
     _RuntimeCondition,
     node_paths_for_mount,
     resolve_node_label,
@@ -194,7 +194,7 @@ def index_declaration(
                     }
                     document["nodes"].append(node)
                     visit(action, identifier, (*path, step_label), (*ancestors, scope))
-                elif isinstance(action, Leaf):
+                elif isinstance(action, Step):
                     node = {
                         "kind": "leaf",
                         "node_id": step.id.value,

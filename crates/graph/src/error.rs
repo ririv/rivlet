@@ -17,7 +17,7 @@ pub enum GraphError {
     UnknownOutputPort(String),
     EmptyResults,
     DuplicateResults(NodeIdentity),
-    ResultTargetNotLeaf(NodeIdentity),
+    ResultTargetNotStep(NodeIdentity),
     ResultInputCount {
         node: NodeIdentity,
         expected: usize,
@@ -54,7 +54,7 @@ impl Display for GraphError {
             Self::DuplicateResults(id) => {
                 write!(f, "node {} has more than one result group", id.value())
             }
-            Self::ResultTargetNotLeaf(id) => {
+            Self::ResultTargetNotStep(id) => {
                 write!(f, "result target {} is not a leaf", id.value())
             }
             Self::ResultInputCount {

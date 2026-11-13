@@ -26,7 +26,6 @@ from rivlet import (
     GraphObservationEvent,
     GraphObservationMessages,
     GraphStructure,
-    Leaf,
     NodePath,
     NodeRunContext,
     Option,
@@ -36,6 +35,7 @@ from rivlet import (
     StaticCondition,
     StaticConditionEvaluator,
     StaticConditions,
+    Step,
     ThreadRunOptions,
     TreeFileExecutionOutput,
     render_execution,
@@ -74,8 +74,8 @@ def _process_graph(
 
 
 def test_compiled_host_forwards_only_new_skip_requests() -> None:
-    first = Leaf(lambda: None, label=("first"))
-    second = Leaf(lambda: None, label=("second"))
+    first = Step(lambda: None, label=("first"))
+    second = Step(lambda: None, label=("second"))
     compilation = compile_graph(
         Graph(structure=GraphStructure(nodes=(first, second))).structure,
         root_label="root",
@@ -85,7 +85,7 @@ def test_compiled_host_forwards_only_new_skip_requests() -> None:
         compilation,
         state,
         observer=None,
-        run_leaf=lambda _step: None,
+        run_step=lambda _step: None,
     )
 
     assert host.skipped_nodes() == [0]
@@ -138,7 +138,7 @@ def test_execution_rejects_pre_stopped_execution_control() -> None:
     plan = Execution(
         root=Graph(
             structure=Graph.from_wiring(
-                wiring=(Leaf(lambda: calls.append("run")).wire(),)
+                wiring=(Step(lambda: calls.append("run")).wire(),)
             ).structure,
             label="root",
         ),
@@ -155,7 +155,7 @@ def test_execution_executes_python_and_native_actions_in_one_graph(
     tmp_path: Path,
 ) -> None:
     output = tmp_path / "mixed.txt"
-    prepare = Leaf(lambda: output.write_text("python\n"), label=("prepare"))
+    prepare = Step(lambda: output.write_text("python\n"), label=("prepare"))
     native = Graph(
         structure=_process_graph(
             label="native-process",
@@ -169,7 +169,7 @@ def test_execution_executes_python_and_native_actions_in_one_graph(
         ),
         label="native",
     )
-    verify = Leaf(lambda: output.read_text().splitlines(), label=("verify"))
+    verify = Step(lambda: output.read_text().splitlines(), label=("verify"))
     plan = Execution(
         root=Graph(
             structure=(prepare >> native >> verify).graph().structure, label="mixed"
@@ -232,8 +232,8 @@ def test_native_action_writes_to_bound_component_log(tmp_path: Path) -> None:
 
 
 def test_step_log_paths_resolve_at_construction(tmp_path: Path) -> None:
-    first = Leaf(lambda: None, label=("first"))
-    second = Leaf(lambda: None, label=("second"))
+    first = Step(lambda: None, label=("first"))
+    second = Step(lambda: None, label=("second"))
     first_log = tmp_path / "first.log"
     second_log = tmp_path / "second.log"
 
@@ -315,15 +315,15 @@ def test_async_graph_executor_runs_native_action_without_blocking_model_changes(
 
 def test_execution_run_executes_nested_graphs_in_topological_order() -> None:
     calls: list[str] = []
-    configure = Leaf(lambda _ctx: calls.append("configure"), label=("configure"))
-    build = Leaf(lambda _ctx: calls.append("build"), label=("build"))
+    configure = Step(lambda _ctx: calls.append("configure"), label=("configure"))
+    build = Step(lambda _ctx: calls.append("build"), label=("build"))
     nested = Graph.from_wiring(
         wiring=(
             configure.wire(),
             build.wire(after=(configure,)),
         ),
     )
-    prepare = Leaf(lambda _ctx: calls.append("prepare"), label=("prepare"))
+    prepare = Step(lambda _ctx: calls.append("prepare"), label=("prepare"))
     stage = Graph(structure=nested.structure, label="stage")
     root = Graph.from_wiring(
         wiring=(
@@ -375,7 +375,7 @@ def test_step_action_preserves_default_argument_capture() -> None:
     Execution(
         root=Graph(
             structure=Graph.from_wiring(
-                wiring=(Leaf(_capture, label="capture").wire(),)
+                wiring=(Step(_capture, label="capture").wire(),)
             ).structure,
             label="root",
         ),
@@ -386,8 +386,8 @@ def test_step_action_preserves_default_argument_capture() -> None:
 
 def test_execution_run_skips_marked_steps() -> None:
     calls: list[str] = []
-    prepare = Leaf(lambda _ctx: calls.append("prepare"), label=("prepare"))
-    build = Leaf(lambda _ctx: calls.append("build"), label=("build"))
+    prepare = Step(lambda _ctx: calls.append("prepare"), label=("prepare"))
+    build = Step(lambda _ctx: calls.append("build"), label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -432,7 +432,7 @@ def test_execution_run_skips_marked_steps() -> None:
 
 
 def test_execution_rejects_unknown_initial_skip_request() -> None:
-    graph = Graph(structure=GraphStructure(nodes=(Leaf(lambda: None, label="build"),)))
+    graph = Graph(structure=GraphStructure(nodes=(Step(lambda: None, label="build"),)))
 
     with pytest.raises(RuntimeError, match="unknown graph skip requests: 0.1"):
         Execution(
@@ -462,7 +462,7 @@ def test_execution_state_rejects_skip_after_step_start() -> None:
 def test_execution_run_uses_provided_state() -> None:
     calls: list[str] = []
     graph = Graph.from_wiring(
-        wiring=(Leaf(lambda _ctx: calls.append("build"), label=("build")).wire(),),
+        wiring=(Step(lambda _ctx: calls.append("build"), label=("build")).wire(),),
     )
 
     state = Execution(
@@ -483,8 +483,8 @@ def test_execution_run_uses_provided_state() -> None:
 
 
 def test_execution_run_records_sync_step_results() -> None:
-    prepare = Leaf(lambda _ctx: "prepared", label=("prepare"))
-    build = Leaf(lambda _ctx, result: f"{result.unwrap()}:built", label=("build"))
+    prepare = Step(lambda _ctx: "prepared", label=("prepare"))
+    build = Step(lambda _ctx, result: f"{result.unwrap()}:built", label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -538,7 +538,7 @@ def test_execution_run_records_async_step_results() -> None:
         return "built"
 
     graph = Graph.from_wiring(
-        wiring=(Leaf(_build, label=("build")).wire(),),
+        wiring=(Step(_build, label=("build")).wire(),),
     )
 
     state = Execution(
@@ -562,7 +562,7 @@ def test_execution_run_records_async_step_results() -> None:
 
 def test_execution_run_records_none_result() -> None:
     graph = Graph.from_wiring(
-        wiring=(Leaf(lambda _ctx: None, label=("build")).wire(),),
+        wiring=(Step(lambda _ctx: None, label=("build")).wire(),),
     )
 
     state = Execution(
@@ -594,7 +594,7 @@ def test_execution_run_records_none_result() -> None:
 
 def test_execution_run_does_not_record_results_for_skipped_steps() -> None:
     graph = Graph.from_wiring(
-        wiring=(Leaf(lambda _ctx: "built", label=("build")).wire(),),
+        wiring=(Step(lambda _ctx: "built", label=("build")).wire(),),
     )
     state = ExecutionState(
         initial_skip_requests={
@@ -629,7 +629,7 @@ def test_execution_run_does_not_record_results_for_failed_steps() -> None:
         raise RuntimeError("boom")
 
     graph = Graph.from_wiring(
-        wiring=(Leaf(_fail, label=("build")).wire(),),
+        wiring=(Step(_fail, label=("build")).wire(),),
     )
 
     state = ExecutionState(results=ResultStore())
@@ -668,8 +668,8 @@ def test_parallel_graph_failure_does_not_request_global_stop() -> None:
 
     graph = Graph.from_wiring(
         wiring=(
-            Leaf(_fail, label=("fail")).wire(),
-            Leaf(_survive, label=("wait")).wire(),
+            Step(_fail, label=("fail")).wire(),
+            Step(_survive, label=("wait")).wire(),
         ),
     )
 
@@ -700,8 +700,8 @@ def test_async_graph_failure_waits_for_started_steps() -> None:
 
     graph = Graph.from_wiring(
         wiring=(
-            Leaf(_fail, label=("fail")).wire(),
-            Leaf(_survive, label=("survive")).wire(),
+            Step(_fail, label=("fail")).wire(),
+            Step(_survive, label=("survive")).wire(),
         ),
     )
 
@@ -731,8 +731,8 @@ def test_execution_stop_does_not_dispatch_ready_successor(
         calls.append("first")
         execution_control.request_stop()
 
-    first = Leaf(_request_stop, label=("first"))
-    second = Leaf(lambda: calls.append("second"), label=("second"))
+    first = Step(_request_stop, label=("first"))
+    second = Step(lambda: calls.append("second"), label=("second"))
     graph = Graph.from_wiring(
         wiring=(
             first.wire(),
@@ -758,7 +758,7 @@ def test_step_failure_does_not_cancel_shared_execution_control() -> None:
 
     first_plan = Execution(
         root=Graph(
-            structure=Graph.from_wiring(wiring=(Leaf(_fail).wire(),)).structure,
+            structure=Graph.from_wiring(wiring=(Step(_fail).wire(),)).structure,
             label="build",
         ),
         execution_control=execution_control,
@@ -766,7 +766,7 @@ def test_step_failure_does_not_cancel_shared_execution_control() -> None:
     second_plan = Execution(
         root=Graph(
             structure=Graph.from_wiring(
-                wiring=(Leaf(lambda: calls.append("package")).wire(),)
+                wiring=(Step(lambda: calls.append("package")).wire(),)
             ).structure,
             label="package",
         ),
@@ -784,7 +784,7 @@ def test_execution_reads_nested_result_by_step_ref() -> None:
     def _nested(_run_ctx: NodeRunContext) -> str:
         return "nested-value"
 
-    nested_step = Leaf(_nested, label=("nested"))
+    nested_step = Step(_nested, label=("nested"))
     nested = Graph.from_wiring(
         wiring=(nested_step.wire(),),
     )
@@ -806,7 +806,7 @@ def test_execution_reads_nested_result_by_step_ref() -> None:
 def test_reused_subgraph_mounts_have_distinct_step_instances(
     mode: GraphMode,
 ) -> None:
-    shared_step = Leaf(lambda run_ctx: str(run_ctx.node_path), label=("shared"))
+    shared_step = Step(lambda run_ctx: str(run_ctx.node_path), label=("shared"))
     shared_graph = Graph.from_wiring(
         wiring=(shared_step.wire(),),
     )
@@ -836,15 +836,15 @@ def test_dynamic_subgraph_captures_explicit_result_input() -> None:
     def _prepare(_run_ctx: NodeRunContext) -> str:
         return "prepared"
 
-    prepare = Leaf(_prepare, label=("prepare"))
+    prepare = Step(_prepare, label=("prepare"))
 
     def expand(_ctx: NodeRunContext, result: Option[object]) -> GraphStructure:
-        nested_step = Leaf(lambda: f"nested:{result.unwrap()}", label=("nested"))
+        nested_step = Step(lambda: f"nested:{result.unwrap()}", label=("nested"))
         return Graph.from_wiring(
             (nested_step.wire(),),
         ).structure
 
-    stage = Leaf(expand, label=("stage"))
+    stage = Step(expand, label=("stage"))
     root = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -863,10 +863,10 @@ def test_dynamic_subgraph_captures_explicit_result_input() -> None:
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_runtime_condition_true_waits_for_source_step(mode: GraphMode) -> None:
-    probe = Leaf(lambda _ctx: "miss", label=("probe"))
-    setup = Leaf(lambda _ctx: "setup", label=("setup"))
-    configure = Leaf(lambda _ctx: "configured", label=("configure"))
-    build = Leaf(lambda _ctx, result: f"{result.unwrap()}:built", label=("build"))
+    probe = Step(lambda _ctx: "miss", label=("probe"))
+    setup = Step(lambda _ctx: "setup", label=("setup"))
+    configure = Step(lambda _ctx: "configured", label=("configure"))
+    build = Step(lambda _ctx, result: f"{result.unwrap()}:built", label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -932,10 +932,10 @@ def test_runtime_step_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
         evaluations += 1
         return True
 
-    probe = Leaf(lambda: "ready", label=("probe"))
-    first = Leaf(lambda: None, label=("first"))
-    second = Leaf(lambda: None, label=("second"))
-    target = Leaf(
+    probe = Step(lambda: "ready", label=("probe"))
+    first = Step(lambda: None, label=("first"))
+    second = Step(lambda: None, label=("second"))
+    target = Step(
         lambda _ctx, *_inputs: None,
         label=("target"),
         condition=(_target_condition := (_condition, probe)),
@@ -972,11 +972,11 @@ def test_runtime_edge_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
         evaluations += 1
         return True
 
-    probe = Leaf(lambda: None, label=("probe"))
-    first = Leaf(lambda: None, label=("first"))
-    second = Leaf(lambda: None, label=("second"))
-    source = Leaf(lambda: None, label=("source"))
-    target = Leaf(lambda _ctx, *_inputs: None, label=("target"))
+    probe = Step(lambda: None, label=("probe"))
+    first = Step(lambda: None, label=("first"))
+    second = Step(lambda: None, label=("second"))
+    source = Step(lambda: None, label=("source"))
+    target = Step(lambda _ctx, *_inputs: None, label=("target"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1014,7 +1014,7 @@ def test_execution_render_does_not_reevaluate_runtime_condition() -> None:
         return True
 
     graph = Graph.from_wiring(
-        wiring=(Leaf(lambda: None, label=("target"), condition=(_condition)).wire(),),
+        wiring=(Step(lambda: None, label=("target"), condition=(_condition)).wire(),),
     )
     plan = Execution(root=Graph(structure=graph.structure, label="root"))
 
@@ -1032,10 +1032,10 @@ def test_execution_render_does_not_reevaluate_runtime_condition() -> None:
 def test_runtime_condition_false_does_not_require_source_result(
     mode: GraphMode,
 ) -> None:
-    probe = Leaf(lambda _ctx: "hit", label=("probe"))
-    setup = Leaf(lambda _ctx: "setup", label=("setup"))
-    configure = Leaf(lambda _ctx: "configured", label=("configure"))
-    build = Leaf(lambda _ctx, result: result.unwrap(), label=("build"))
+    probe = Step(lambda _ctx: "hit", label=("probe"))
+    setup = Step(lambda _ctx: "setup", label=("setup"))
+    configure = Step(lambda _ctx: "configured", label=("configure"))
+    build = Step(lambda _ctx, result: result.unwrap(), label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1090,9 +1090,9 @@ def test_runtime_condition_false_does_not_wait_for_source(mode: GraphMode) -> No
         build_started.set()
         return "built"
 
-    probe = Leaf(lambda: "hit", label=("probe"))
-    configure = Leaf(_configure, label=("configure"))
-    build = Leaf(_build, label=("build"))
+    probe = Step(lambda: "hit", label=("probe"))
+    configure = Step(_configure, label=("configure"))
+    build = Step(_build, label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1139,8 +1139,8 @@ def test_parent_waits_for_all_steps_in_conditionally_connected_child(
         if not source_finished.is_set():
             raise AssertionError("parent completed before all child steps")
 
-    source = Leaf(_source, label=("source"))
-    target = Leaf(lambda: None, label=("target"))
+    source = Step(_source, label=("source"))
+    target = Step(lambda: None, label=("target"))
     child = Graph.from_wiring(
         wiring=(
             source.wire(),
@@ -1155,7 +1155,7 @@ def test_parent_waits_for_all_steps_in_conditionally_connected_child(
         ),
     )
     child_step = Graph(structure=child.structure, label="child")
-    package = Leaf(_package, label=("package"))
+    package = Step(_package, label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             child_step.wire(),
@@ -1183,8 +1183,8 @@ def test_parent_prerequisite_blocks_all_conditionally_connected_child_steps(
         if not prepare_finished.is_set():
             raise AssertionError("child step bypassed parent prerequisite")
 
-    source = Leaf(lambda: None, label=("source"))
-    target = Leaf(_target, label=("target"))
+    source = Step(lambda: None, label=("source"))
+    target = Step(_target, label=("target"))
     child = Graph.from_wiring(
         wiring=(
             source.wire(),
@@ -1198,7 +1198,7 @@ def test_parent_prerequisite_blocks_all_conditionally_connected_child_steps(
             ),
         ),
     )
-    prepare = Leaf(_prepare, label=("prepare"))
+    prepare = Step(_prepare, label=("prepare"))
     child_step = Graph(structure=child.structure, label="child")
     graph = Graph.from_wiring(
         wiring=(
@@ -1233,9 +1233,9 @@ def test_empty_child_graph_preserves_parent_dependency_boundary(
     timer = threading.Timer(0.05, release_prepare.set)
     timer.start()
     try:
-        prepare = Leaf(_prepare, label=("prepare"))
+        prepare = Step(_prepare, label=("prepare"))
         empty_stage = Graph(structure=GraphStructure(), label="empty_stage")
-        package = Leaf(_package, label=("package"))
+        package = Step(_package, label=("package"))
         Execution(
             root=Graph(
                 structure=Graph.from_wiring(
@@ -1265,9 +1265,9 @@ def test_compiled_skipped_composite_preserves_prerequisite_boundary() -> None:
         if not prepare_completed.is_set():
             raise AssertionError("skipped composite bypassed its prerequisite")
 
-    prepare = Leaf(_prepare, label=("prepare"))
+    prepare = Step(_prepare, label=("prepare"))
     stage = Graph(structure=GraphStructure(), label="stage")
-    package = Leaf(_package, label=("package"))
+    package = Step(_package, label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -1307,9 +1307,9 @@ def test_parent_waits_for_all_steps_in_child_with_disabled_step(
         if not source_finished.is_set():
             raise AssertionError("parent completed before disabled-step child")
 
-    source = Leaf(_source, label=("source"))
-    disabled = Leaf(lambda: None, label=("disabled"), condition=(lambda: False))
-    target = Leaf(lambda: None, label=("target"))
+    source = Step(_source, label=("source"))
+    disabled = Step(lambda: None, label=("disabled"), condition=(lambda: False))
+    target = Step(lambda: None, label=("target"))
     child = Graph.from_wiring(
         wiring=(
             source.wire(),
@@ -1318,7 +1318,7 @@ def test_parent_waits_for_all_steps_in_child_with_disabled_step(
         ),
     )
     child_step = Graph(structure=child.structure, label="child")
-    package = Leaf(_package, label=("package"))
+    package = Step(_package, label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             child_step.wire(),
@@ -1351,7 +1351,7 @@ def test_child_graph_observation_is_preserved(
             events.append((event.graph_label, event.graph_label_path, event.phase))
 
     child = Graph.from_wiring(
-        wiring=(Leaf(lambda: None, label=("run")).wire(),),
+        wiring=(Step(lambda: None, label=("run")).wire(),),
         observation=GraphObservationMessages(
             before="before child",
             after_success="after child",
@@ -1384,7 +1384,7 @@ def test_serial_executor_runs_compiled_composite() -> None:
         wiring=(
             Graph(
                 structure=Graph.from_wiring(
-                    wiring=(Leaf(lambda: calls.append("run"), label="run").wire(),)
+                    wiring=(Step(lambda: calls.append("run"), label="run").wire(),)
                 ).structure,
                 label="stage",
             ).wire(),
@@ -1408,14 +1408,14 @@ def test_serial_executor_runs_compiled_composite() -> None:
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
-    prepare = Leaf(lambda: "prepared", label=("prepare"))
+    prepare = Step(lambda: "prepared", label=("prepare"))
 
     def _make_child(_ctx: NodeRunContext, result: Option[object]) -> GraphStructure:
         return Graph.from_wiring(
-            wiring=(Leaf(lambda: result.unwrap(), label=("consume")).wire(),),
+            wiring=(Step(lambda: result.unwrap(), label=("consume")).wire(),),
         ).structure
 
-    stage = Leaf(_make_child, label=("stage"))
+    stage = Step(_make_child, label=("stage"))
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -1439,9 +1439,9 @@ def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
 def test_live_render_uses_runtime_path_for_action_returned_graph(
     mode: GraphMode,
 ) -> None:
-    stage = Leaf(
+    stage = Step(
         lambda: Graph.from_wiring(
-            wiring=(Leaf(lambda: None, label=("consume")).wire(),),
+            wiring=(Step(lambda: None, label=("consume")).wire(),),
         ).structure,
         label=("stage"),
     )
@@ -1473,9 +1473,9 @@ def test_async_runtime_condition_false_does_not_wait_for_source(
     async def _build(_ctx: NodeRunContext, _result: Option[object]) -> None:
         build_started.set()
 
-    probe = Leaf(lambda: "hit", label=("probe"))
-    configure = Leaf(_configure, label=("configure"))
-    build = Leaf(_build, label=("build"))
+    probe = Step(lambda: "hit", label=("probe"))
+    configure = Step(_configure, label=("configure"))
+    build = Step(_build, label=("build"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1523,8 +1523,8 @@ def test_async_executor_runs_independent_sync_steps_concurrently(
 
     graph = Graph.from_wiring(
         wiring=(
-            Leaf(_wait_for_peer, label=("wait")).wire(),
-            Leaf(_release_peer, label=("release")).wire(),
+            Step(_wait_for_peer, label=("wait")).wire(),
+            Step(_release_peer, label=("release")).wire(),
         ),
     )
 
@@ -1556,14 +1556,14 @@ def test_returned_graph_inherits_step_log_path(
     def _make_child() -> GraphStructure:
         return Graph.from_wiring(
             wiring=(
-                Leaf(
+                Step(
                     lambda: observed_paths.append(action_log.active_path),
                     label=("write"),
                 ).wire(),
             ),
         ).structure
 
-    component = Leaf(_make_child, label=("component"))
+    component = Step(_make_child, label=("component"))
     plan = Execution(
         root=Graph(
             structure=Graph.from_wiring(wiring=(component.wire(),)).structure,
@@ -1588,7 +1588,7 @@ def test_static_component_graph_inherits_bound_log_path(
     component = Graph(
         structure=Graph.from_wiring(
             wiring=(
-                Leaf(
+                Step(
                     lambda: observed_paths.append(action_log.active_path), label="build"
                 ).wire(),
             )
@@ -1611,9 +1611,9 @@ def test_static_component_graph_inherits_bound_log_path(
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_run_freezes_static_conditions_before_execution(mode: GraphMode) -> None:
-    prepare = Leaf(lambda _ctx: "prepare", label=("prepare"))
-    android_shim = Leaf(lambda _ctx: "shim", label=("android_shim"))
-    archive = Leaf(
+    prepare = Step(lambda _ctx: "prepare", label=("prepare"))
+    android_shim = Step(lambda _ctx: "shim", label=("android_shim"))
+    archive = Step(
         lambda _ctx, prepared, shim: (
             prepared.unwrap(),
             shim.unwrap(),
@@ -1652,15 +1652,15 @@ def test_run_freezes_static_conditions_before_execution(mode: GraphMode) -> None
 def test_step_when_false_skips_step_and_allows_downstream_continue(
     mode: GraphMode,
 ) -> None:
-    probe = Leaf(lambda _ctx: False, label=("probe"))
-    optional = Leaf(
+    probe = Step(lambda _ctx: False, label=("probe"))
+    optional = Step(
         lambda _ctx, *_inputs: "optional",
         label=("optional"),
         condition=(
             _optional_condition := (lambda result: bool(result.unwrap()), probe)
         ),
     )
-    package = Leaf(lambda _ctx: "packaged", label=("package"))
+    package = Step(lambda _ctx: "packaged", label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1712,14 +1712,14 @@ def test_step_when_false_skips_step_and_allows_downstream_continue(
 
 def test_dynamic_step_when_false_skips_graph_step() -> None:
     nested_calls: list[str] = []
-    probe = Leaf(lambda _ctx: False, label=("probe"))
-    configure = Leaf(lambda _ctx: nested_calls.append("configure"), label=("configure"))
+    probe = Step(lambda _ctx: False, label=("probe"))
+    configure = Step(lambda _ctx: nested_calls.append("configure"), label=("configure"))
     stage = Graph(
         structure=Graph.from_wiring(wiring=(configure.wire(),)).structure,
         label="stage",
         condition=(_stage_condition := (lambda result: bool(result.unwrap()), probe)),
     )
-    package = Leaf(lambda _ctx: "packaged", label=("package"))
+    package = Step(lambda _ctx: "packaged", label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1767,14 +1767,14 @@ def test_dynamic_step_when_false_skips_graph_step() -> None:
 
 
 def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
-    probe = Leaf(lambda _ctx: False, label=("probe"))
-    configure = Leaf(lambda _ctx: "cfg", label=("configure"))
+    probe = Step(lambda _ctx: False, label=("probe"))
+    configure = Step(lambda _ctx: "cfg", label=("configure"))
     stage = Graph(
         structure=Graph.from_wiring(wiring=(configure.wire(),)).structure,
         label="stage",
         condition=(_stage_condition := (lambda result: bool(result.unwrap()), probe)),
     )
-    package = Leaf(lambda _ctx: "packaged", label=("package"))
+    package = Step(lambda _ctx: "packaged", label=("package"))
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
@@ -1820,8 +1820,8 @@ def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
 
 
 def test_compiled_runtime_when_true_activates_composite() -> None:
-    probe = Leaf(lambda _ctx: "prepared", label=("probe"))
-    configure = Leaf(lambda: "configured", label=("configure"))
+    probe = Step(lambda _ctx: "prepared", label=("probe"))
+    configure = Step(lambda: "configured", label=("configure"))
     stage = Graph(
         structure=Graph.from_wiring(wiring=(configure.wire(),)).structure,
         label="stage",
@@ -1874,8 +1874,8 @@ def test_execution_run_logs_step_skip_by_condition(
     caplog: LogCaptureFixture,
 ) -> None:
     caplog.set_level(logging.DEBUG, logger="rivlet.runtime.compiled")
-    probe = Leaf(lambda _ctx: True, label=("probe"))
-    build = Leaf(
+    probe = Step(lambda _ctx: True, label=("probe"))
+    build = Step(
         lambda _ctx, *_inputs: "built",
         label=("build"),
         condition=(
@@ -1900,8 +1900,8 @@ def test_execution_run_logs_step_skip_by_condition(
 def test_execution_run_writes_execution_render_to_run_log_dir(
     tmp_path: Path,
 ) -> None:
-    probe = Leaf(lambda _ctx: True, label=("probe"))
-    build = Leaf(
+    probe = Step(lambda _ctx: True, label=("probe"))
+    build = Step(
         lambda _ctx, *_inputs: None,
         label=("build"),
         condition=(

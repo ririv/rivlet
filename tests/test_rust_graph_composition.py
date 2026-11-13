@@ -21,13 +21,13 @@ from rivlet import (
     GraphInterface,
     GraphNodeFailure,
     GraphStructure,
-    Leaf,
     NodeExecutionEvent,
     NodeExecutionState,
     NodePath,
     Option,
     ResultStore,
     SerialGraphExecutor,
+    Step,
     ThreadRunOptions,
     export_graph,
     render_graph,
@@ -39,7 +39,7 @@ from rivlet._native import (
     _compose_rust_graph,
     _rust_process_graph,
 )
-from rivlet.compile import CompiledRustLeaf
+from rivlet.compile import CompiledRustStep
 
 type Backend = Literal["serial", "thread", "async"]
 
@@ -105,14 +105,14 @@ def test_nested_shared_rust_graph_has_ports_paths_logs_and_no_python_actions(
         ),
         label="forwarded",
     )
-    prepare = Leaf(lambda: (tmp_path / "gate").touch(), label="prepare")
+    prepare = Step(lambda: (tmp_path / "gate").touch(), label="prepare")
     provider = Graph(
         GraphStructure(
             nodes=(prepare,), interface=GraphInterface(outputs={"go": prepare})
         )
     )
     observed: list[str] = []
-    verify = Leaf(
+    verify = Step(
         lambda: observed.extend((tmp_path / "order").read_text().splitlines()),
         label="verify",
     )
@@ -143,7 +143,7 @@ def test_nested_shared_rust_graph_has_ports_paths_logs_and_no_python_actions(
     assert observed == ["task", "task"]
     assert log.read_text().splitlines() == ["native task", "native task"]
     native = [
-        node for node in execution.compile().steps if isinstance(node, CompiledRustLeaf)
+        node for node in execution.compile().steps if isinstance(node, CompiledRustStep)
     ]
     assert len(native) == 2
     assert native[0].id == native[1].id
@@ -198,7 +198,7 @@ def test_native_output_can_feed_python_result_without_inventing_native_values(
     def consume(_ctx, value: Option[object]) -> None:
         seen.append(value.unwrap())
 
-    target = Leaf(consume)
+    target = Step(consume)
     execution = Execution(
         Graph(
             GraphStructure(
@@ -253,7 +253,7 @@ def test_native_failure_is_scoped_and_blocks_only_port_dependents(
     )
     native = Graph(body, label="native")
     seen: list[str] = []
-    independent = Leaf(lambda: seen.append("independent"))
+    independent = Step(lambda: seen.append("independent"))
     execution = Execution(Graph(GraphStructure(nodes=(native, independent))))
     with pytest.raises(RuntimeError, match=r"exited with status .*7"):
         execute(execution, backend)
@@ -282,10 +282,10 @@ def test_outer_python_condition_skips_whole_native_hierarchy(
     execute(execution, backend)
     assert not execution.execution_state.node_failures
     selected = static.select(
-        cases=(Case(False, root), Case(True, Leaf(lambda: None)))
+        cases=(Case(False, root), Case(True, Step(lambda: None)))
     ).graph()
     compilation = Execution(selected).compile()
-    assert not any(isinstance(node, CompiledRustLeaf) for node in compilation.steps)
+    assert not any(isinstance(node, CompiledRustStep) for node in compilation.steps)
 
 
 def test_native_ports_reject_real_expanded_cycle_and_retain_scope_local_view(
@@ -323,7 +323,7 @@ def test_two_python_mounts_share_nested_rust_body_without_sharing_scopes(
     shared = _compose_rust_graph([("child", body)], [], [], [("done", 0, "done")])
     left, right = Graph(shared, label="left"), Graph(shared, label="right")
     seen: list[tuple[object, object]] = []
-    consume = Leaf(lambda ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
+    consume = Step(lambda ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
     execution = Execution(
         Graph(
             GraphStructure(
@@ -338,7 +338,7 @@ def test_two_python_mounts_share_nested_rust_body_without_sharing_scopes(
     )
     execute(execution, backend)
     native = [
-        node for node in execution.compile().steps if isinstance(node, CompiledRustLeaf)
+        node for node in execution.compile().steps if isinstance(node, CompiledRustStep)
     ]
     assert len(native) == 2
     assert native[0].id == native[1].id
@@ -363,7 +363,7 @@ def test_native_partial_output_and_later_failure_allow_interleaved_python_work(
     )
     provider = Graph(body, label="provider")
     seen: list[str] = []
-    work = Leaf(lambda: seen.append("ran-before-late-failure"))
+    work = Step(lambda: seen.append("ran-before-late-failure"))
     consumer = Graph(
         GraphStructure(
             nodes=(work,),
@@ -397,7 +397,7 @@ def test_python_conditional_port_can_control_native_consumer(
     tmp_path: Path,
     backend: Backend,
 ) -> None:
-    provider = Leaf(lambda: None)
+    provider = Step(lambda: None)
     source = Graph(
         GraphStructure(
             nodes=(provider,), interface=GraphInterface(outputs={"ready": provider})

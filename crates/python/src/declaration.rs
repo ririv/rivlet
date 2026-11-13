@@ -350,7 +350,7 @@ impl<'py> Collector<'py> {
             self.activations.push(activation.clone());
             self.declaration_nodes.push(DeclarationNode::new(
                 GraphId::new(graph_index),
-                DeclaredNodeKind::Leaf,
+                DeclaredNodeKind::Step,
                 activation,
             ));
 
@@ -455,9 +455,9 @@ impl<'py> Collector<'py> {
         for node in projection.nodes() {
             let graph = first_graph + node.graph().index();
             let (content, kind) = match node.kind() {
-                graph::ProjectedKind::Leaf(action) => (
+                graph::ProjectedKind::Step(action) => (
                     NodeContent::Rust(action.clone(), Arc::clone(rust_graph.codecs())),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                 ),
                 graph::ProjectedKind::Graph(child) => {
                     let child = first_graph + child.index();
@@ -1005,7 +1005,7 @@ impl<'py> Collector<'py> {
     fn node_kind(&self, node: usize) -> DeclaredNodeKind {
         self.nodes[node]
             .child_graph()
-            .map_or(DeclaredNodeKind::Leaf, |child_graph| {
+            .map_or(DeclaredNodeKind::Step, |child_graph| {
                 DeclaredNodeKind::Composite {
                     child_graph: GraphId::new(child_graph),
                 }

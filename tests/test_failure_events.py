@@ -23,7 +23,6 @@ from rivlet import (
     GraphInterface,
     GraphMode,
     GraphStructure,
-    Leaf,
     NodeConditionSite,
     NodeExecutionEvent,
     NodeExecutionState,
@@ -31,6 +30,7 @@ from rivlet import (
     NodePath,
     Option,
     SerialGraphExecutor,
+    Step,
     SubgraphFailed,
     ThreadRunOptions,
     resolve_port_requirements,
@@ -90,8 +90,8 @@ def fail() -> Never:
 def test_failure_events_describe_direct_causes_without_exceptions(
     execute: Execute, mode: GraphMode
 ) -> None:
-    source, blocked, later = Leaf(fail), Leaf(lambda: None), Leaf(lambda: None)
-    good = Leaf(lambda: None)
+    source, blocked, later = Step(fail), Step(lambda: None), Step(lambda: None)
+    good = Step(lambda: None)
     graph = ((source >> blocked >> later) | good).graph()
     events = Events()
     execution = execute(graph, events, mode)
@@ -147,8 +147,8 @@ def test_predicate_failure_is_not_an_action_or_dependency_failure(
     execute: Execute, mode: GraphMode, edge: bool
 ) -> None:
     condition = fail
-    source = Leaf(lambda: None)
-    target = Leaf(lambda: None, condition=(None if edge else condition))
+    source = Step(lambda: None)
+    target = Step(lambda: None, condition=(None if edge else condition))
     after = (ConditionalPrerequisite(source, condition=condition),) if edge else ()
     graph = Graph.from_wiring((source.wire(), target.wire(after=after)))
     events = Events()
@@ -205,8 +205,8 @@ def test_failed_condition_input_does_not_claim_the_predicate_ran(
         pytest.fail("predicate must not read a failed producer")
 
     condition = should_not_run
-    source, predecessor = Leaf(fail), Leaf(lambda: None)
-    target = Leaf(lambda: None, condition=(None if edge else (condition, source)))
+    source, predecessor = Step(fail), Step(lambda: None)
+    target = Step(lambda: None, condition=(None if edge else (condition, source)))
     after = (
         (ConditionalPrerequisite(predecessor, condition=(condition, source)),)
         if edge
@@ -254,8 +254,8 @@ def test_failed_condition_input_does_not_claim_the_predicate_ran(
 def test_false_edge_does_not_report_a_failed_but_unused_predecessor(
     execute: Execute, mode: GraphMode
 ) -> None:
-    source = Leaf(fail)
-    target = Leaf(lambda: None)
+    source = Step(fail)
+    target = Step(lambda: None)
 
     def condition():
         return False
@@ -291,8 +291,8 @@ def test_false_edge_does_not_report_a_failed_but_unused_predecessor(
 def test_unentered_subgraph_children_reference_their_blocked_parent(
     execute: Execute, mode: GraphMode
 ) -> None:
-    source = Leaf(fail)
-    inner = Graph(structure=GraphStructure(nodes=(Leaf(lambda: None),)))
+    source = Step(fail)
+    inner = Graph(structure=GraphStructure(nodes=(Step(lambda: None),)))
     container = Graph(structure=GraphStructure(nodes=(inner,)))
     events = Events()
     execute((source >> container).graph(), events, mode)
@@ -333,12 +333,12 @@ def test_unentered_subgraph_children_reference_their_blocked_parent(
 def test_repeated_subgraphs_keep_failure_sources_in_their_own_mount(
     execute: Execute, mode: GraphMode, dynamic: bool
 ) -> None:
-    child = Graph(structure=GraphStructure(nodes=(Leaf(fail),)))
+    child = Graph(structure=GraphStructure(nodes=(Step(fail),)))
     left = (
-        Leaf(lambda: child.structure) if dynamic else Graph(structure=child.structure)
+        Step(lambda: child.structure) if dynamic else Graph(structure=child.structure)
     )
     right = (
-        Leaf(lambda: child.structure) if dynamic else Graph(structure=child.structure)
+        Step(lambda: child.structure) if dynamic else Graph(structure=child.structure)
     )
     events = Events()
     execute((left | right).graph(), events, mode)
@@ -364,11 +364,11 @@ def test_repeated_subgraphs_keep_failure_sources_in_their_own_mount(
 def test_dynamic_failure_chain_preserves_each_session_boundary(
     execute: Execute, mode: GraphMode
 ) -> None:
-    grandchild = Graph(structure=GraphStructure(nodes=(Leaf(fail),)))
-    child = Graph(structure=GraphStructure(nodes=(Leaf(lambda: grandchild.structure),)))
+    grandchild = Graph(structure=GraphStructure(nodes=(Step(fail),)))
+    child = Graph(structure=GraphStructure(nodes=(Step(lambda: grandchild.structure),)))
     events = Events()
     execute(
-        Graph(structure=GraphStructure(nodes=(Leaf(lambda: child.structure),))),
+        Graph(structure=GraphStructure(nodes=(Step(lambda: child.structure),))),
         events,
         mode,
     )
@@ -389,7 +389,7 @@ def test_port_failure_points_to_the_actual_provider_step(
     execute: Execute, mode: GraphMode
 ) -> None:
     port = "ready"
-    provide, consume = Leaf(fail), Leaf(lambda: None)
+    provide, consume = Step(fail), Step(lambda: None)
     provider = Graph(
         structure=GraphStructure(
             nodes=(provide,), interface=GraphInterface(outputs={port: provide})
@@ -420,7 +420,7 @@ def test_provider_failure_after_ready_does_not_retroactively_block_consumer(
     execute: Execute, mode: GraphMode
 ) -> None:
     port = "ready"
-    ready, late_failure, consume = Leaf(lambda: None), Leaf(fail), Leaf(lambda: None)
+    ready, late_failure, consume = Step(lambda: None), Step(fail), Step(lambda: None)
     provider = (ready >> late_failure).graph(
         interface=GraphInterface(outputs={port: ready}),
     )

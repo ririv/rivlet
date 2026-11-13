@@ -78,9 +78,9 @@ Suppose archive must wait for an Android environment shim only on Android.
 This example intentionally controls only the dependency; the shim Node stays enabled.
 
 ```python
-build = Leaf(build_archive_input, label=("build"))
-write_android_env_shim = Leaf(write_shim, label=("write_android_env_shim"))
-archive = Leaf(create_archive, label=("archive"))
+build = Step(build_archive_input, label=("build"))
+write_android_env_shim = Step(write_shim, label=("write_android_env_shim"))
+archive = Step(create_archive, label=("archive"))
 
 condition = StaticCondition(
     payload=AndroidOnlyPayload(),
@@ -162,10 +162,10 @@ Conditions bind their inputs at the point of use. Action arguments remain in
 and individual edge conditions may read different sources without receiver lookup.
 
 ```python
-permission = Leaf(lambda: True)
-design = Leaf(lambda: "implement login")
-environment_check = Leaf(lambda: True)
-prepare = Leaf(lambda: print("prepare environment"))
+permission = Step(lambda: True)
+design = Step(lambda: "implement login")
+environment_check = Step(lambda: True)
+prepare = Step(lambda: print("prepare environment"))
 
 prepare_dependency = ConditionalPrerequisite(
     prepare,
@@ -174,7 +174,7 @@ prepare_dependency = ConditionalPrerequisite(
         environment_check,
     ),
 )
-implementation = Leaf(
+implementation = Step(
     lambda ctx, plan: print(plan.unwrap()),
     condition=(
         (
@@ -199,7 +199,7 @@ graph = Graph.from_wiring(
 )
 ```
 
-The node condition reads permission, the edge condition reads environment_check, and the action reads design. False permission skips implementation; a false edge condition only stops waiting for prepare, without skipping implementation or cancelling prepare. No extra Leaf wrapper is needed for inline lambdas.
+The node condition reads permission, the edge condition reads environment_check, and the action reads design. False permission skips implementation; a false edge condition only stops waiting for prepare, without skipping implementation or cancelling prepare. No extra Step wrapper is needed for inline lambdas.
 
 Each use has its own evaluation instance, even when its callable or tuple is
 reused. Separate tuples can bind the same predicate to different sources.
@@ -214,9 +214,9 @@ StaticCondition objects do not enter the runtime evaluation protocol.
 Conceptually, a compiled Node's after list can contain:
 
 ```text
-CompiledLeafRef(probe)
+CompiledStepRef(probe)
 CompiledConditionalDependency(
-    node=CompiledLeafRef(configure),
+    node=CompiledStepRef(configure),
     condition=CompiledRuntimeCondition(inputs=(probe,), when=predicate),
 )
 ```

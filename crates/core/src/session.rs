@@ -162,7 +162,7 @@ pub enum SessionError {
     ConditionNotRequested(ConditionId),
     ConditionAlreadyResolved(ConditionId),
     NodeNotRunning(NodeId),
-    NodeNotLeaf(NodeId),
+    NodeNotStep(NodeId),
     Unresolved(Vec<NodeId>),
 }
 
@@ -195,7 +195,7 @@ impl Display for SessionError {
             Self::NodeNotRunning(node) => {
                 write!(formatter, "execution node {} is not running", node.index())
             }
-            Self::NodeNotLeaf(node) => {
+            Self::NodeNotStep(node) => {
                 write!(formatter, "execution node {} is not a leaf", node.index())
             }
             Self::Unresolved(nodes) => {
@@ -329,8 +329,8 @@ impl ExecutionSession {
             let Some(spec) = self.graph.nodes().get(node.index()) else {
                 return Err(SessionError::UnknownNode(node));
             };
-            if spec.kind() != ExecutionNodeKind::Leaf {
-                return Err(SessionError::NodeNotLeaf(node));
+            if spec.kind() != ExecutionNodeKind::Step {
+                return Err(SessionError::NodeNotStep(node));
             }
             if self.states[node.index()] != NodeState::Running {
                 return Err(SessionError::NodeNotRunning(node));
@@ -478,7 +478,7 @@ impl ExecutionSession {
             return;
         }
         match node.kind() {
-            ExecutionNodeKind::Leaf => {
+            ExecutionNodeKind::Step => {
                 self.states[node_id.index()] = NodeState::Ready;
                 self.ready.push_back(node_id);
             }
@@ -705,9 +705,9 @@ mod tests {
         let graph = Arc::new(
             CompiledExecutionGraph::new(
                 [
-                    ExecutionNode::leaf(None, [], Some(condition)),
-                    ExecutionNode::leaf(None, [], Some(condition)),
-                    ExecutionNode::leaf(None, [], None),
+                    ExecutionNode::step(None, [], Some(condition)),
+                    ExecutionNode::step(None, [], Some(condition)),
+                    ExecutionNode::step(None, [], None),
                 ],
                 [RuntimeCondition::new([])],
             )
@@ -743,7 +743,7 @@ mod tests {
         let graph = Arc::new(
             CompiledExecutionGraph::new(
                 (0..count).map(|index| {
-                    ExecutionNode::leaf(
+                    ExecutionNode::step(
                         None,
                         index
                             .checked_sub(1)
@@ -789,8 +789,8 @@ mod tests {
         let graph = Arc::new(
             CompiledExecutionGraph::new(
                 [
-                    ExecutionNode::leaf(None, [], None),
-                    ExecutionNode::leaf(None, [Prerequisite::Required(node(0))], None),
+                    ExecutionNode::step(None, [], None),
+                    ExecutionNode::step(None, [Prerequisite::Required(node(0))], None),
                 ],
                 [],
             )
@@ -814,8 +814,8 @@ mod tests {
         let graph = Arc::new(
             CompiledExecutionGraph::new(
                 [
-                    ExecutionNode::leaf(None, [], None),
-                    ExecutionNode::leaf(None, [], Some(ConditionId::new(0))),
+                    ExecutionNode::step(None, [], None),
+                    ExecutionNode::step(None, [], Some(ConditionId::new(0))),
                 ],
                 [RuntimeCondition::new([node(0)])],
             )
@@ -846,8 +846,8 @@ mod tests {
         let graph = Arc::new(
             CompiledExecutionGraph::new(
                 [
-                    ExecutionNode::leaf(None, [], None),
-                    ExecutionNode::leaf(None, [], Some(ConditionId::new(0))),
+                    ExecutionNode::step(None, [], None),
+                    ExecutionNode::step(None, [], Some(ConditionId::new(0))),
                 ],
                 [RuntimeCondition::new([])],
             )
@@ -865,8 +865,8 @@ mod tests {
             CompiledExecutionGraph::new(
                 [
                     ExecutionNode::composite(None, [], Some(ConditionId::new(0))),
-                    ExecutionNode::leaf(Some(node(0)), [], None),
-                    ExecutionNode::leaf(None, [Prerequisite::Required(node(1))], None),
+                    ExecutionNode::step(Some(node(0)), [], None),
+                    ExecutionNode::step(None, [Prerequisite::Required(node(1))], None),
                 ],
                 [RuntimeCondition::new([])],
             )

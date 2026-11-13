@@ -156,17 +156,17 @@ Edge(source=a, target=b, ports=("sdk-ready", "toolchain-ready"), condition=neede
 ## 跨图结果
 
 GraphStructure.interface 保存声明；Graph.interface 返回绑定该图节点的只读端口视图。
-输入端口是 InputPort，输出端口是 OutputPort；Leaf 没有 interface。端口引用保留所属
+输入端口是 InputPort，输出端口是 OutputPort；Step 没有 interface。端口引用保留所属
 Graph，不用 (Step, "port") 或额外 bind。以下是独立可执行的例子：
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Leaf
+from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step
 
-plan = Leaf(lambda: "design", label="plan")
+plan = Step(lambda: "design", label="plan")
 producer = Graph(GraphStructure(
     nodes=(plan,), interface=GraphInterface(outputs={"plan": plan}),
 ), label="producer")
-work = Leaf(lambda ctx, value: print(value.unwrap()), label="work")
+work = Step(lambda ctx, value: print(value.unwrap()), label="work")
 consumer = Graph(GraphStructure(
     nodes=(work,), interface=GraphInterface(inputs={"apply": work}),
 ), label="consumer")
@@ -397,7 +397,7 @@ provider 的隐式策略。
 校验与执行状态机都在 Rust；Python 不维护另一套 provider 选择或 binding lowering 规则。
 
 当前端口引用的是 Python 声明中的 Node，不能直接引用不透明 RustGraphStructure 内部的
-Rust Leaf。需要公开原生子图整体完成状态时，可以由 Python Graph 组合它，并以该
+Rust Step。需要公开原生子图整体完成状态时，可以由 Python Graph 组合它，并以该
 Node 作为出口。运行期才返回的子图也不能提前向外公开尚不存在的内部端口。
 
 端口提供组件及其直接出口不允许使用运行时 `condition` 来决定是否存在；这与“执行失败”

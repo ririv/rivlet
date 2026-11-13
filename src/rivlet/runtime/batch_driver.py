@@ -11,11 +11,11 @@ from .control import ExecutionStopped
 from .session_tree import (
     BatchExecutionHost,
     DynamicSubgraph,
-    LeafOutcome,
     PythonWork,
     SessionDefinition,
     SessionRun,
     SessionTree,
+    StepOutcome,
 )
 
 if TYPE_CHECKING:
@@ -27,20 +27,20 @@ class _RustWait:
     session: SessionRun
 
 
-def _wait_rust(run: SessionRun) -> LeafOutcome:
+def _wait_rust(run: SessionRun) -> StepOutcome:
     run.engine.wait_rust()
     return None
 
 
-async def _invoke_async(work: PythonWork) -> LeafOutcome:
-    result = work.session.definition.host.run_leaf(work.node)
+async def _invoke_async(work: PythonWork) -> StepOutcome:
+    result = work.session.definition.host.run_step(work.node)
     if inspect.isawaitable(result):
         return await result
     return result
 
 
-def _invoke_sync(work: PythonWork) -> LeafOutcome:
-    result = work.session.definition.host.run_leaf(work.node)
+def _invoke_sync(work: PythonWork) -> StepOutcome:
+    result = work.session.definition.host.run_step(work.node)
     if result is None or isinstance(result, DynamicSubgraph):
         return result
     raise TypeError("synchronous driver received an asynchronous action host")
@@ -68,7 +68,7 @@ def run_threaded_session(
     tree = SessionTree(
         SessionDefinition(graph, host, rust_actions, rust_contexts), workers
     )
-    running: dict[Future[LeafOutcome], PythonWork | _RustWait] = {}
+    running: dict[Future[StepOutcome], PythonWork | _RustWait] = {}
     rust_waiters: set[SessionRun] = set()
     with ThreadPoolExecutor(
         max_workers=workers, thread_name_prefix="GraphWorker"
@@ -121,7 +121,7 @@ async def run_async_session(
     tree = SessionTree(
         SessionDefinition(graph, host, rust_actions, rust_contexts), concurrency
     )
-    running: dict[asyncio.Future[LeafOutcome], PythonWork | _RustWait] = {}
+    running: dict[asyncio.Future[StepOutcome], PythonWork | _RustWait] = {}
     rust_waiters: set[SessionRun] = set()
     try:
         while True:

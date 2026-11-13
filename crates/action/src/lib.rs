@@ -30,7 +30,7 @@ impl ActionContext {
     }
 }
 
-/// A Rust-owned leaf action whose implementation never calls back into Python.
+/// A Rust-owned step action whose implementation never calls back into Python.
 pub trait Action: Send + Sync + 'static {
     type Inputs: ActionInputs;
     type Output: Send + Sync + 'static;

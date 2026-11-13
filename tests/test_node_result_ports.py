@@ -15,7 +15,6 @@ from rivlet import (
     GraphError,
     GraphInterface,
     GraphStructure,
-    Leaf,
     NodeExecutionEvent,
     NodeExecutionState,
     NodeRunContext,
@@ -24,6 +23,7 @@ from rivlet import (
     SerialGraphExecutor,
     StaticCondition,
     StaticConditions,
+    Step,
     ThreadRunOptions,
     export_graph,
     render_graph,
@@ -50,13 +50,13 @@ def run(root: Graph, backend: Backend) -> Execution:
 def test_shared_source_structure_keeps_ordered_results_in_their_own_graph_nodes(
     backend: Backend,
 ) -> None:
-    produce = Leaf(lambda ctx: ctx.node_path.labels[-2], label="produce")
+    produce = Step(lambda ctx: ctx.node_path.labels[-2], label="produce")
     shared = GraphStructure(
         nodes=(produce,), interface=GraphInterface(outputs={"value": produce})
     )
     left, right = Graph(shared, label="left"), Graph(shared, label="right")
     seen: list[tuple[object, object]] = []
-    consume = Leaf(lambda ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
+    consume = Step(lambda ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
     receiver = Graph(
         GraphStructure(
             nodes=(consume,), interface=GraphInterface(inputs={"apply": consume})
@@ -85,13 +85,13 @@ def test_shared_source_structure_keeps_ordered_results_in_their_own_graph_nodes(
 def test_shared_consumer_structure_receives_each_graph_nodes_own_binding(
     backend: Backend,
 ) -> None:
-    first, second = Leaf(lambda: 1), Leaf(lambda: 2)
+    first, second = Step(lambda: 1), Step(lambda: 2)
     seen: list[tuple[str, object]] = []
 
     def consume(ctx: NodeRunContext, value: Option[object]) -> None:
         seen.append((ctx.node_path.labels[-2], value.unwrap()))
 
-    consumer = Leaf(consume)
+    consumer = Step(consume)
     shared = GraphStructure(
         nodes=(consumer,), interface=GraphInterface(inputs={"value": consumer})
     )
@@ -115,8 +115,8 @@ def test_shared_consumer_structure_receives_each_graph_nodes_own_binding(
 def test_result_ports_allow_interleaved_graphs_without_a_component_level_cycle(
     backend: Backend,
 ) -> None:
-    start = Leaf(lambda: 2)
-    finish = Leaf(lambda ctx, value: value.unwrap() + 1)
+    start = Step(lambda: 2)
+    finish = Step(lambda ctx, value: value.unwrap() + 1)
     first = Graph(
         GraphStructure(
             nodes=(start, finish),
@@ -125,7 +125,7 @@ def test_result_ports_allow_interleaved_graphs_without_a_component_level_cycle(
             ),
         )
     )
-    middle = Leaf(lambda ctx, value: value.unwrap() + 1)
+    middle = Step(lambda ctx, value: value.unwrap() + 1)
     second = Graph(
         GraphStructure(
             nodes=(middle,),
@@ -159,7 +159,7 @@ def test_result_ports_allow_interleaved_graphs_without_a_component_level_cycle(
 def test_skipped_graph_output_supplies_nothing_to_the_consumer(
     backend: Backend,
 ) -> None:
-    produce = Leaf(lambda: pytest.fail("skipped producer ran"))
+    produce = Step(lambda: pytest.fail("skipped producer ran"))
     producer = Graph(
         GraphStructure(
             nodes=(produce,), interface=GraphInterface(outputs={"value": produce})
@@ -167,7 +167,7 @@ def test_skipped_graph_output_supplies_nothing_to_the_consumer(
         condition=lambda: False,
     )
     seen: list[bool] = []
-    consume = Leaf(lambda ctx, value: seen.append(value.is_none()))
+    consume = Step(lambda ctx, value: seen.append(value.is_none()))
     run(
         Graph(
             GraphStructure(
@@ -181,7 +181,7 @@ def test_skipped_graph_output_supplies_nothing_to_the_consumer(
 
 
 def test_unbound_public_result_input_is_rejected_by_final_compilation() -> None:
-    consume = Leaf(lambda ctx, value: value.unwrap())
+    consume = Step(lambda ctx, value: value.unwrap())
     receiver = Graph(
         GraphStructure(
             nodes=(consume,), interface=GraphInterface(inputs={"value": consume})
@@ -194,8 +194,8 @@ def test_unbound_public_result_input_is_rejected_by_final_compilation() -> None:
 def test_different_port_aliases_cannot_install_two_result_groups_on_one_action() -> (
     None
 ):
-    produce = Leaf(lambda: 1)
-    consume = Leaf(lambda ctx, value: value.unwrap())
+    produce = Step(lambda: 1)
+    consume = Step(lambda ctx, value: value.unwrap())
     receiver = Graph(
         GraphStructure(
             nodes=(consume,),
@@ -215,11 +215,11 @@ def test_different_port_aliases_cannot_install_two_result_groups_on_one_action()
         Execution(root).compile()
 
 
-def test_cycle_through_result_ports_is_rejected_after_resolving_leaf_endpoints() -> (
+def test_cycle_through_result_ports_is_rejected_after_resolving_step_endpoints() -> (
     None
 ):
-    a = Leaf(lambda ctx, value: value.unwrap())
-    b = Leaf(lambda ctx, value: value.unwrap())
+    a = Step(lambda ctx, value: value.unwrap())
+    b = Step(lambda ctx, value: value.unwrap())
     first = Graph(
         GraphStructure(
             nodes=(a,), interface=GraphInterface(inputs={"in": a}, outputs={"out": a})
@@ -248,11 +248,11 @@ def test_cycle_through_result_ports_is_rejected_after_resolving_leaf_endpoints()
 
 
 def test_dynamically_returned_graph_keeps_its_identity_and_condition() -> None:
-    forbidden = Leaf(lambda: pytest.fail("inactive returned graph ran"))
+    forbidden = Step(lambda: pytest.fail("inactive returned graph ran"))
     child = Graph(
         GraphStructure(nodes=(forbidden,)), label="returned", condition=lambda: False
     )
-    expand = Leaf(lambda: child, label="expand")
+    expand = Step(lambda: child, label="expand")
     events: list[NodeExecutionEvent] = []
 
     class Events:
@@ -271,7 +271,7 @@ def test_dynamically_returned_graph_keeps_its_identity_and_condition() -> None:
 
 @pytest.mark.parametrize("backend", ("serial", "thread", "async"))
 def test_forwarded_result_ports_keep_ownership_and_fan_out(backend: Backend) -> None:
-    produce = Leaf(lambda: None, label="produce")
+    produce = Step(lambda: None, label="produce")
     inner = Graph(
         GraphStructure(
             nodes=(produce,),
@@ -280,8 +280,8 @@ def test_forwarded_result_ports_keep_ownership_and_fan_out(backend: Backend) -> 
     )
     producer = Graph.from_wiring((inner.wire(),), interface=inner, label="producer")
     seen: list[object] = []
-    first = Leaf(lambda ctx, value: seen.append(value.unwrap()))
-    second = Leaf(lambda ctx, value: seen.append(value.unwrap()))
+    first = Step(lambda ctx, value: seen.append(value.unwrap()))
+    second = Step(lambda ctx, value: seen.append(value.unwrap()))
     inner_consumer = Graph(
         GraphStructure(
             nodes=(first, second),
@@ -310,7 +310,7 @@ def test_forwarded_result_ports_keep_ownership_and_fan_out(backend: Backend) -> 
 
 
 def test_statically_removed_exported_result_is_not_a_missing_runtime_value() -> None:
-    produce = Leaf(lambda: 1)
+    produce = Step(lambda: 1)
     producer = Graph(
         GraphStructure(
             nodes=(produce,),
@@ -323,7 +323,7 @@ def test_statically_removed_exported_result_is_not_a_missing_runtime_value() -> 
             ),
         )
     )
-    consumer = Leaf(lambda ctx, value: value.unwrap())
+    consumer = Step(lambda ctx, value: value.unwrap())
     root = Graph(
         GraphStructure(
             nodes=(producer, consumer),

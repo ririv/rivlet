@@ -74,7 +74,7 @@ impl CallbackHost for PythonCallbackHost {
         Python::attach(|py| {
             self.host
                 .bind(py)
-                .call_method1("run_leaf", (node.index(),))?;
+                .call_method1("run_step", (node.index(),))?;
             Ok(())
         })
     }

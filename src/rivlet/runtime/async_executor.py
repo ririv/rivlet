@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable
     from pathlib import Path
 
-    from ..model import Leaf
+    from ..model import Step
     from ..observe import GraphObserver
     from ..option import Option
     from ..results import NodeRunContext
@@ -22,7 +22,7 @@ if TYPE_CHECKING:
 
 
 async def _invoke_async_step_action(
-    action: Leaf,
+    action: Step,
     run_ctx: NodeRunContext,
     step_log_path: Path | None,
     action_log: ActionLog,

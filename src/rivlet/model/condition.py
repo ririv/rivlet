@@ -36,11 +36,11 @@ def _normalize_condition(condition: ConditionInput) -> _RuntimeCondition:
     if not isinstance(condition, tuple) or len(condition) < 2:
         raise GraphError("condition must be a predicate or (predicate, step, ...)")
     from .graph import Graph
-    from .leaf import Leaf
+    from .step import Step
 
     predicate, *inputs = condition
     if not callable(predicate) or any(
-        not isinstance(source, (Leaf, Graph)) for source in inputs
+        not isinstance(source, (Step, Graph)) for source in inputs
     ):
         raise GraphError("condition must be a predicate or (predicate, step, ...)")
     return _RuntimeCondition(when=predicate, inputs=tuple(inputs))

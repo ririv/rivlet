@@ -10,10 +10,10 @@ from rivlet import (
     Graph,
     GraphInterface,
     GraphStructure,
-    Leaf,
     NodePath,
     StaticCondition,
     StaticConditions,
+    Step,
     compile_graph,
     export_graph,
     static,
@@ -27,7 +27,7 @@ def test_compiled_export_never_repeats_static_evaluation() -> None:
         calls.append("evaluated")
         return False
 
-    first, second = Leaf(lambda: None), Leaf(lambda: None)
+    first, second = Step(lambda: None), Step(lambda: None)
     graph = Graph(
         structure=GraphStructure(
             nodes=(first, second),
@@ -52,8 +52,8 @@ def test_pruned_subtree_ids_are_excluded_not_runtime_skipped() -> None:
     def forbidden(*_args):
         raise AssertionError("not reached")
 
-    kept = Leaf(forbidden, label=("kept"))
-    removed = Graph(structure=GraphStructure(nodes=(Leaf(forbidden, label="nested"),)))
+    kept = Step(forbidden, label=("kept"))
+    removed = Graph(structure=GraphStructure(nodes=(Step(forbidden, label="nested"),)))
     graph = static.select(
         cases=(Case(True, kept), Case(False, Graph(structure=removed.structure)))
     ).graph()
@@ -69,12 +69,12 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
     def forbidden(*_args):
         raise AssertionError("runtime predicate must not run")
 
-    first, second = Leaf(forbidden), Leaf(forbidden)
+    first, second = Step(forbidden), Step(forbidden)
     shared = forbidden
     # 同一 predicate 可作为不同声明对象，也可复用于同一节点的多个具体位置。
     other = forbidden
-    action = Leaf(forbidden)
-    target = Leaf(action.action, condition=((shared, first)))
+    action = Step(forbidden)
+    target = Step(action.action, condition=((shared, first)))
     graph = Graph(
         structure=GraphStructure(
             nodes=(first, second, target),
@@ -117,11 +117,11 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
 
 def test_lowered_port_dependencies_do_not_wait_for_entire_provider() -> None:
     ready = "ready"
-    build, archive = Leaf(lambda: None), Leaf(lambda: None)
+    build, archive = Step(lambda: None), Step(lambda: None)
     provider = (build >> archive).graph(
         interface=GraphInterface(outputs={ready: build}),
     )
-    prepare, consume = Leaf(lambda: None), Leaf(lambda: None)
+    prepare, consume = Step(lambda: None), Step(lambda: None)
     consumer = (prepare >> consume).graph(
         interface=GraphInterface(inputs={ready: consume}),
     )
@@ -145,7 +145,7 @@ def test_lowered_port_dependencies_do_not_wait_for_entire_provider() -> None:
 @pytest.mark.parametrize("parent", [None, NodePath((5, 7))])
 def test_mount_identity_matches_compilation_and_events(parent) -> None:
     child = Graph(
-        structure=GraphStructure(nodes=(Leaf(lambda: None, label="duplicate"),))
+        structure=GraphStructure(nodes=(Step(lambda: None, label="duplicate"),))
     )
     graph = Graph(
         structure=GraphStructure(
@@ -178,7 +178,7 @@ def test_empty_compilation_is_exportable() -> None:
 
 
 def test_mounted_export_keeps_static_edge_provenance_in_parent_namespace() -> None:
-    first, second = Leaf(lambda: None), Leaf(lambda: None)
+    first, second = Step(lambda: None), Step(lambda: None)
     graph = Graph(
         structure=GraphStructure(
             nodes=(first, second),

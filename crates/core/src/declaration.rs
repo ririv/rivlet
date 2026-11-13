@@ -187,7 +187,7 @@ impl GraphDeclaration {
                         }
                     });
             match node.kind {
-                DeclaredNodeKind::Leaf => DeclaredNode::leaf(node.graph, prerequisites, condition),
+                DeclaredNodeKind::Step => DeclaredNode::step(node.graph, prerequisites, condition),
                 DeclaredNodeKind::Composite { child_graph } => {
                     DeclaredNode::composite(node.graph, child_graph, prerequisites, condition)
                 }
@@ -728,7 +728,7 @@ fn project_nodes(
             let condition = condition.transpose()?;
             let graph = graph_mapping[&node.graph];
             Ok(match node.kind {
-                DeclaredNodeKind::Leaf => DeclaredNode::leaf(graph, prerequisites, condition),
+                DeclaredNodeKind::Step => DeclaredNode::step(graph, prerequisites, condition),
                 DeclaredNodeKind::Composite { child_graph } => DeclaredNode::composite(
                     graph,
                     graph_mapping[&child_graph],
@@ -789,7 +789,7 @@ mod tests {
             (0..3).map(|_| {
                 DeclarationNode::new(
                     GraphId::new(0),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                     NodeActivation::Active {
                         prerequisites: vec![],
                         condition: None,
@@ -838,12 +838,12 @@ mod tests {
                 ),
                 DeclarationNode::new(
                     GraphId::new(1),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                     active(vec![], None),
                 ),
                 DeclarationNode::new(
                     GraphId::new(1),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                     active(
                         vec![
                             DeclarationPrerequisite::RuntimeConditional {
@@ -860,7 +860,7 @@ mod tests {
                 ),
                 DeclarationNode::new(
                     GraphId::new(0),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                     active(
                         vec![DeclarationPrerequisite::Required(NodeId::new(0))],
                         None,
@@ -936,12 +936,12 @@ mod tests {
             [
                 DeclarationNode::new(
                     GraphId::new(0),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                     NodeActivation::Inactive,
                 ),
                 DeclarationNode::new(
                     GraphId::new(0),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                     NodeActivation::Active {
                         prerequisites: vec![DeclarationPrerequisite::Required(NodeId::new(0))],
                         condition: None,
@@ -965,12 +965,12 @@ mod tests {
             [
                 DeclarationNode::new(
                     GraphId::new(0),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                     NodeActivation::Inactive,
                 ),
                 DeclarationNode::new(
                     GraphId::new(0),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                     NodeActivation::Active {
                         prerequisites: vec![],
                         condition: Some(ConditionId::new(0)),
@@ -992,12 +992,12 @@ mod tests {
             [
                 DeclarationNode::new(
                     GraphId::new(0),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                     NodeActivation::Inactive,
                 ),
                 DeclarationNode::new(
                     GraphId::new(0),
-                    DeclaredNodeKind::Leaf,
+                    DeclaredNodeKind::Step,
                     NodeActivation::Active {
                         prerequisites: vec![],
                         condition: None,

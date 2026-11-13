@@ -53,7 +53,8 @@ type EdgeDocument = (
 )
 
 
-class LeafDocument(TypedDict):
+class StepDocument(TypedDict):
+    # schema v2 的 wire tag 不随 Python/Rust 声明类改名；此分支对应 Step。
     kind: Literal["leaf"]
     id: str
     node_id: int
@@ -75,7 +76,7 @@ class SubgraphDocument(TypedDict):
     condition: str | None
 
 
-type NodeDocument = LeafDocument | SubgraphDocument
+type NodeDocument = StepDocument | SubgraphDocument
 
 
 class InputPortDocument(TypedDict):

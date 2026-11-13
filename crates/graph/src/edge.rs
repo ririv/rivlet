@@ -1,6 +1,6 @@
 use rivlet::NodeIdentity;
 
-use crate::{GraphError, InputPort, Leaf, Node, OutputEndpoint, OutputPort};
+use crate::{GraphError, InputPort, Node, OutputEndpoint, OutputPort, Step};
 
 /// A nonempty immutable group, constructed only by [`Edge::results`].
 #[derive(Clone, Debug)]
@@ -13,16 +13,16 @@ impl std::ops::Deref for ResultSources {
     }
 }
 
-/// A callable leaf or a graph-owned input port, never an unqualified graph.
+/// A callable step or a graph-owned input port, never an unqualified graph.
 #[derive(Clone, Debug)]
 pub enum ResultTarget {
-    Leaf(NodeIdentity),
+    Step(NodeIdentity),
     Port(InputPort),
 }
 
-impl From<&Leaf> for ResultTarget {
-    fn from(leaf: &Leaf) -> Self {
-        Self::Leaf(leaf.id())
+impl From<&Step> for ResultTarget {
+    fn from(step: &Step) -> Self {
+        Self::Step(step.id())
     }
 }
 impl From<InputPort> for ResultTarget {
@@ -34,7 +34,7 @@ impl ResultTarget {
     #[must_use]
     pub const fn owner(&self) -> NodeIdentity {
         match self {
-            Self::Leaf(id) => *id,
+            Self::Step(id) => *id,
             Self::Port(port) => port.owner(),
         }
     }

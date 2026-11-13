@@ -10,7 +10,7 @@
 ```rust
 use std::sync::Arc;
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, GraphStructure, Leaf};
+use graph::{Edge, GraphStructure, Step};
 
 struct Plan { count: i64 }
 struct Design;
@@ -35,8 +35,8 @@ impl Action for Apply {
 }
 
 fn workflow() -> Result<graph::Compilation, graph::GraphError> {
-    let design = Leaf::new("design", ActionHandle::new(Design))?;
-    let apply = Leaf::new("apply", ActionHandle::new(Apply))?;
+    let design = Step::new("design", ActionHandle::new(Design))?;
+    let apply = Step::new("apply", ActionHandle::new(Apply))?;
     let results = Edge::results([&design], &apply)?;
     GraphStructure::new([design.into(), apply.into()], [results])?.compile_structure()
 }
@@ -61,7 +61,7 @@ let edge = Edge::results(
 )?;
 ```
 
-一个输入可以转发到多个 Leaf；各自收到完整、有序的参数组，并分别检查类型。
+一个输入可以转发到多个 Step；各自收到完整、有序的参数组，并分别检查类型。
 两个 Graph 共享同一 GraphStructure 时，挂载索引与结果仍然独立，不能只用声明身份
 作为结果表的 key。结果保存在各自执行 session 的编译节点索引空间内。
 

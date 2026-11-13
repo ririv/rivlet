@@ -7,12 +7,12 @@ from ..compile import (
     CompiledComposite,
     CompiledCompositeRef,
     CompiledConditionalDependency,
-    CompiledLeaf,
-    CompiledLeafRef,
     CompiledPrerequisite,
-    CompiledPythonLeaf,
+    CompiledPythonStep,
     CompiledRuntimeCondition,
-    CompiledRustLeaf,
+    CompiledRustStep,
+    CompiledStep,
+    CompiledStepRef,
     GraphCompilation,
     compile_graph,
 )
@@ -48,24 +48,24 @@ def ensure_compilation(
 
 
 def render_step_label(
-    step: Node | CompiledLeaf,
+    step: Node | CompiledStep,
     *,
     node_path: NodePath | None = None,
 ) -> str:
-    if isinstance(step, (CompiledPythonLeaf, CompiledRustLeaf)):
+    if isinstance(step, (CompiledPythonStep, CompiledRustStep)):
         return step.path.labels[-1]
     if node_path is None:
         raise ValueError("declaration node label requires its mounted path")
     return resolve_node_label(step, node_path)
 
 
-def render_compiled_step_label(step: CompiledLeaf, path: tuple[str, ...]) -> str:
+def render_compiled_step_label(step: CompiledStep, path: tuple[str, ...]) -> str:
     del step
     return render_step_path(path)
 
 
 def render_condition_suffix(
-    step: Node | CompiledLeaf | CompiledComposite,
+    step: Node | CompiledStep | CompiledComposite,
 ) -> str:
     condition = step.condition
     if condition is None:
@@ -74,7 +74,7 @@ def render_condition_suffix(
 
 
 def render_after_suffix(
-    step: CompiledLeaf | CompiledComposite,
+    step: CompiledStep | CompiledComposite,
     *,
     step_labels: Mapping[NodePath, str] | None = None,
 ) -> str:
@@ -209,7 +209,7 @@ def format_prerequisite(
         case CompiledConditionalDependency(node=node, condition=condition):
             dep_id = _label(node.path)
             return f"{dep_id} (条件边: {condition_name(condition)})"
-        case CompiledLeafRef(path=dep_id) | CompiledCompositeRef(path=dep_id):
+        case CompiledStepRef(path=dep_id) | CompiledCompositeRef(path=dep_id):
             return _label(dep_id)
         case NodePath() as node_path:
             return _label(node_path)

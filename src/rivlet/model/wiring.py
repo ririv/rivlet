@@ -116,15 +116,15 @@ class GraphWiring:
 
 def _as_graph_wiring(value: GraphWiringOperand) -> GraphWiring:
     from .graph import Graph
-    from .leaf import Leaf
+    from .step import Step
 
     match value:
         case GraphWiring():
             return value
-        case Leaf() | Graph():
+        case Step() | Graph():
             return GraphWiring(nodes=(value,))
         case _:
-            raise TypeError("graph wiring requires Node, Leaf, Graph or GraphWiring")
+            raise TypeError("graph wiring requires Node, Step, Graph or GraphWiring")
 
 
 def _sequence_wiring(
@@ -205,11 +205,11 @@ def _graph_wiring_from_node_wirings(
         # 当前接线的时间/临时空间为 O(P + R)：P 是 after 条目数，R 是结果来源总数。
         # 按出现顺序把所有结果来源组合成一个完整参数组。
         if result_sources:
-            from .leaf import Leaf
+            from .step import Step
 
-            if not isinstance(target, Leaf):
+            if not isinstance(target, Step):
                 raise GraphError(
-                    "wire Results require a Leaf receiver; use an input port for a graph"
+                    "wire Results require a Step receiver; use an input port for a graph"
                 )
             declared_edges.extend(Edge.results(tuple(result_sources), target))
         declared_edges.extend(execution_edges)

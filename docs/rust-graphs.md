@@ -8,19 +8,19 @@ and the session's concurrency budget. Native subgraphs are not converted into
 Python actions.
 
 ```text
-Python Graph / Leaf
-    ├── Python Leaf
+Python Graph / Step
+    ├── Python Step
     └── Graph(RustGraphStructure)
-          ├── Rust Leaf
-          └── Rust Graph → Rust Leaf / Graph
+          ├── Rust Step
+          └── Rust Graph → Rust Step / Graph
                 │
                 ▼
     Rust CompiledExecutionGraph
-        ├── Python leaf → Python driver
-        └── Rust leaf   → Rust worker
+        ├── Python step → Python driver
+        └── Rust step   → Rust worker
 ```
 
-Python holds an opaque RustGraphStructure, not individually callable Rust Leaf or
+Python holds an opaque RustGraphStructure, not individually callable Rust Step or
 Rust action objects. Native action execution does not require a per-action Python
 callback. The mixed driver receives batches of native completion events for
 results, logs, and presentation. Internal nodes remain visible in compiled and
@@ -31,7 +31,7 @@ execution views; opacity does not hide them as a single undifferentiated action.
 Python actions retain their usual declaration:
 
 ```python
-prepare = Leaf(prepare_source, label=("prepare"))
+prepare = Step(prepare_source, label=("prepare"))
 ```
 
 A Rust adapter constructs graph::GraphStructure. The Python adapter wraps it as
@@ -81,7 +81,7 @@ Native actions still cannot read Python NodeRunContext or expand dynamic graphs.
 ## Rust crates
 
 - action: native action trait, execution context, errors, and workers.
-- graph: Rust Leaf/Graph nodes, Node trait, GraphStructure, typed ports, and GraphError.
+- graph: Rust Step/Graph nodes, Node trait, GraphStructure, typed ports, and GraphError.
 - topology: integer nodes and pure graph algorithms.
 - core: language-independent declaration compilation and execution sessions.
 - python: integration of Python Graph and complete RustGraphStructure declarations.
@@ -93,15 +93,15 @@ once. This preserves package boundaries without routing each action through Pyth
 
 ## Rust declaration API
 
-The `graph` crate exposes actual `Leaf` and `Graph` nodes. Both compose common
+The `graph` crate exposes actual `Step` and `Graph` nodes. Both compose common
 identity/label metadata and implement `Node`; `NodeKind` is the closed
-`Leaf | Graph` enum. The trait does not introduce implementation inheritance or
+`Step | Graph` enum. The trait does not introduce implementation inheritance or
 arbitrary executable node kinds. Only `Graph` has an interface.
 
 ```rust
 use std::sync::Arc;
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf};
+use graph::{Edge, Graph, GraphInterface, GraphStructure, Step};
 
 struct Work;
 impl Action for Work {
@@ -114,7 +114,7 @@ impl Action for Work {
 }
 
 fn workflow() -> Result<graph::Compilation, graph::GraphError> {
-    let task = Leaf::new("task", ActionHandle::new(Work))?;
+    let task = Step::new("task", ActionHandle::new(Work))?;
     let body = Arc::new(GraphStructure::with_interface(
         [task.clone().into()], [],
         GraphInterface::default()
@@ -179,7 +179,7 @@ public Python declaration API.
 
 Readiness connections and result connections remain distinct uses of the same
 interface: `Edge::ports` waits for readiness; `Edge::results` additionally binds a
-complete ordered argument group. Actual leaf types/arity are checked after
+complete ordered argument group. Actual step types/arity are checked after
 forwarding. Rust predicate execution is still outside this API. An outer Python
 Graph retains its existing runtime/static conditions; core gains neither opaque
 closures nor implicit serialization.

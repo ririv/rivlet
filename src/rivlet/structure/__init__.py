@@ -26,11 +26,11 @@ def export_graph(subject: GraphStructure | Node | GraphCompilation) -> GraphDocu
     exposes decisions already made by compile_graph; it is never recompiled here.
     """
     from ..compile import GraphCompilation
-    from ..model import Graph, GraphStructure, Leaf, NodePath, resolve_node_label
+    from ..model import Graph, GraphStructure, NodePath, Step, resolve_node_label
     from .compiled import export_compilation
     from .declaration import index_declaration
 
-    if isinstance(subject, (Leaf, Graph)):
+    if isinstance(subject, (Step, Graph)):
         return index_declaration(
             GraphStructure(nodes=(subject,)),
             label=resolve_node_label(subject, NodePath((0,))),

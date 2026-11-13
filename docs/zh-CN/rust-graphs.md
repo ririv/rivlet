@@ -7,19 +7,19 @@ Rust `CompiledExecutionGraph`，共享依赖、层级、失败传播和并发预
 拆成一组 Python action：
 
 ```text
-Python Graph / Leaf
-    ├── Python Leaf
+Python Graph / Step
+    ├── Python Step
     └── Graph(RustGraphStructure)
-          ├── Rust Leaf
-          └── Rust Graph → Rust Leaf / Graph
+          ├── Rust Step
+          └── Rust Graph → Rust Step / Graph
                 │
                 ▼
     Rust CompiledExecutionGraph
-        ├── Python leaf → Python driver
-        └── Rust leaf   → Rust worker
+        ├── Python step → Python driver
+        └── Rust step   → Rust worker
 ```
 
-Python 只看见一个不透明的 `RustGraphStructure`。它不能取得并逐个调用其中的 Rust `Leaf`
+Python 只看见一个不透明的 `RustGraphStructure`。它不能取得并逐个调用其中的 Rust `Step`
 和 Rust action 对象，也不会先把它们翻译成 Python `Node`。因此原生图无论包含十个还是上万
 个 action，执行 action 本身都不需要逐项回调 Python。混合图的 Python driver 仍会按批次
 接收原生完成事件，以便统一维护结果、日志和展示状态。内部节点仍可以出现在编译图
@@ -30,7 +30,7 @@ Python 只看见一个不透明的 `RustGraphStructure`。它不能取得并逐�
 Python action 仍按原有方式声明：
 
 ```python
-prepare = Leaf(prepare_source, label=("prepare"))
+prepare = Step(prepare_source, label=("prepare"))
 ```
 
 Rust adapter 构造 graph::GraphStructure；Python adapter 将其包装为不透明的
@@ -64,11 +64,11 @@ graph = (prepare >> compile >> install).graph()
 
 同一 execution session 按叶子所有权分发：
 
-- Python leaf 批量返回 Python driver，支持任意 Python callable、结果和动态图。
-- Rust leaf 直接提交 Rust worker；完成进入 Rust completion queue，再由混合 driver 批量推进
+- Python step 批量返回 Python driver，支持任意 Python callable、结果和动态图。
+- Rust step 直接提交 Rust worker；完成进入 Rust completion queue，再由混合 driver 批量推进
   同一 session。
 - Python 接收原生节点的开始、完成与失败信息，用于统一状态、日志和展示。
-- 两类 leaf 共用一份总并发预算，不会各自把 `workers` 用满后叠加超额并发。
+- 两类 step 共用一份总并发预算，不会各自把 `workers` 用满后叠加超额并发。
 
 原生 action 声明确定的输入、输出类型。Rust→Rust 结果边共享 Rust 值；只有跨语言边界
 才转换。进程 action 返回 unit，在 Python 中表现为 `Some(None)`，不是没有结果。
@@ -80,7 +80,7 @@ graph = (prepare >> compile >> install).graph()
 原生端口按职责拆分：
 
 - `crates/action`：Rust action trait、执行上下文、错误和 worker。
-- `crates/graph`：Rust `Leaf/Graph` 节点、`Node` trait、`GraphStructure`、有方向的端口与错误。
+- `crates/graph`：Rust `Step/Graph` 节点、`Node` trait、`GraphStructure`、有方向的端口与错误。
 - `crates/topology`：整数节点与纯拓扑算法。
 - `crates/core`：语言无关的声明编译和 execution session。
 - `crates/python`：把 Python `Graph` 和整体 `RustGraphStructure` 接入同一编译过程。
@@ -91,14 +91,14 @@ adapter 应输出一份批量、稳定的原生图规格，再由 graph extensio
 
 ## Rust 声明 API
 
-`graph` crate 提供真实的 `Leaf` 和 `Graph` 节点，二者内部组合共同身份和 label，
-实现 `Node` trait；`NodeKind` 是封闭的 `Leaf | Graph` 枚举。协议不引入实现继承，
+`graph` crate 提供真实的 `Step` 和 `Graph` 节点，二者内部组合共同身份和 label，
+实现 `Node` trait；`NodeKind` 是封闭的 `Step | Graph` 枚举。协议不引入实现继承，
 也不意味着可以任意扩展可执行节点类型。只有 `Graph` 可以获取接口。
 
 ```rust
 use std::sync::Arc;
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf};
+use graph::{Edge, Graph, GraphInterface, GraphStructure, Step};
 
 struct Work;
 impl Action for Work {
@@ -111,7 +111,7 @@ impl Action for Work {
 }
 
 fn workflow() -> Result<graph::Compilation, graph::GraphError> {
-    let task = Leaf::new("task", ActionHandle::new(Work))?;
+    let task = Step::new("task", ActionHandle::new(Work))?;
     let body = Arc::new(GraphStructure::with_interface(
         [task.clone().into()], [],
         GraphInterface::default()
@@ -167,6 +167,6 @@ Python adapter 把该投影与 Python 节点放进同一次编译。Python 可�
 边界，不是第二套公开 Python 声明 API。
 
 就绪连接和结果连接复用同一接口，但语义由边显式决定：`Edge::ports` 等待就绪；
-`Edge::results` 还绑定完整、有序的参数组，转发后校验真实 Leaf 的类型和数量。
+`Edge::results` 还绑定完整、有序的参数组，转发后校验真实 Step 的类型和数量。
 Rust predicate 执行仍未实现。外层 Python Graph 保留既有运行时/静态条件，
 core 不引入不透明闭包或隐式序列化。

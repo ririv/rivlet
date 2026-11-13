@@ -9,10 +9,10 @@
 
 ## 声明
 
-定义见 [Leaf](../../src/rivlet/model/leaf.py) 与 [Graph](../../src/rivlet/model/graph.py)：
+定义见 [Step](../../src/rivlet/model/step.py) 与 [Graph](../../src/rivlet/model/graph.py)：
 
 ```python
-Leaf(..., label=(...), condition=(...))
+Step(..., label=(...), condition=(...))
 ```
 
 label 只用于展示。`condition` 接受 `None`、零参判断函数，或至少包含一个来源的
@@ -21,8 +21,8 @@ label 只用于展示。`condition` 接受 `None`、零参判断函数，或至�
 不再需要公开的 `runtime_condition()` 包装函数。
 
 ```python
-probe = Leaf(lambda: 42)
-build = Leaf(
+probe = Step(lambda: 42)
+build = Step(
     lambda ctx, result: build_source(),
     condition=((lambda result: result.unwrap() == 42, probe)),
 )
@@ -117,7 +117,7 @@ A --[condition]--> B
 - 运行时条件成为节点 activation，predicate 由 Python 按批次请求求值并回传。
 - inputs 必须先满足；读取依赖失败会阻断节点。
 - 条件为假时，不再等待其余 after prerequisite。
-- composite 保留子图边界，不占用 worker，也不成为 no-op leaf。
+- composite 保留子图边界，不占用 worker，也不成为 no-op step。
 
 [compile.py](../../src/rivlet/compile.py) 将条件边归一化为
 CompiledConditionalDependency，将运行时 Node.condition 归一化为节点的
@@ -133,10 +133,10 @@ observation 与 condition。激活后才释放直接子节点；空 composite �
 以及 after 指定的前置步骤。两类输入均引用当前图的 Node，参与 DAG 校验和接线边界计算。
 
 ```python
-probe = Leaf(probe_cache, label=("probe"))
-prepare_a = Leaf(prepare_a_source, label=("prepare_a"))
-prepare_b = Leaf(prepare_b_source, label=("prepare_b"))
-heavy_build = Leaf(
+probe = Step(probe_cache, label=("probe"))
+prepare_a = Step(prepare_a_source, label=("prepare_a"))
+prepare_b = Step(prepare_b_source, label=("prepare_b"))
+heavy_build = Step(
     lambda ctx, result: build_source(),
     label=("heavy_build"),
     condition=((lambda result: bool(result.unwrap()), probe)),
@@ -171,15 +171,15 @@ probe 成功后即可求值，无需等待 prepare_a / prepare_b。条件为假�
 条件的扁平元组同时声明来源依赖和判断函数的位置参数：
 
 ```python
-count_step = Leaf(lambda: 42)
-approval_step = Leaf(lambda: True)
+count_step = Step(lambda: 42)
+approval_step = Step(lambda: True)
 
 
 def should_run(count: Option[object], approval: Option[object]) -> bool:
     return count.unwrap() == 42 and approval.unwrap_or(False) is True
 
 
-consumer = Leaf(
+consumer = Step(
     lambda ctx, count, approval: print(count.unwrap(), approval.unwrap()),
     condition=((should_run, count_step, approval_step)),
 )

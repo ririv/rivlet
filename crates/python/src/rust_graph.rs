@@ -5,7 +5,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use action::{ActionHandle, ProcessAction};
-use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf, Node, NodeKind, Projection};
+use graph::{Edge, Graph, GraphInterface, GraphStructure, Node, NodeKind, Projection, Step};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::GraphId;
@@ -111,7 +111,7 @@ impl RustGraphStructure {
             .map(|id| {
                 let node = &self.projection.nodes()[id.index()];
                 let child = match node.kind() {
-                    graph::ProjectedKind::Leaf(_) => None,
+                    graph::ProjectedKind::Step(_) => None,
                     graph::ProjectedKind::Graph(scope) => Some(Self::view(
                         Arc::clone(&self.projection),
                         *scope,
@@ -162,7 +162,7 @@ impl RustGraphStructure {
                     target: receiver,
                 } => {
                     let input = match receiver {
-                        graph::ResultTarget::Leaf(_) => None,
+                        graph::ResultTarget::Step(_) => None,
                         graph::ResultTarget::Port(port) => Some(port.name()),
                     };
                     for (index, source) in sources.iter().enumerate() {
@@ -218,7 +218,7 @@ impl RustGraphStructure {
         nodes
             .iter()
             .map(|id| match self.projection.nodes()[id.index()].kind() {
-                graph::ProjectedKind::Leaf(action) => Ok(action.input_types().len()),
+                graph::ProjectedKind::Step(action) => Ok(action.input_types().len()),
                 graph::ProjectedKind::Graph(_) => {
                     Err(invalid("result target must be a native leaf"))
                 }
@@ -238,7 +238,7 @@ pub(crate) fn rust_process_graph(
     let nodes = processes
         .into_iter()
         .map(|(label, program, arguments, cwd, environment)| {
-            Leaf::new(
+            Step::new(
                 label,
                 ActionHandle::new(ProcessAction::new(
                     program,

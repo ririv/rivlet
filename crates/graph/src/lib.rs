@@ -1,13 +1,13 @@
 //! Composable Rust graph declarations lowering into the shared execution core.
 //!
-//! Leaf/Graph own metadata; `GraphStructure` is reusable. Node is their common
+//! Step/Graph own metadata; `GraphStructure` is reusable. Node is their common
 //! reference interface and `NodeKind` is the closed concrete union. Result edges
 //! bind typed action inputs; Rust predicate execution remains outside this API.
 //!
 //! ```
 //! use std::sync::Arc;
 //! use action::{Action, ActionContext, ActionError, ActionHandle};
-//! use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf};
+//! use graph::{Edge, Graph, GraphInterface, GraphStructure, Step};
 //!
 //! struct Work;
 //! impl Action for Work {
@@ -18,7 +18,7 @@
 //!     }
 //! }
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let task = Leaf::new("task", ActionHandle::new(Work))?;
+//! let task = Step::new("task", ActionHandle::new(Work))?;
 //! let body = Arc::new(GraphStructure::with_interface(
 //!     [task.clone().into()], [],
 //!     GraphInterface::default().input("apply", [&task])?.output("ready", &task)?,
@@ -47,6 +47,6 @@ pub use error::GraphError;
 pub use interface::{
     GraphInterface, GraphInterfaceView, InputEndpoint, InputPort, OutputEndpoint, OutputPort,
 };
-pub use node::{Graph, Leaf, Node, NodeKind};
+pub use node::{Graph, Node, NodeKind, Step};
 pub use projection::{Compilation, ProjectedKind, ProjectedNode, ProjectedScope, Projection};
 pub use structure::GraphStructure;

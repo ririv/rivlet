@@ -13,10 +13,10 @@ from rivlet import (
     ExecutionState,
     Graph,
     GraphStructure,
-    Leaf,
     NodePath,
     ResultStore,
     SerialGraphExecutor,
+    Step,
 )
 from rivlet.runtime import ParallelGraphExecutor
 
@@ -47,10 +47,10 @@ def test_sync_actions_and_returned_graph_do_not_create_event_loop(
     def make_graph() -> GraphStructure:
         calls.append("declare")
         return Graph(
-            structure=GraphStructure(nodes=(Leaf(lambda: calls.append("nested")),))
+            structure=GraphStructure(nodes=(Step(lambda: calls.append("nested")),))
         ).structure
 
-    steps = (Leaf(lambda: 42), Leaf(lambda: None), Leaf(make_graph))
+    steps = (Step(lambda: 42), Step(lambda: None), Step(make_graph))
     results = _execute(Graph(structure=GraphStructure(nodes=steps)), workers)
     assert calls == ["declare", "nested"]
     assert (
@@ -117,7 +117,7 @@ def test_awaitable_results_remain_supported(
         case "awaitable":
             action = Result
 
-    results = _execute(Graph(structure=GraphStructure(nodes=(Leaf(action),))), workers)
+    results = _execute(Graph(structure=GraphStructure(nodes=(Step(action),))), workers)
     assert calls == ["started", "finished"]
     assert (
         results.require(
@@ -148,6 +148,6 @@ def test_awaitable_keeps_action_context_and_propagates_error(workers: int) -> No
     token = marker.set("outside")
     try:
         with pytest.raises(RuntimeError, match="action failed"):
-            _execute(Graph(structure=GraphStructure(nodes=(Leaf(action),))), workers)
+            _execute(Graph(structure=GraphStructure(nodes=(Step(action),))), workers)
     finally:
         marker.reset(token)

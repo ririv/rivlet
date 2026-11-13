@@ -8,11 +8,11 @@ from rivlet import (
     Graph,
     GraphInterface,
     GraphStructure,
-    Leaf,
     NodeWiring,
     Results,
     StaticCondition,
     StaticConditions,
+    Step,
     export_graph,
     static,
 )
@@ -24,8 +24,8 @@ def forbidden(*_args: object) -> bool:
 
 def test_declaration_does_not_evaluate_any_host_code_or_select_cases() -> None:
     condition = forbidden
-    left = Leaf(forbidden, label=("left"), condition=(condition))
-    right = Leaf(forbidden, label=("right"))
+    left = Step(forbidden, label=("left"), condition=(condition))
+    right = Step(forbidden, label=("right"))
     rules = StaticConditions(evaluator=forbidden)
     graph = (
         rules.when(StaticCondition(object(), "secret payload"), left)
@@ -42,9 +42,9 @@ def test_declaration_does_not_evaluate_any_host_code_or_select_cases() -> None:
 
 
 def test_export_preserves_order_result_and_conditional_edges() -> None:
-    data = Leaf(lambda: "private result", label=("data"))
-    gate = Leaf(lambda: True, label=("gate"))
-    prerequisite = Leaf(lambda: None, label=("prerequisite"))
+    data = Step(lambda: "private result", label=("data"))
+    gate = Step(lambda: True, label=("gate"))
+    prerequisite = Step(lambda: None, label=("prerequisite"))
 
     def node_condition(flag):
         return flag.unwrap()
@@ -52,8 +52,8 @@ def test_export_preserves_order_result_and_conditional_edges() -> None:
     def edge_condition(flag):
         return flag.unwrap()
 
-    action = Leaf(lambda _ctx, value: value.unwrap())
-    consumer = Leaf(
+    action = Step(lambda _ctx, value: value.unwrap())
+    consumer = Step(
         action.action, label=("consumer"), condition=((node_condition, gate))
     )
     graph = Graph(
@@ -82,8 +82,8 @@ def test_export_preserves_order_result_and_conditional_edges() -> None:
 
 
 def test_same_subgraph_mounts_have_distinct_ids_and_label_paths() -> None:
-    leaf = Leaf(lambda: None, label=("same"))
-    child = Graph(structure=GraphStructure(nodes=(leaf,)))
+    step = Step(lambda: None, label=("same"))
+    child = Graph(structure=GraphStructure(nodes=(step,)))
     graph = Graph(
         structure=GraphStructure(
             nodes=(
@@ -122,13 +122,13 @@ def test_same_subgraph_mounts_have_distinct_ids_and_label_paths() -> None:
 
 def test_ports_and_binding_refer_to_exact_descendants() -> None:
     ready = "ready"
-    build = Leaf(lambda: None, label=("build"))
-    archive = Leaf(lambda: None, label=("archive"))
+    build = Step(lambda: None, label=("build"))
+    archive = Step(lambda: None, label=("archive"))
     provider = (build >> archive).graph(
         interface=GraphInterface(outputs={ready: build}),
     )
-    configure = Leaf(lambda: None, label=("configure"))
-    consume = Leaf(lambda: None, label=("consume"))
+    configure = Step(lambda: None, label=("configure"))
+    consume = Step(lambda: None, label=("consume"))
     consumer = (configure >> consume).graph(
         interface=GraphInterface(inputs={ready: (configure, consume)}),
     )
@@ -148,8 +148,8 @@ def test_ports_and_binding_refer_to_exact_descendants() -> None:
 
 
 def test_documents_are_detached_and_from_wiring_keeps_real_edges() -> None:
-    first = Leaf(lambda: "value", label=("first"))
-    second = Leaf(lambda _ctx, value: value.unwrap(), label=("second"))
+    first = Step(lambda: "value", label=("first"))
+    second = Step(lambda _ctx, value: value.unwrap(), label=("second"))
     graph = Graph.from_wiring((NodeWiring(first), second.wire(after=(Results(first),))))
     document = export_graph(graph.structure)
     assert document["edges"][0]["kind"] == "result"

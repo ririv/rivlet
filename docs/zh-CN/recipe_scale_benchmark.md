@@ -19,7 +19,7 @@ step 时，把执行图编译与调度状态机迁移到 Rust 是否仍有收益
 本次固定输入为：
 
 - 2,000 个 recipe 子图
-- 每个 recipe 包含 6 个串行 leaf step
+- 每个 recipe 包含 6 个串行 step step
 - 共 12,000 个 Python action
 - 每个 recipe 由一个 composite 保留子图边界，共 2,000 个 composite
 - recipe 之间组成 20 条依赖链，允许最多 20 个 recipe 层级并行推进

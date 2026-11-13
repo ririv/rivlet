@@ -9,16 +9,16 @@
 ## 完整条件与分支内容
 
 ```python
-from rivlet import Graph, Leaf, Case, Execution, static
+from rivlet import Graph, Step, Case, Execution, static
 
 platform = "android"
 version = 3
 
-prepare = Leaf(lambda: print("prepare"), label=("prepare"))
-modern = Leaf(lambda: print("modern Android"), label=("modern"))
-legacy = Leaf(lambda: print("legacy Android"), label=("legacy"))
-linux = Leaf(lambda: print("Linux"), label=("linux"))
-finish = Leaf(lambda: print("finish"), label=("finish"))
+prepare = Step(lambda: print("prepare"), label=("prepare"))
+modern = Step(lambda: print("modern Android"), label=("modern"))
+legacy = Step(lambda: print("legacy Android"), label=("legacy"))
+linux = Step(lambda: print("Linux"), label=("linux"))
+finish = Step(lambda: print("finish"), label=("finish"))
 
 graph = (
     prepare
@@ -39,7 +39,7 @@ Execution(Graph(structure=(graph).structure, label=("platform workflow"))).run()
 
 - `condition` 是完整静态布尔条件，必须显式提供。既不表示匹配值，也不是判断函数；
   不会把字符串、函数等非布尔对象隐式转换为真。
-- `component` 是 Leaf 或 Graph 节点；Graph 不需要额外包装。
+- `component` 是 Step 或 Graph 节点；Graph 不需要额外包装。
   `case.node` 是分支实际接入图的节点，可用于显式接线。
 - `static` 是 `rivlet.static` 模块，不是必须提供 evaluator 的 `StaticConditions` 实例。
 
@@ -70,11 +70,11 @@ Python 在调用 API 前计算布尔表达式，并构造所有候选组件。�
 不使用 DSL 时，可以声明同一份选择和拓扑：
 
 ```python
-from rivlet import Graph, GraphStructure, Leaf, Case, Execution, StaticSelection, Edge
+from rivlet import Graph, GraphStructure, Step, Case, Execution, StaticSelection, Edge
 
-first = Leaf(lambda: print("first"), label=("first"))
-second = Leaf(lambda: print("second"), label=("second"))
-finish = Leaf(lambda: print("finish"), label=("finish"))
+first = Step(lambda: print("first"), label=("first"))
+second = Step(lambda: print("second"), label=("second"))
+finish = Step(lambda: print("finish"), label=("finish"))
 cases = (Case(False, first), Case(True, second))
 
 graph = Graph(

@@ -14,9 +14,9 @@ from rivlet import (
     GraphError,
     GraphInterface,
     GraphStructure,
-    Leaf,
     StaticCondition,
     StaticConditions,
+    Step,
     ThreadRunOptions,
     export_graph,
 )
@@ -27,7 +27,7 @@ def require(event: Event) -> None:
 
 
 def test_same_name_shortcut_and_pair_are_the_same_declaration():
-    a, b = Leaf(lambda: None), Leaf(lambda: None)
+    a, b = Step(lambda: None), Step(lambda: None)
     assert Edge(a, b, ports="ready") == Edge(a, b, ports=("ready", "ready"))
     assert Edge(a, b).ports is None
 
@@ -59,12 +59,12 @@ def test_conditional_named_ports_gate_only_internal_consumers(
             assert supplied.is_set()
         event.set()
 
-    ready = Leaf(provide, label=("ready"))
-    provider = (ready >> Leaf(finish, label=("tail"))).graph(
+    ready = Step(provide, label=("ready"))
+    provider = (ready >> Step(finish, label=("tail"))).graph(
         interface=GraphInterface(outputs={"sdk-ready": ready}), label=("provider")
     )
-    first, second = Leaf(lambda: use(used_a)), Leaf(lambda: use(used_b))
-    consumer = (Leaf(prepared.set) >> (first | second)).graph(
+    first, second = Step(lambda: use(used_a)), Step(lambda: use(used_b))
+    consumer = (Step(prepared.set) >> (first | second)).graph(
         interface=GraphInterface(inputs={"toolchain-ready": (first, second)}),
         label=("consumer"),
     )
@@ -74,14 +74,14 @@ def test_conditional_named_ports_gate_only_internal_consumers(
         require(prepared)
         return enabled
 
-    probe = Leaf(decide, label=("probe"))
+    probe = Step(decide, label=("probe"))
 
     def predicate(result):
         calls.append(result.unwrap())
         return result.unwrap() is True
 
     condition = predicate
-    unused = Leaf(lambda: pytest.fail("static exclusion did not apply"))
+    unused = Step(lambda: pytest.fail("static exclusion did not apply"))
     graph = Graph(
         structure=GraphStructure(
             nodes=(unused, probe, provider, consumer)
@@ -120,7 +120,7 @@ def test_conditional_named_ports_gate_only_internal_consumers(
 
 
 def test_port_directions_are_fixed_by_tuple_position():
-    ready, use = Leaf(lambda: None), Leaf(lambda: None)
+    ready, use = Step(lambda: None), Step(lambda: None)
     a = Graph(
         structure=GraphStructure(
             nodes=(ready,), interface=GraphInterface(outputs={"out": ready})
@@ -151,14 +151,14 @@ def test_port_condition_controls_failure_propagation(enabled, mode):
     def fail():
         raise RuntimeError("provider failed")
 
-    output = Leaf(fail)
+    output = Step(fail)
     provider = Graph(
         structure=GraphStructure(
             nodes=(output,), interface=GraphInterface(outputs={"out": output})
         )
     )
-    prepare = Leaf(lambda: calls.append("prepare"))
-    use = Leaf(lambda: calls.append("use"))
+    prepare = Step(lambda: calls.append("prepare"))
+    use = Step(lambda: calls.append("use"))
     consumer = (prepare >> use).graph(interface=GraphInterface(inputs={"in": use}))
     graph = Graph(
         structure=GraphStructure(
@@ -177,13 +177,13 @@ def test_port_condition_controls_failure_propagation(enabled, mode):
 
 def test_static_exclusion_removes_port_connection_and_its_condition():
     calls = []
-    output = Leaf(lambda: pytest.fail("excluded provider ran"))
+    output = Step(lambda: pytest.fail("excluded provider ran"))
     provider = Graph(
         structure=GraphStructure(
             nodes=(output,), interface=GraphInterface(outputs={"out": output})
         )
     )
-    use = Leaf(lambda: calls.append("use"))
+    use = Step(lambda: calls.append("use"))
     consumer = Graph(
         structure=GraphStructure(
             nodes=(use,), interface=GraphInterface(inputs={"in": use})
@@ -217,7 +217,7 @@ def test_static_exclusion_removes_port_connection_and_its_condition():
 
 
 def test_condition_with_all_port_consumers_excluded_is_not_exported_or_evaluated():
-    output, unused = Leaf(lambda: None), Leaf(lambda: pytest.fail("excluded input ran"))
+    output, unused = Step(lambda: None), Step(lambda: pytest.fail("excluded input ran"))
 
     def condition():
         return pytest.fail("unused condition evaluated")
@@ -258,8 +258,8 @@ def test_condition_with_all_port_consumers_excluded_is_not_exported_or_evaluated
 def test_same_port_graph_can_be_mounted_twice_with_distinct_condition_inputs():
     decisions = iter((False, True))
     seen = []
-    probe = Leaf(lambda: next(decisions))
-    output, use = Leaf(lambda: None), Leaf(lambda: None)
+    probe = Step(lambda: next(decisions))
+    output, use = Step(lambda: None), Step(lambda: None)
     provider = Graph(
         structure=GraphStructure(
             nodes=(output,), interface=GraphInterface(outputs={"out": output})

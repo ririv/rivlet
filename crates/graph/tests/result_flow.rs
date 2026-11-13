@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use action::{Action, ActionContext, ActionError, ActionExecutor, ActionHandle, Value};
 use graph::{
-    Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, Leaf, ProjectedKind,
+    Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, ProjectedKind, Step,
 };
 use rivlet::{ExecutionEvent, ExecutionSession, ExecutionUpdate, NodeId, NodeState, SessionStatus};
 
@@ -22,7 +22,7 @@ fn run(compilation: &Compilation, skipped: Vec<NodeId>) -> (SessionStatus, HashM
         }
         for node in batch.actions() {
             let projected = compilation.node(*node);
-            let ProjectedKind::Leaf(action) = projected.kind() else {
+            let ProjectedKind::Step(action) = projected.kind() else {
                 panic!("composite was dispatched");
             };
             let inputs = projected
@@ -100,7 +100,7 @@ impl Action for Consume {
 #[test]
 fn arbitrary_nonclone_payload_crosses_forwarded_shared_graphs_without_copying() {
     let pointers = Arc::new(Mutex::new(Vec::new()));
-    let producer = Leaf::new("produce", ActionHandle::new(Produce)).unwrap();
+    let producer = Step::new("produce", ActionHandle::new(Produce)).unwrap();
     let body = Arc::new(
         GraphStructure::with_interface(
             [producer.clone().into()],
@@ -124,7 +124,7 @@ fn arbitrary_nonclone_payload_crosses_forwarded_shared_graphs_without_copying() 
         ),
     )
     .unwrap();
-    let consume = Leaf::new("consume", ActionHandle::new(Consume(Arc::clone(&pointers)))).unwrap();
+    let consume = Step::new("consume", ActionHandle::new(Consume(Arc::clone(&pointers)))).unwrap();
     let shared = Arc::new(
         GraphStructure::with_interface(
             [consume.clone().into()],
@@ -175,8 +175,8 @@ fn arbitrary_nonclone_payload_crosses_forwarded_shared_graphs_without_copying() 
 
 #[test]
 fn skipped_result_is_none_not_an_invented_unit_value() {
-    let producer = Leaf::new("produce", ActionHandle::new(Produce)).unwrap();
-    let consume = Leaf::new("consume", ActionHandle::new(Consume(Arc::default()))).unwrap();
+    let producer = Step::new("produce", ActionHandle::new(Produce)).unwrap();
+    let consume = Step::new("consume", ActionHandle::new(Consume(Arc::default()))).unwrap();
     let compilation = GraphStructure::new(
         [producer.clone().into(), consume.clone().into()],
         [Edge::results([&producer], &consume).unwrap()],
@@ -215,8 +215,8 @@ impl Action for Text {
 
 #[test]
 fn compiler_checks_concrete_types_and_complete_input_groups() {
-    let wrong = Leaf::new("text", ActionHandle::new(Text)).unwrap();
-    let consume = Leaf::new("consume", ActionHandle::new(Consume(Arc::default()))).unwrap();
+    let wrong = Step::new("text", ActionHandle::new(Text)).unwrap();
+    let consume = Step::new("consume", ActionHandle::new(Consume(Arc::default()))).unwrap();
     let graph = GraphStructure::new(
         [wrong.clone().into(), consume.clone().into()],
         [Edge::results([&wrong], &consume).unwrap()],
@@ -244,8 +244,8 @@ fn result_cycle_is_checked_after_resolving_actual_endpoints() {
             Ok(*value.unwrap())
         }
     }
-    let a = Leaf::new("a", ActionHandle::new(Size)).unwrap();
-    let b = Leaf::new("b", ActionHandle::new(Size)).unwrap();
+    let a = Step::new("a", ActionHandle::new(Size)).unwrap();
+    let b = Step::new("b", ActionHandle::new(Size)).unwrap();
     let graph = GraphStructure::new(
         [a.clone().into(), b.clone().into()],
         [
@@ -284,9 +284,9 @@ impl Action for Pair {
 
 #[test]
 fn ordered_heterogeneous_tuple_inputs_ignore_declaration_and_completion_order() {
-    let number = Leaf::new("number", ActionHandle::new(Number)).unwrap();
-    let text = Leaf::new("text", ActionHandle::new(Text)).unwrap();
-    let pair = Leaf::new("pair", ActionHandle::new(Pair)).unwrap();
+    let number = Step::new("number", ActionHandle::new(Number)).unwrap();
+    let text = Step::new("text", ActionHandle::new(Text)).unwrap();
+    let pair = Step::new("pair", ActionHandle::new(Pair)).unwrap();
     let compilation = GraphStructure::new(
         [
             number.clone().into(),

@@ -65,7 +65,7 @@ NodeOutcome is a closed terminal-state union:
 
 | Variant | Meaning |
 | --- | --- |
-| `Succeeded(Value)` | Successful leaf result, or unit for a completed composite |
+| `Succeeded(Value)` | Successful step result, or unit for a completed composite |
 | `Skipped` | Explicitly skipped node; no successful value |
 | `Failed(NodeFailure::Action(error))` | Original action error |
 | `Failed(NodeFailure::Child(id))` | Composite failed because of this direct child |

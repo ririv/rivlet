@@ -4,9 +4,9 @@ English | [简体中文](./zh-CN/core_model.md)
 
 ```text
 Node (shared protocol)
-├── Leaf: identity + label + condition + callable
+├── Step: identity + label + condition + callable
 └── Graph: identity + label + condition + GraphStructure
-                                         ├── nodes: Leaf | Graph
+                                         ├── nodes: Step | Graph
                                          ├── edges
                                          └── interface declarations / static rules
                         ↓ Execution(root).compile()
@@ -15,9 +15,10 @@ Node (shared protocol)
                    ExecutionState
 ```
 
-There is no Step wrapper. Leaf and Graph compose shared internal metadata; neither
+There is no generic node wrapper: Step holds an action, not a Graph. Step and Graph
+compose shared internal metadata; neither
 inherits implementation from Node. Node describes common operations;
-`NodeKind = Leaf | Graph` is the closed set accepted by structures and execution.
+`NodeKind = Step | Graph` is the closed set accepted by structures and execution.
 Implementing a lookalike protocol does not register another executable kind.
 The former wrapper's ownership problem and this decision are described separately
 in the [node modeling discussion](./design/node-modeling.md).
@@ -25,10 +26,10 @@ in the [node modeling discussion](./design/node-modeling.md).
 ## Nodes and reusable structure
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphStructure, Leaf
+from rivlet import Edge, Execution, Graph, GraphStructure, Step
 
-prepare = Leaf(lambda: print("prepare"), label="prepare")
-finish = Leaf(lambda: print("finish"), label="finish")
+prepare = Step(lambda: print("prepare"), label="prepare")
+finish = Step(lambda: print("finish"), label="finish")
 body = GraphStructure(nodes=(prepare, finish), edges=(Edge(prepare, finish),))
 workflow = Graph(body, label="workflow", condition=lambda: True)
 Execution(workflow).run()
@@ -41,7 +42,7 @@ two_runs = (left | right).graph(label="two runs")
 GraphStructure contains nodes, edges, GraphInterface declarations, observation
 messages, StaticConditions and StaticSelection. It has no identity, label, runtime
 condition or run state. Graph composes a structure and exposes `graph.interface`;
-Leaf has no interface attribute. RustGraphStructure is an opaque Rust-owned body,
+Step has no interface attribute. RustGraphStructure is an opaque Rust-owned body,
 also composed with `Graph(native_structure, label="native")`.
 
 Two Graph instances can share one structure. Their identities differ; shared inner
@@ -56,7 +57,7 @@ composition preserves actual nodes, never silently allocates replacement wrapper
 - NodePath identifies a mount, such as `0.1.0`. Its `.segments`, `.labels` and
   `.parent` describe position and presentation. Labels do not affect equality/hash.
 - Labels may repeat; an unlabeled node displays its numeric path.
-- Execution mounts its actual Leaf or Graph root at `0`, with children at `0.0`
+- Execution mounts its actual Step or Graph root at `0`, with children at `0.0`
   and so on. It creates no wrapper identity or no-op action.
 - Declaration IDs are not durable business IDs or cache keys. Rust calls that
   identity NodeIdentity; its low-level topology NodeId is an indexed reference.
@@ -73,7 +74,7 @@ with_dsl = (prepare >> (left | right) >> finish).graph(label="pipeline")
 
 NodeWiring is construction input, not an executable wrapper. GraphStructure keeps
 normalized Edges. `>>` connects structural exits to entries; `|` adds no dependency.
-Both produce GraphWiring, materialized by `.graph(...)`. Operands are Leaf, Graph
+Both produce GraphWiring, materialized by `.graph(...)`. Operands are Step, Graph
 or existing GraphWiring, not raw functions. There is no `.step()` materializer.
 Subgraph boundaries remain intact. DSL boundaries are not named interface ports;
 ports are never automatically forwarded or connected.
@@ -88,14 +89,14 @@ drawn between components is not necessarily a cycle between their actual leaves.
 ```python
 from rivlet import NodeRunContext, Option, Results
 
-plan = Leaf(lambda: "plan")
-review = Leaf(lambda: True)
+plan = Step(lambda: "plan")
+review = Step(lambda: True)
 
 def implement(ctx: NodeRunContext, plan: Option[object], review: Option[object]) -> None:
     ctx.control.require_running()
     print(plan.unwrap(), review.unwrap())
 
-work = Leaf(implement)
+work = Step(implement)
 root = Graph.from_wiring((
     prepare.wire(), plan.wire(), review.wire(),
     work.wire(after=(prepare, Results(plan, review))),
@@ -108,7 +109,7 @@ Multiple Results entries in one after tuple concatenate into one complete group.
 Do not duplicate their producers as ordinary prerequisites, slice a returned group,
 or install independent groups on the same action.
 
-Without inputs Leaf calls `fn()` or `fn(ctx)`; when both are valid `fn()` wins,
+Without inputs Step calls `fn()` or `fn(ctx)`; when both are valid `fn()` wins,
 preserving default-argument closures. With inputs it calls `fn(ctx, result_a, ...)`.
 Annotations never select invocation semantics. Complete arity is checked before run.
 
@@ -152,7 +153,7 @@ to Execution; callers own synchronization and cleanup. Sharing creates no edges.
 
 ## Conditions and selection
 
-Leaf and Graph accept the same runtime condition: a zero-argument bool predicate
+Step and Graph accept the same runtime condition: a zero-argument bool predicate
 or flat `(predicate, source_node, ...)` tuple. Sources supply Options independently
 of action Results. False skips the node; false on Graph skips its subtree.
 Edge conditions remove only a wait. StaticConditions binds host evaluator and
@@ -173,7 +174,7 @@ instead retains every constructed candidate. Neither uses declaration order as p
 
 ## Execution and compilation
 
-Execution accepts Leaf or Graph. Its first successful compile is reused by
+Execution accepts Step or Graph. Its first successful compile is reused by
 compile/run/arun; create another execution to evaluate static rules again. State
 is single-use. All drivers share Rust compilation/scheduling and one concurrency
 budget for runtime-created subgraphs. GraphCompilation contains Python leaves,

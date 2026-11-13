@@ -38,17 +38,17 @@ Windows x64 的源码构建与安装后验收见
 ## 组合步骤与可复用子图
 
 ```python
-from rivlet import Execution, Graph, Leaf, ThreadRunOptions
+from rivlet import Execution, Graph, Step, ThreadRunOptions
 
 
 def checks() -> Graph:
-    validate = Leaf(lambda: print("validate"), label="validate")
-    test = Leaf(lambda: print("test"), label="test")
+    validate = Step(lambda: print("validate"), label="validate")
+    test = Step(lambda: print("test"), label="test")
     return (validate | test).graph(label="checks")
 
 
-prepare = Leaf(lambda: print("prepare"), label="prepare")
-finish = Leaf(lambda: print("finish"), label="finish")
+prepare = Step(lambda: print("prepare"), label="prepare")
+finish = Step(lambda: print("finish"), label="finish")
 graph = (prepare >> checks() >> finish).graph(label="example")
 Execution(graph).run(ThreadRunOptions(workers=2))
 ```
@@ -56,7 +56,7 @@ Execution(graph).run(ThreadRunOptions(workers=2))
 prepare 完成后，checks 中的 validate/test 可并发执行；finish 等待两者成功。
 `>>` 表示先后，`|` 不添加依赖。实际并发度由执行选项控制。
 
-Leaf 是执行函数的节点，Graph 是包含子结构的节点。二者都持有身份、label 和
+Step 是执行函数的节点，Graph 是包含子结构的节点。二者都持有身份、label 和
 condition，并支持相同的 wire/DSL 操作。Node 只是共同协议，不需要手动包装；
 只有 Graph 有 interface。
 
@@ -71,7 +71,7 @@ Execution(both).run(ThreadRunOptions(workers=2))
 ```
 
 两个 Graph 共享结构，但挂载路径和结果独立。DSL 保留传入节点，不能在同一结构里
-重复放入同一节点对象。Execution 接收实际 Leaf/Graph 根，不再创建额外 Step 包装。
+重复放入同一节点对象。Execution 接收实际 Step/Graph 根，不用 Step 再包装 Graph。
 声明再次运行时新建 Execution。非 DSL 写法见
 [核心模型](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/core_model.md)。
 
@@ -87,7 +87,7 @@ Execution(both).run(ThreadRunOptions(workers=2))
 from rivlet import (
     Graph,
     GraphStructure,
-    Leaf,
+    Step,
     Edge,
     GraphInterface,
     Execution,
@@ -96,16 +96,16 @@ from rivlet import (
 
 data_ready = "validated-data"
 
-fetch = Leaf(lambda: print("fetch data"), label=("fetch"))
-validate = Leaf(lambda: print("validate data"), label=("validate"))
-archive = Leaf(lambda: print("archive data"), label=("archive"))
+fetch = Step(lambda: print("fetch data"), label=("fetch"))
+validate = Step(lambda: print("validate data"), label=("validate"))
+archive = Step(lambda: print("archive data"), label=("archive"))
 producer_graph = (fetch >> validate >> archive).graph(
     interface=GraphInterface(outputs={data_ready: validate}),
 )
 
-prepare = Leaf(lambda: print("prepare consumer"), label=("prepare"))
-process = Leaf(lambda: print("process data"), label=("process"))
-report = Leaf(lambda: print("report results"), label=("report"))
+prepare = Step(lambda: print("prepare consumer"), label=("prepare"))
+process = Step(lambda: print("process data"), label=("process"))
+report = Step(lambda: print("report results"), label=("report"))
 consumer_graph = (prepare >> process >> report).graph(
     interface=GraphInterface(inputs={data_ready: process}),
 )
@@ -146,7 +146,7 @@ consumer: prepare → process [input] → report
 沿用上例的 `producer_graph`：
 
 ```python
-setup = Leaf(lambda: print("set up producer"), label=("setup"))
+setup = Step(lambda: print("set up producer"), label=("setup"))
 wrapped = (
     setup >> producer_graph
 ).graph(
@@ -162,7 +162,7 @@ wrapped = (
 | 想做什么 | API | 条件为假时 |
 | --- | --- | --- |
 | 执行前排除可选任务 | `StaticConditions.when(...)` | 编译时移除节点及关联边 |
-| 决定任务是否执行 | `Leaf(condition=predicate)` / `Graph(condition=predicate)` 或 `condition=(predicate, source, ...)` | 跳过 action；对子图则不进入内部 |
+| 决定任务是否执行 | `Step(condition=predicate)` / `Graph(condition=predicate)` 或 `condition=(predicate, source, ...)` | 跳过 action；对子图则不进入内部 |
 | 决定任务是否等待某个前置 | `ConditionalPrerequisite(...)` | 只取消这条等待关系，不取消任一任务 |
 
 ### 静态条件：执行前选择任务
@@ -170,7 +170,7 @@ wrapped = (
 ```python
 from rivlet import (
     Graph,
-    Leaf,
+    Step,
     Execution,
     StaticCondition,
     StaticConditions,
@@ -180,10 +180,10 @@ from rivlet import (
 extra_checks = StaticCondition(payload=False, description="extra checks enabled")
 static = StaticConditions(evaluator=lambda condition: condition.payload is True)
 
-prepare = Leaf(lambda: print("prepare static workflow"), label=("prepare"))
-verify = Leaf(lambda: print("verify"), label=("verify"))
-extra = Leaf(lambda: print("extra checks"), label=("extra"))
-finish = Leaf(lambda: print("finish static workflow"), label=("finish"))
+prepare = Step(lambda: print("prepare static workflow"), label=("prepare"))
+verify = Step(lambda: print("verify"), label=("verify"))
+extra = Step(lambda: print("extra checks"), label=("extra"))
+finish = Step(lambda: print("finish static workflow"), label=("finish"))
 
 graph = (prepare >> (verify | static.when(extra_checks, extra)) >> finish).graph()
 Execution(Graph(structure=(graph).structure, label=("static conditions"))).run(
@@ -200,15 +200,15 @@ payload 及其求值方式由应用定义，Rivlet 不内置特定的 feature �
 ### 静态选择：保留候选，编译时恰好选择一个
 
 ```python
-from rivlet import Graph, Leaf, Case, Execution, static
+from rivlet import Graph, Step, Case, Execution, static
 
 platform = "android"
 version = 3
-prepare = Leaf(lambda: print("prepare"), label=("prepare"))
-modern = Leaf(lambda: print("modern Android"), label=("modern"))
-legacy = Leaf(lambda: print("legacy Android"), label=("legacy"))
-linux = Leaf(lambda: print("Linux"), label=("linux"))
-finish = Leaf(lambda: print("finish"), label=("finish"))
+prepare = Step(lambda: print("prepare"), label=("prepare"))
+modern = Step(lambda: print("modern Android"), label=("modern"))
+legacy = Step(lambda: print("legacy Android"), label=("legacy"))
+linux = Step(lambda: print("Linux"), label=("linux"))
+finish = Step(lambda: print("finish"), label=("finish"))
 
 graph = (
     prepare
@@ -224,7 +224,7 @@ graph = (
 Execution(Graph(structure=(graph).structure, label=("static selection"))).run()
 ```
 
-`Case(condition, component)` 包含完整布尔条件和一个 Leaf 或 Graph；子图直接传 Graph。声明展示保留
+`Case(condition, component)` 包含完整布尔条件和一个 Step 或 Graph；子图直接传 Graph。声明展示保留
 全部候选，编译时要求恰好一个条件为真，这里得到 `prepare → modern → finish`。
 零个或多个成立都报错，不按顺序选第一个。此处 `static` 是模块命名空间，不需要
 evaluator。Python 构图时已计算布尔条件，编译时检查选择。子图、边界与直接声明见
@@ -233,11 +233,11 @@ evaluator。Python 构图时已计算布尔条件，编译时检查选择。子�
 ### 把结果传给动作
 
 ```python
-from rivlet import Graph, Leaf, Execution, Option, Results, NodeRunContext
+from rivlet import Graph, Step, Execution, Option, Results, NodeRunContext
 
-prepare = Leaf(lambda: print("prepare"))
-plan = Leaf(lambda: "implementation plan")
-review = Leaf(lambda: True)
+prepare = Step(lambda: print("prepare"))
+plan = Step(lambda: "implementation plan")
+review = Step(lambda: True)
 
 
 def implement(
@@ -247,7 +247,7 @@ def implement(
     print(plan.unwrap(), review.unwrap())
 
 
-work = Leaf(implement)
+work = Step(implement)
 graph = Graph.from_wiring(
     (
         prepare.wire(),
@@ -273,20 +273,20 @@ Execution(Graph(structure=(graph).structure)).run()
 ### 运行时条件：根据步骤结果决定是否执行
 
 ```python
-from rivlet import Graph, Leaf, Execution, Option
+from rivlet import Graph, Step, Execution, Option
 
 
 def should_process(result: Option[object]) -> bool:
     return result.unwrap() is True
 
 
-probe = Leaf(lambda: False, label=("has work"))
-process = Leaf(
+probe = Step(lambda: False, label=("has work"))
+process = Step(
     lambda: print("process work"),
     label=("process"),
     condition=((should_process, probe)),
 )
-done = Leaf(lambda: print("workflow finished"), label=("done"))
+done = Step(lambda: print("workflow finished"), label=("done"))
 
 graph = Graph.from_wiring(
     (
@@ -311,11 +311,11 @@ action 则得到 `Some(None)`。来源可能被跳过时，先用 `is_some()` �
 ### 条件边：只决定是否等待
 
 ```python
-from rivlet import Graph, Leaf, ConditionalPrerequisite, Execution, ThreadRunOptions
+from rivlet import Graph, Step, ConditionalPrerequisite, Execution, ThreadRunOptions
 
-decision = Leaf(lambda: False, label=("wait for checks"))
-checks = Leaf(lambda: print("run checks"), label=("checks"))
-publish = Leaf(lambda: print("publish"), label=("publish"))
+decision = Step(lambda: False, label=("wait for checks"))
+checks = Step(lambda: print("run checks"), label=("checks"))
+publish = Step(lambda: print("publish"), label=("publish"))
 wait_for_checks = lambda result: result.unwrap() is True
 
 graph = Graph.from_wiring(
@@ -339,17 +339,17 @@ Execution(Graph(structure=(graph).structure, label=("conditional dependency"))).
 
 `publish` 会等待 `decision`。它返回 `True` 时，`publish` 还要等待 `checks`；
 返回 `False` 时，`checks` 仍会执行，但发布不用等它。整次运行仍包含这两个任务。
-如果想跳过发布本身，应使用 `Leaf(..., condition=...)` 声明，而不是使用条件边。
+如果想跳过发布本身，应使用 `Step(..., condition=...)` 声明，而不是使用条件边。
 静态条件边则通过 `static.edge(source, target, condition=...)` 声明。
 
 ## 不运行任务，直接导出结构
 
 ```python
 import json
-from rivlet import Graph, Leaf, Execution, export_graph
+from rivlet import Graph, Step, Execution, export_graph
 
 graph = (
-    Leaf(lambda: None, label=("prepare")) >> Leaf(lambda: None, label=("finish"))
+    Step(lambda: None, label=("prepare")) >> Step(lambda: None, label=("finish"))
 ).graph()
 execution = Execution(Graph(structure=(graph).structure))
 declaration = export_graph(graph)

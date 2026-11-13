@@ -61,7 +61,7 @@ In both modes:
 
 See [render/](../src/rivlet/render/).
 
-`render_graph(...)` and `render_graph_mermaid(...)` accept a Leaf/Graph node,
+`render_graph(...)` and `render_graph_mermaid(...)` accept a Step/Graph node,
 GraphStructure, or GraphCompilation and require an explicit inspection `root_label`.
 Node labels remain part of the declaration; execution views derive the actual
 root node's name rather than introducing a second execution label.
@@ -249,7 +249,7 @@ For a declared subgraph:
 - GraphObservationMessages.before/after_success follows composite lifecycle.
 
 Runtime-returned graphs cannot be compiled ahead of time. They receive a nested
-compilation/session rooted at the current leaf path.
+compilation/session rooted at the current step path.
 
 Result edges resolve producer identities inside the current mount. Actions receive
 their ordered Option inputs, not graph scope indexes or a result query context.

@@ -1,4 +1,4 @@
-"""Leaf behavior and callable invocation contracts."""
+"""Action steps and callable invocation contracts."""
 
 from __future__ import annotations
 
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from .wiring import GraphWiring, NodeWiring, Results
 
 
-type LeafCallable = Callable[..., object]
+type StepCallable = Callable[..., object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,14 +34,14 @@ class _StepContextCall:
 
 @dataclass(frozen=True, slots=True)
 class _ResultCall:
-    fn: LeafCallable
+    fn: StepCallable
 
 
-type _LeafCall = _NoArgsCall | _StepContextCall | _ResultCall
+type _StepCall = _NoArgsCall | _StepContextCall | _ResultCall
 
 
 def _accepts_no_args(
-    _fn: LeafCallable,
+    _fn: StepCallable,
     signature: inspect.Signature,
 ) -> TypeGuard[Callable[[], object]]:
     try:
@@ -52,7 +52,7 @@ def _accepts_no_args(
 
 
 def _accepts_step_context(
-    _fn: LeafCallable,
+    _fn: StepCallable,
     signature: inspect.Signature,
 ) -> TypeGuard[Callable[[NodeRunContext], object]]:
     try:
@@ -63,7 +63,7 @@ def _accepts_step_context(
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False)
-class Leaf:
+class Step:
     """封装 action；数据参数由图的结果边显式绑定。
 
     无数据输入时调用 fn() 或 fn(ctx)，两者都可调用时固定选择零参，
@@ -71,12 +71,12 @@ class Leaf:
     完整签名在图接线后校验，不按参数名或类型标注猜测调用方式。
     """
 
-    _call: _LeafCall
+    _call: _StepCall
     _meta: _NodeMeta
 
     def __init__(
         self,
-        action: LeafCallable,
+        action: StepCallable,
         *,
         label: str | None = None,
         condition: ConditionInput | None = None,
@@ -92,7 +92,7 @@ class Leaf:
         if _accepts_no_args(fn, signature):
             # 同时支持零参和单参的 callable 固定按零参调用，避免把
             # `lambda value=value: ...` 的闭包默认值误覆盖成运行上下文。
-            call: _LeafCall = _NoArgsCall(fn=fn)
+            call: _StepCall = _NoArgsCall(fn=fn)
         elif _accepts_step_context(fn, signature):
             call = _StepContextCall(fn=fn)
         else:
@@ -115,7 +115,7 @@ class Leaf:
         return self._meta.condition
 
     @property
-    def action(self) -> LeafCallable:
+    def action(self) -> StepCallable:
         return self._call.fn
 
     def wire(self, after: tuple[NodePrerequisite | Results, ...] = ()) -> NodeWiring:
@@ -158,9 +158,9 @@ class Leaf:
                 raise GraphError("action requires result inputs")
 
 
-def leaf(action: LeafCallable) -> Leaf:
-    """Declare a leaf, using a named callable's name as its presentation label."""
+def step(action: StepCallable) -> Step:
+    """Declare a step, using a named callable's name as its presentation label."""
 
     name = getattr(action, "__name__", None)
     label = name if isinstance(name, str) and name != "<lambda>" else None
-    return Leaf(action, label=label)
+    return Step(action, label=label)

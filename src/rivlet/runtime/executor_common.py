@@ -13,7 +13,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable
     from pathlib import Path
 
-    from ..model import Leaf
+    from ..model import Step
     from ..option import Option
     from ..results import NodeRunContext, ResultView
     from .action_log import ActionLog
@@ -39,7 +39,7 @@ async def _await_result(result: Awaitable[object]) -> object:
 
 
 def invoke_sync_action(
-    action: Leaf,
+    action: Step,
     ctx: NodeRunContext,
     step_log_path: Path | None,
     action_log: ActionLog,

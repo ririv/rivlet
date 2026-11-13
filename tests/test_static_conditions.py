@@ -11,10 +11,10 @@ from rivlet import (
     GraphInterface,
     GraphMode,
     GraphStructure,
-    Leaf,
     Node,
     StaticCondition,
     StaticConditions,
+    Step,
     ThreadRunOptions,
     compile_graph,
     render_graph,
@@ -30,8 +30,8 @@ def evaluate(condition: StaticCondition) -> bool:
 
 
 def test_static_dsl_and_direct_declaration_compile_identically() -> None:
-    first = Leaf(lambda: None, label=("first"))
-    last = Leaf(lambda: None, label=("last"))
+    first = Step(lambda: None, label=("first"))
+    last = Step(lambda: None, label=("last"))
     static = StaticConditions(evaluator=evaluate)
     dsl = (static.when(ENABLED, first) >> last).graph()
     direct = Graph(
@@ -51,8 +51,8 @@ def test_static_dsl_and_direct_declaration_compile_identically() -> None:
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_static_edge_keeps_both_actions(enabled: bool, mode: GraphMode) -> None:
     calls: list[str] = []
-    first = Leaf(lambda: calls.append("first"))
-    last = Leaf(lambda: calls.append("last"))
+    first = Step(lambda: calls.append("first"))
+    last = Step(lambda: calls.append("last"))
     graph = (
         StaticConditions(evaluator=evaluate)
         .edge(first, last, condition=ENABLED if enabled else DISABLED)
@@ -68,8 +68,8 @@ def test_static_edge_keeps_both_actions(enabled: bool, mode: GraphMode) -> None:
 
 
 def test_static_scopes_compose_without_replacing_evaluators() -> None:
-    left = Leaf(lambda: None, label=("left"))
-    right = Leaf(lambda: None, label=("right"))
+    left = Step(lambda: None, label=("left"))
+    right = Step(lambda: None, label=("right"))
     yes = StaticConditions(evaluator=lambda _condition: True)
     no = StaticConditions(evaluator=lambda _condition: False)
     graph = (yes.when(ENABLED, left) | no.when(ENABLED, right)).graph()
@@ -85,8 +85,8 @@ def test_result_edge_static_rule_is_evaluated_once() -> None:
         evaluated.append(condition)
         return True
 
-    source = Leaf(lambda: 42)
-    consumer = Leaf(lambda _ctx, result: result.unwrap())
+    source = Step(lambda: 42)
+    consumer = Step(lambda _ctx, result: result.unwrap())
     graph = Graph(
         structure=GraphStructure(
             nodes=(source, consumer),
@@ -107,7 +107,7 @@ def test_inactive_subgraph_does_not_evaluate_nested_static_rules() -> None:
 
     child = (
         StaticConditions(evaluator=unexpected)
-        .when(ENABLED, Leaf(lambda: pytest.fail("inactive action must not run")))
+        .when(ENABLED, Step(lambda: pytest.fail("inactive action must not run")))
         .graph()
     )
     graph = (
@@ -123,8 +123,8 @@ def test_inactive_subgraph_does_not_evaluate_nested_static_rules() -> None:
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_static_and_runtime_rules_coexist_on_nodes_and_edges(mode: GraphMode) -> None:
     calls: list[str] = []
-    first = Leaf(lambda: calls.append("first"))
-    last = Leaf(lambda: calls.append("last"), condition=(lambda: False))
+    first = Step(lambda: calls.append("first"))
+    last = Step(lambda: calls.append("last"), condition=(lambda: False))
     graph = Graph(
         structure=GraphStructure(
             nodes=(first, last),
@@ -148,8 +148,8 @@ def test_declaration_render_keeps_conditions_without_evaluation() -> None:
     def unexpected(_condition: StaticCondition) -> bool:
         pytest.fail("declaration rendering must not evaluate conditions")
 
-    first = Leaf(lambda: None, label=("first"))
-    last = Leaf(lambda: None, label=("last"))
+    first = Step(lambda: None, label=("first"))
+    last = Step(lambda: None, label=("last"))
     conditions: dict[Node | tuple[Node, Node], StaticCondition] = {first: ENABLED}
     static = StaticConditions(evaluator=unexpected, conditions=conditions)
     conditions.clear()
@@ -172,8 +172,8 @@ def test_declaration_render_keeps_conditions_without_evaluation() -> None:
 
 
 def test_static_rules_validate_graph_membership_and_reject_overrides() -> None:
-    first = Leaf(lambda: None)
-    last = Leaf(lambda: None)
+    first = Step(lambda: None)
+    last = Step(lambda: None)
     static = StaticConditions(evaluator=evaluate, conditions={first: ENABLED})
     with pytest.raises(GraphError, match="outside this graph"):
         Graph(structure=GraphStructure(nodes=(last,), static=static))
@@ -192,8 +192,8 @@ def test_static_rules_validate_graph_membership_and_reject_overrides() -> None:
 
 def test_static_pruning_does_not_silently_drop_required_port() -> None:
     ready = "ready"
-    produce = Leaf(lambda: None)
-    consume = Leaf(lambda: None)
+    produce = Step(lambda: None)
+    consume = Step(lambda: None)
     provider = Graph(
         structure=GraphStructure(
             nodes=(produce,), interface=GraphInterface(outputs={ready: produce})
@@ -223,8 +223,8 @@ def test_static_pruning_does_not_silently_drop_required_port() -> None:
 
 
 def test_static_pruning_does_not_leave_runtime_reads_without_a_source() -> None:
-    probe = Leaf(lambda: True)
-    consumer = Leaf(
+    probe = Step(lambda: True)
+    consumer = Step(
         lambda _ctx, *_inputs: None,
         condition=(
             _consumer_condition := (lambda result: bool(result.unwrap()), probe)

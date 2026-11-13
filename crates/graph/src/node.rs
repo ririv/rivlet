@@ -32,13 +32,13 @@ pub trait Node {
 
 /// One Rust action with declaration-local metadata.
 #[derive(Clone, Debug)]
-pub struct Leaf {
+pub struct Step {
     metadata: Metadata,
     action: ActionHandle,
 }
 
-impl Leaf {
-    /// Creates a leaf. Cloning it preserves its declaration identity.
+impl Step {
+    /// Creates a step. Cloning it preserves its declaration identity.
     ///
     /// # Errors
     /// Returns an error for an empty label.
@@ -65,7 +65,7 @@ impl Leaf {
     }
 }
 
-impl Node for Leaf {
+impl Node for Step {
     fn id(&self) -> NodeIdentity {
         self.id()
     }
@@ -137,28 +137,28 @@ impl Node for Graph {
 /// The supported concrete node kinds, not an implementation-inheritance hierarchy.
 #[derive(Clone, Debug)]
 pub enum NodeKind {
-    Leaf(Leaf),
+    Step(Step),
     Graph(Graph),
 }
 
 impl Node for NodeKind {
     fn id(&self) -> NodeIdentity {
         match self {
-            Self::Leaf(value) => value.id(),
+            Self::Step(value) => value.id(),
             Self::Graph(value) => value.id(),
         }
     }
     fn label(&self) -> &str {
         match self {
-            Self::Leaf(value) => value.label(),
+            Self::Step(value) => value.label(),
             Self::Graph(value) => value.label(),
         }
     }
 }
 
-impl From<Leaf> for NodeKind {
-    fn from(value: Leaf) -> Self {
-        Self::Leaf(value)
+impl From<Step> for NodeKind {
+    fn from(value: Step) -> Self {
+        Self::Step(value)
     }
 }
 impl From<Graph> for NodeKind {

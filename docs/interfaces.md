@@ -159,17 +159,17 @@ endpoints to bind Option arguments; see [result transport](#result-transport).
 
 GraphStructure.interface stores declarations; Graph.interface exposes read-only ports
 bound to that actual graph. Inputs return InputPort and outputs return OutputPort;
-Leaf has no interface. References preserve their owning graph without a
+Step has no interface. References preserve their owning graph without a
 (Step, "port") pair or a separate bind call. This example is independently runnable:
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Leaf
+from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step
 
-plan = Leaf(lambda: "design", label="plan")
+plan = Step(lambda: "design", label="plan")
 producer = Graph(GraphStructure(
     nodes=(plan,), interface=GraphInterface(outputs={"plan": plan}),
 ), label="producer")
-work = Leaf(lambda ctx, value: print(value.unwrap()), label="work")
+work = Step(lambda ctx, value: print(value.unwrap()), label="work")
 consumer = Graph(GraphStructure(
     nodes=(work,), interface=GraphInterface(inputs={"apply": work}),
 ), label="consumer")
@@ -189,7 +189,7 @@ multiple groups on one action. Reuse GraphStructure through distinct Graph nodes
 take ports from the intended instance. Forward with inputs=child/outputs=child or
 child.interface.inputs/outputs; forwarding preserves ownership.
 Runtime skip supplies Nothing; successful None supplies Some(None); failures block
-consumers. Interleaved components are checked for actual leaf-level cycles.
+consumers. Interleaved components are checked for actual step-level cycles.
 
 ## Two requirement forms
 
@@ -361,7 +361,7 @@ Execution(root=Graph(structure=(graph).structure)).run(mode="dynamic")
 
 ## Language boundaries
 
-Python holds Leaf/Graph references and validates interface ownership. Components,
+Python holds Step/Graph references and validates interface ownership. Components,
 ports, requirements, and selections are encoded as integer IDs for one
 Rust provider-resolution call. The resolver validates uniqueness, ambiguity, and
 explicit selections without executing actions or providing failover.

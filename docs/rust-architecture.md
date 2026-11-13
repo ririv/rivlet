@@ -12,7 +12,7 @@ integration.
 - `crates/action` defines typed Action inputs/outputs, Rust-owned values,
   stable errors, and process actions without
   Python callbacks. It does not depend on PyO3, Tokio, or Graph core.
-- `crates/graph` exposes actual Rust Leaf/Graph nodes, the common Node trait,
+- `crates/graph` exposes actual Rust Step/Graph nodes, the common Node trait,
   reusable GraphStructure, typed interfaces/edges, and GraphError.
   Adapters connect complete graphs rather than exposing individual actions to Python.
 - `crates/execution` composes graph/action/core into a single-use synchronous Rust
@@ -40,7 +40,7 @@ Rust public types describe their role, not their implementation language:
 from an action's `Inputs` associated type.
 
 Python types that distinguish ownership use an explicit Rust qualifier:
-`RustGraphStructure`, `CompiledRustLeaf`, and `RustActionBindings`. Private
+`RustGraphStructure`, `CompiledRustStep`, and `RustActionBindings`. Private
 compiler/session bindings instead use their role: `CompiledExecutionGraph`,
 `DeclarationCompilation`, `ExecutionSession`, and `MixedExecutionSession`.
 The lazy Rust result view is private `_RustResult`, not a second recipe API.
@@ -68,12 +68,12 @@ model. Replacing an adapter should not require changing graph declarations.
 
 ## Production execution
 
-Python Leaf/Graph are concrete nodes; Node is their protocol, not a wrapper.
+Python Step/Graph are concrete nodes; Node is their protocol, not a wrapper.
 GraphStructure holds the reusable body. PyO3 collects these nodes directly into
-existing Rust leaf/composite variants, without a second scheduler or implementation
+existing Rust step/composite variants, without a second scheduler or implementation
 inheritance. Rust NodeIdentity is the process-local declaration identity; indexed
 NodeId is the compiler/topology reference. Rust graph::GraphStructure holds a closed
-NodeKind union of Leaf/Graph. A Graph has its own identity and typed interface,
+NodeKind union of Step/Graph. A Graph has its own identity and typed interface,
 while its body can be shared with Arc. Projection resolves mounted scopes and
 ports and calls the existing GraphDeclaration compiler. Python's RustGraphStructure
 wraps that opaque body, composed into a Python Graph for mixed declarations.
@@ -147,7 +147,7 @@ Lowering receives graph scopes and node membership rather than independent owner
 roots, and children declarations:
 
 - Scope: Root or OwnedBy(NodeId).
-- Node: Leaf or Composite with child_graph.
+- Node: Step or Composite with child_graph.
 - Every node belongs to one GraphId.
 
 Rust validates parent/child graph consistency, derives owners from membership, and
@@ -174,7 +174,7 @@ validation have no second Python solver.
 
 Python retains host-facing objects:
 
-- Static leaf evaluators and runtime predicates.
+- Static step evaluators and runtime predicates.
 - Actions, results, observation, labels, and log paths.
 - Compilation side tables for actions, predicates, observations, paths, and scopes.
 - Execution state snapshots, explicit skips, and results.

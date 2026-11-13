@@ -16,11 +16,11 @@ use crate::{
 /// Action ownership and composite membership are mutually exclusive.
 #[derive(Clone, Debug)]
 pub enum ProjectedKind {
-    Leaf(ActionHandle),
+    Step(ActionHandle),
     Graph(GraphId),
 }
 
-/// One mounted declaration with an action only when it is a leaf.
+/// One mounted declaration with an action only when it is a step.
 #[derive(Clone, Debug)]
 pub struct ProjectedNode {
     identity: NodeIdentity,
@@ -158,7 +158,7 @@ impl Projection {
     /// Returns the common declaration error, including resolved port cycles.
     pub fn compile(self) -> Result<Compilation, GraphError> {
         for node in &self.nodes {
-            if let ProjectedKind::Leaf(action) = &node.kind {
+            if let ProjectedKind::Step(action) = &node.kind {
                 if action.input_types().len() != node.inputs.len() {
                     return Err(GraphError::ResultInputCount {
                         node: node.identity,
@@ -178,7 +178,7 @@ impl Projection {
                 DeclarationNode::new(
                     node.graph,
                     match node.kind {
-                        ProjectedKind::Leaf(_) => DeclaredNodeKind::Leaf,
+                        ProjectedKind::Step(_) => DeclaredNodeKind::Step,
                         ProjectedKind::Graph(child_graph) => {
                             DeclaredNodeKind::Composite { child_graph }
                         }
@@ -229,7 +229,7 @@ impl Projection {
             let mut path = prefix.to_vec();
             path.push(index);
             let kind = match node {
-                NodeKind::Leaf(leaf) => ProjectedKind::Leaf(leaf.action().clone()),
+                NodeKind::Step(step) => ProjectedKind::Step(step.action().clone()),
                 NodeKind::Graph(_) => ProjectedKind::Graph(GraphId::new(self.scopes.len())),
             };
             self.nodes.push(ProjectedNode {
@@ -275,7 +275,7 @@ impl Projection {
                         .map(|source| self.output_endpoint(scope, source))
                         .collect::<Result<Vec<_>, _>>()?;
                     let targets = match target {
-                        ResultTarget::Leaf(id) => vec![self.scopes[scope.index()].local_node(*id)?],
+                        ResultTarget::Step(id) => vec![self.scopes[scope.index()].local_node(*id)?],
                         ResultTarget::Port(port) => self.input_port(scope, port)?,
                     };
                     for target in targets {
@@ -305,8 +305,8 @@ impl Projection {
     fn bind_results(&mut self, target: NodeId, sources: &[NodeId]) -> Result<(), GraphError> {
         // O(I) 校验完整参数组并登记真实依赖，不按每个输入重扫节点或子图。
         let node = &self.nodes[target.index()];
-        let ProjectedKind::Leaf(action) = &node.kind else {
-            return Err(GraphError::ResultTargetNotLeaf(node.identity));
+        let ProjectedKind::Step(action) = &node.kind else {
+            return Err(GraphError::ResultTargetNotStep(node.identity));
         };
         if !node.inputs.is_empty() {
             return Err(GraphError::DuplicateResults(node.identity));
@@ -320,7 +320,7 @@ impl Projection {
         }
         for (source, expected) in sources.iter().zip(action.input_types()) {
             let actual = match &self.nodes[source.index()].kind {
-                ProjectedKind::Leaf(action) => action.output_type(),
+                ProjectedKind::Step(action) => action.output_type(),
                 ProjectedKind::Graph(_) => ValueType::of::<()>(),
             };
             if actual != *expected {
@@ -345,7 +345,7 @@ impl Projection {
         let id = self.scopes[scope.index()].local_node(owner)?;
         match self.nodes[id.index()].kind {
             ProjectedKind::Graph(child) => Ok(child),
-            ProjectedKind::Leaf(_) => Err(GraphError::ExpectedGraph(owner)),
+            ProjectedKind::Step(_) => Err(GraphError::ExpectedGraph(owner)),
         }
     }
 

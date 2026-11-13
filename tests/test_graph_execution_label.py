@@ -7,7 +7,7 @@ from rivlet import (
     Graph,
     GraphRenderOptions,
     GraphStructure,
-    Leaf,
+    Step,
     TreeFileExecutionOutput,
     render_execution_structure,
 )
@@ -20,7 +20,7 @@ from rivlet import (
 def test_graph_name_is_shared_by_compilation_rendering_and_output(
     tmp_path: Path, label: str | None, display: str, filename: str
 ) -> None:
-    graph = Graph(structure=GraphStructure(nodes=(Leaf(lambda: None, label="run"),)))
+    graph = Graph(structure=GraphStructure(nodes=(Step(lambda: None, label="run"),)))
     plan = Execution(
         root=Graph(structure=graph.structure, label=label),
         execution_output=TreeFileExecutionOutput(tmp_path),

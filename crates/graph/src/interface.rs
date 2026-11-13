@@ -142,7 +142,7 @@ fn checked_name(name: String) -> Result<String, GraphError> {
     Ok(name)
 }
 
-/// Port lookup on an actual Graph, never available on a Leaf.
+/// Port lookup on an actual Graph, never available on a Step.
 pub struct GraphInterfaceView<'a> {
     graph: &'a Graph,
 }
