@@ -38,23 +38,27 @@ Windows x64 的源码构建与安装后验收见
 ## 组合步骤与可复用子图
 
 ```python
-from rivlet import Execution, Graph, Step, ThreadRunOptions
+from rivlet import Execution, Graph, GraphWiring, Step, ThreadRunOptions, graph
 
 
-def checks() -> Graph:
+@graph
+def checks() -> GraphWiring:
     validate = Step(lambda: print("validate"), label="validate")
     test = Step(lambda: print("test"), label="test")
-    return (validate | test).graph(label="checks")
+    return validate | test
 
 
 prepare = Step(lambda: print("prepare"), label="prepare")
 finish = Step(lambda: print("finish"), label="finish")
-graph = (prepare >> checks() >> finish).graph(label="example")
-Execution(graph).run(ThreadRunOptions(workers=2))
+workflow = (prepare >> checks >> finish).graph(label="example")
+Execution(workflow).run(ThreadRunOptions(workers=2))
 ```
 
 prepare 完成后，checks 中的 validate/test 可并发执行；finish 等待两者成功。
 `>>` 表示先后，`|` 不添加依赖。实际并发度由执行选项控制。
+
+`@graph` 会立即调用一次无参构图函数，将其返回的接线声明构造成以函数名为 label
+的 Graph；步骤动作仍只在执行时运行。节点既可以定义在函数内部，也可以引用外层声明。
 
 Step 是执行函数的节点，Graph 是包含子结构的节点。二者都持有身份、label 和
 condition，并支持相同的 wire/DSL 操作。Node 只是共同协议，不需要手动包装；
@@ -63,7 +67,7 @@ condition，并支持相同的 wire/DSL 操作。Node 只是共同协议，不�
 GraphStructure 保存可复用结构，不持有节点身份。复用时显式创建两个 Graph：
 
 ```python
-body = checks().structure
+body = checks.structure
 left = Graph(body, label="left")
 right = Graph(body, label="right")
 both = (left | right).graph(label="both")
@@ -85,42 +89,41 @@ Execution(both).run(ThreadRunOptions(workers=2))
 
 ```python
 from rivlet import (
+    Edge,
+    Execution,
     Graph,
+    GraphInterface,
     GraphStructure,
     Step,
-    Edge,
-    GraphInterface,
-    Execution,
     ThreadRunOptions,
 )
 
 data_ready = "validated-data"
 
-fetch = Step(lambda: print("fetch data"), label=("fetch"))
-validate = Step(lambda: print("validate data"), label=("validate"))
-archive = Step(lambda: print("archive data"), label=("archive"))
-producer_graph = (fetch >> validate >> archive).graph(
+fetch = Step(lambda: print("fetch data"), label="fetch")
+validate = Step(lambda: print("validate data"), label="validate")
+archive = Step(lambda: print("archive data"), label="archive")
+producer = (fetch >> validate >> archive).graph(
+    label="producer",
     interface=GraphInterface(outputs={data_ready: validate}),
 )
 
-prepare = Step(lambda: print("prepare consumer"), label=("prepare"))
-process = Step(lambda: print("process data"), label=("process"))
-report = Step(lambda: print("report results"), label=("report"))
-consumer_graph = (prepare >> process >> report).graph(
+prepare = Step(lambda: print("prepare consumer"), label="prepare")
+process = Step(lambda: print("process data"), label="process")
+report = Step(lambda: print("report results"), label="report")
+consumer = (prepare >> process >> report).graph(
+    label="consumer",
     interface=GraphInterface(inputs={data_ready: process}),
 )
 
-producer = Graph(structure=(producer_graph).structure, label=("producer"))
-consumer = Graph(structure=(consumer_graph).structure, label=("consumer"))
-graph = Graph(
-    structure=GraphStructure(
-        nodes=((producer, consumer)),
-        edges=((Edge(source=producer, target=consumer, ports=data_ready),)),
-    )
+pipeline = Graph(
+    GraphStructure(
+        nodes=(producer, consumer),
+        edges=(Edge(producer, consumer, ports=data_ready),),
+    ),
+    label="pipeline",
 )
-Execution(Graph(structure=(graph).structure, label=("pipeline"))).run(
-    ThreadRunOptions(workers=3)
-)
+Execution(pipeline).run(ThreadRunOptions(workers=3))
 ```
 
 ```text
@@ -137,24 +140,20 @@ consumer: prepare → process [input] → report
 普通端口边只同步就绪；跨图传参使用结果边和实际 interface 端点。
 声明出口时，必须保证后续步骤不会再使消费者读取的内容失效。
 
-这与 `producer_graph >> consumer_graph` 不同：后者会等整个提供方完成后才开始
+这与 `producer >> consumer` 不同：后者会等整个提供方完成后才开始
 消费者的任何步骤。多个提供方的选择、多个入口和失败行为见
 [端口依赖与子图端口](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/interfaces.md)。
 
 ### 包装子图时转发接口
 
-沿用上例的 `producer_graph`：
+沿用上例的 `producer`：
 
 ```python
-setup = Step(lambda: print("set up producer"), label=("setup"))
-wrapped = (
-    setup >> producer_graph
-).graph(
-    interface=producer_graph,
-)
+setup = Step(lambda: print("set up producer"), label="setup")
+wrapped = (setup >> producer).graph(interface=producer)
 ```
 
-`interface=producer_graph` 显式把内部子图的出入口公开到外层；不写时，外层不公开
+`interface=producer` 显式把内部子图的出入口公开到外层；不写时，外层不公开
 任何端口。需要时也可以通过 `GraphInterface` 只转发一个方向，或声明新接口。
 
 ## 按条件执行与等待
@@ -169,26 +168,25 @@ wrapped = (
 
 ```python
 from rivlet import (
-    Graph,
-    Step,
     Execution,
     StaticCondition,
     StaticConditions,
+    Step,
     ThreadRunOptions,
 )
 
 extra_checks = StaticCondition(payload=False, description="extra checks enabled")
 static = StaticConditions(evaluator=lambda condition: condition.payload is True)
 
-prepare = Step(lambda: print("prepare static workflow"), label=("prepare"))
-verify = Step(lambda: print("verify"), label=("verify"))
-extra = Step(lambda: print("extra checks"), label=("extra"))
-finish = Step(lambda: print("finish static workflow"), label=("finish"))
+prepare = Step(lambda: print("prepare static workflow"), label="prepare")
+verify = Step(lambda: print("verify"), label="verify")
+extra = Step(lambda: print("extra checks"), label="extra")
+finish = Step(lambda: print("finish static workflow"), label="finish")
 
-graph = (prepare >> (verify | static.when(extra_checks, extra)) >> finish).graph()
-Execution(Graph(structure=(graph).structure, label=("static conditions"))).run(
-    ThreadRunOptions(workers=2)
+graph = (prepare >> (verify | static.when(extra_checks, extra)) >> finish).graph(
+    label="static conditions",
 )
+Execution(graph).run(ThreadRunOptions(workers=2))
 ```
 
 `payload=False` 时，编译会移除 `extra`；改为 `True`，它就会与 `verify` 一起参与执行。
@@ -200,15 +198,15 @@ payload 及其求值方式由应用定义，Rivlet 不内置特定的 feature �
 ### 静态选择：保留候选，编译时恰好选择一个
 
 ```python
-from rivlet import Graph, Step, Case, Execution, static
+from rivlet import Case, Execution, Step, static
 
 platform = "android"
 version = 3
-prepare = Step(lambda: print("prepare"), label=("prepare"))
-modern = Step(lambda: print("modern Android"), label=("modern"))
-legacy = Step(lambda: print("legacy Android"), label=("legacy"))
-linux = Step(lambda: print("Linux"), label=("linux"))
-finish = Step(lambda: print("finish"), label=("finish"))
+prepare = Step(lambda: print("prepare"), label="prepare")
+modern = Step(lambda: print("modern Android"), label="modern")
+legacy = Step(lambda: print("legacy Android"), label="legacy")
+linux = Step(lambda: print("Linux"), label="linux")
+finish = Step(lambda: print("finish"), label="finish")
 
 graph = (
     prepare
@@ -220,8 +218,8 @@ graph = (
         ),
     )
     >> finish
-).graph()
-Execution(Graph(structure=(graph).structure, label=("static selection"))).run()
+).graph(label="static selection")
+Execution(graph).run()
 ```
 
 `Case(condition, component)` 包含完整布尔条件和一个 Step 或 Graph；子图直接传 Graph。声明展示保留
@@ -233,7 +231,7 @@ evaluator。Python 构图时已计算布尔条件，编译时检查选择。子�
 ### 把结果传给动作
 
 ```python
-from rivlet import Graph, Step, Execution, Option, Results, NodeRunContext
+from rivlet import Execution, Graph, NodeRunContext, Option, Results, Step
 
 prepare = Step(lambda: print("prepare"))
 plan = Step(lambda: "implementation plan")
@@ -253,15 +251,10 @@ graph = Graph.from_wiring(
         prepare.wire(),
         plan.wire(),
         review.wire(),
-        work.wire(
-            after=(
-                prepare,
-                Results(plan, review),
-            )
-        ),
+        work.wire(after=(prepare, Results(plan, review))),
     )
 )
-Execution(Graph(structure=(graph).structure)).run()
+Execution(graph).run()
 ```
 
 `after` 统一声明前置：普通 Node 只等待完成，`Results(plan, review)` 还按顺序传入它们的结果。
@@ -273,20 +266,20 @@ Execution(Graph(structure=(graph).structure)).run()
 ### 运行时条件：根据步骤结果决定是否执行
 
 ```python
-from rivlet import Graph, Step, Execution, Option
+from rivlet import Execution, Graph, Option, Step
 
 
 def should_process(result: Option[object]) -> bool:
     return result.unwrap() is True
 
 
-probe = Step(lambda: False, label=("has work"))
+probe = Step(lambda: False, label="has work")
 process = Step(
     lambda: print("process work"),
-    label=("process"),
-    condition=((should_process, probe)),
+    label="process",
+    condition=(should_process, probe),
 )
-done = Step(lambda: print("workflow finished"), label=("done"))
+done = Step(lambda: print("workflow finished"), label="done")
 
 graph = Graph.from_wiring(
     (
@@ -294,8 +287,9 @@ graph = Graph.from_wiring(
         process.wire(),
         done.wire(after=(process,)),
     ),
+    label="runtime conditions",
 )
-Execution(Graph(structure=(graph).structure, label=("runtime conditions"))).run()
+Execution(graph).run()
 ```
 
 `condition=(should_process, probe)` 声明结果依赖，并把结果作为 `Option` 传给判断函数，
@@ -311,11 +305,11 @@ action 则得到 `Some(None)`。来源可能被跳过时，先用 `is_some()` �
 ### 条件边：只决定是否等待
 
 ```python
-from rivlet import Graph, Step, ConditionalPrerequisite, Execution, ThreadRunOptions
+from rivlet import ConditionalPrerequisite, Execution, Graph, Step, ThreadRunOptions
 
-decision = Step(lambda: False, label=("wait for checks"))
-checks = Step(lambda: print("run checks"), label=("checks"))
-publish = Step(lambda: print("publish"), label=("publish"))
+decision = Step(lambda: False, label="wait for checks")
+checks = Step(lambda: print("run checks"), label="checks")
+publish = Step(lambda: print("publish"), label="publish")
 wait_for_checks = lambda result: result.unwrap() is True
 
 graph = Graph.from_wiring(
@@ -331,10 +325,9 @@ graph = Graph.from_wiring(
             ),
         ),
     ),
+    label="conditional dependency",
 )
-Execution(Graph(structure=(graph).structure, label=("conditional dependency"))).run(
-    ThreadRunOptions(workers=2)
-)
+Execution(graph).run(ThreadRunOptions(workers=2))
 ```
 
 `publish` 会等待 `decision`。它返回 `True` 时，`publish` 还要等待 `checks`；
@@ -346,12 +339,12 @@ Execution(Graph(structure=(graph).structure, label=("conditional dependency"))).
 
 ```python
 import json
-from rivlet import Graph, Step, Execution, export_graph
+from rivlet import Execution, Step, export_graph
 
 graph = (
-    Step(lambda: None, label=("prepare")) >> Step(lambda: None, label=("finish"))
+    Step(lambda: None, label="prepare") >> Step(lambda: None, label="finish")
 ).graph()
-execution = Execution(Graph(structure=(graph).structure))
+execution = Execution(graph)
 declaration = export_graph(graph)
 compilation = execution.compile()
 compiled = export_graph(compilation)
