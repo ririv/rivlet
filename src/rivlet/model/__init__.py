@@ -16,6 +16,7 @@ from .graph import (
     GraphMode,
     GraphObservationMessages,
     GraphStructure,
+    graph,
 )
 from .identity import NodeId, NodePath
 from .node import (
@@ -59,6 +60,7 @@ __all__ = [
     "prerequisite_node",
     "resolve_node_label",
     "step",
+    "graph",
     "NodeWiring",
     "Results",
     "Edge",

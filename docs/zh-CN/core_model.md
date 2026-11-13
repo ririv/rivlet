@@ -73,6 +73,43 @@ NodeWiring 是构造输入，不是执行包装。GraphStructure 保存归一化
 不跳过端点。跨图连接使用端口。Rust 解析真实端点后校验 DAG；组件级出现回连，
 不代表内部叶子一定形成循环。
 
+## 构图装饰器
+
+```python
+from rivlet import Execution, GraphWiring, graph, step
+
+
+@step
+def prepare() -> None:
+    print("prepare")
+
+
+@graph
+def pipeline() -> GraphWiring:
+    @step
+    def build() -> None:
+        print("build")
+
+    return prepare >> build
+
+
+Execution(pipeline).run()
+```
+
+`@graph` 会立即调用一次无参构图函数，把返回的 GraphWiring 交给
+`Graph.from_wiring`，并用函数名作为 label。装饰后的 `pipeline` 是 Graph，不再是
+可调用函数。这与 `@step` 不同：后者只包装函数，不运行动作。构图异常直接传播，
+不会重试，也不会在执行阶段重新调用构图函数。
+
+装饰器不扫描局部变量，只包含返回接线中的节点。外层 Step 和 Graph 都可直接参与
+组合，保留原声明身份及接口。生成的 Graph 与直接构造的 Graph 一样支持 DSL、wire、
+编译和结构复用。
+
+构图函数返回 GraphWiring，不返回已经构造的 Graph，也不再调用 `.graph()`。
+需要参数化构图、显式图元信息、接口或静态规则时，继续使用普通函数及现有的
+`Graph` / `Graph.from_wiring` / `.graph(...)` 构造入口。`@graph` 不引入图模板、
+惰性工厂或额外执行语义。
+
 ## 结果与运行上下文
 
 ```python

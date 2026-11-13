@@ -74,6 +74,7 @@ if TYPE_CHECKING:
         Results,
         Step,
         StepCallable,
+        graph,
         step,
     )
     from .observe import GraphObservationEvent, GraphObserver
@@ -219,6 +220,7 @@ _EXPORT_GROUPS = (
             "Node",
             "NodeKind",
             "step",
+            "graph",
             "NodeWiring",
             "Results",
             "Step",
@@ -356,6 +358,7 @@ __all__ = [
     "Node",
     "NodeKind",
     "step",
+    "graph",
     "NodeWiring",
     "Results",
     "Step",
