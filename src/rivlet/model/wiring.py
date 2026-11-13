@@ -92,7 +92,6 @@ class GraphWiring:
     def graph(
         self,
         *,
-        label: str | None = None,
         interface: GraphInterfaceInput | None = None,
         observation: GraphObservationMessages | None = None,
         static: StaticConditionsInput = (),
@@ -104,7 +103,6 @@ class GraphWiring:
 
         return Graph.from_wiring(
             self,
-            label=label,
             interface=interface,
             observation=observation,
             static=static,
@@ -113,7 +111,6 @@ class GraphWiring:
 
 
 def _as_graph_wiring(value: GraphWiringOperand) -> GraphWiring:
-    from .graph import Graph
     from .step import Step
 
     match value:
@@ -121,8 +118,10 @@ def _as_graph_wiring(value: GraphWiringOperand) -> GraphWiring:
             return value
         case Step():
             return GraphWiring(steps=(value,))
-        case Graph():
-            return GraphWiring(steps=(value.step(),))
+        case _:
+            raise TypeError(
+                "graph wiring requires Step or GraphWiring; mount structures with Step(graph)"
+            )
 
 
 def _sequence_wiring(
@@ -166,8 +165,6 @@ def _parallel_wiring(
 
 def _graph_wiring_from_step_wirings(
     wiring: tuple[StepWiring, ...],
-    *,
-    label: str | None,
 ) -> GraphWiring:
     from .validation import _validated_steps
 
@@ -177,7 +174,7 @@ def _graph_wiring_from_step_wirings(
                 "Graph.from_wiring() accepts only StepWiring or GraphWiring"
             )
     steps = tuple(item.step for item in wiring)
-    graph_label = "<unlabeled>" if label is None else label
+    graph_label = "<structure>"
     known_steps = _validated_steps(steps, graph_label=graph_label)
     declared_edges: list[GraphEdge] = []
     for item in wiring:

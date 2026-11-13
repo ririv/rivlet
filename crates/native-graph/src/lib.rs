@@ -56,7 +56,6 @@ impl NativeStep {
 /// A complete Rust declaration graph with Rust-owned leaf actions.
 #[derive(Clone, Debug)]
 pub struct NativeGraph {
-    label: String,
     steps: Vec<NativeStep>,
     arcs: Vec<Arc>,
 }
@@ -65,30 +64,19 @@ impl NativeGraph {
     /// Creates a native graph while preserving edges as graph-owned topology.
     ///
     /// # Errors
-    /// Returns an error when a label is empty, an edge references an unknown
-    /// step, or the declared topology contains a cycle.
+    /// Returns an error when an edge references an unknown step or the declared
+    /// topology contains a cycle.
     pub fn new(
-        label: impl Into<String>,
         steps: impl IntoIterator<Item = NativeStep>,
         arcs: impl IntoIterator<Item = Arc>,
     ) -> Result<Self, NativeGraphError> {
-        let label = label.into();
-        if label.is_empty() {
-            return Err(NativeGraphError::EmptyGraphLabel);
-        }
         let graph = Self {
-            label,
             steps: steps.into_iter().collect(),
             arcs: arcs.into_iter().collect(),
         };
         // 编译一次只用于验证完整声明。时间和额外空间均为 O(V + E)。
         graph.compile_structure()?;
         Ok(graph)
-    }
-
-    #[must_use]
-    pub fn label(&self) -> &str {
-        &self.label
     }
 
     #[must_use]
@@ -139,7 +127,6 @@ impl NativeGraph {
 /// A native graph declaration failure detected before execution.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum NativeGraphError {
-    EmptyGraphLabel,
     EmptyStepLabel,
     UnknownStep(NodeId),
     Declaration(rivlet::DeclarationError),
@@ -148,7 +135,6 @@ pub enum NativeGraphError {
 impl Display for NativeGraphError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::EmptyGraphLabel => formatter.write_str("native graph label must not be empty"),
             Self::EmptyStepLabel => formatter.write_str("native step label must not be empty"),
             Self::UnknownStep(step) => {
                 write!(
@@ -193,7 +179,6 @@ mod tests {
     #[test]
     fn native_graph_uses_the_common_compiled_execution_graph() {
         let graph = NativeGraph::new(
-            "native",
             [step("prepare"), step("compile")],
             [Arc::new(NodeId::new(0), NodeId::new(1))],
         )

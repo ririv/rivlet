@@ -13,12 +13,12 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable
     from pathlib import Path
 
-    from ..model import LeafAction
+    from ..model import Leaf
     from ..option import Option
-    from ..results import GraphResultView, StepRunContext
-    from .action_log import GraphActionLog
+    from ..results import ResultView, StepRunContext
+    from .action_log import ActionLog
     from .run import CompiledGraphRun
-    from .state import GraphExecutionState
+    from .state import ExecutionState
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +39,10 @@ async def _await_result(result: Awaitable[object]) -> object:
 
 
 def invoke_sync_action(
-    action: LeafAction,
+    action: Leaf,
     ctx: StepRunContext,
     step_log_path: Path | None,
-    action_log: GraphActionLog,
+    action_log: ActionLog,
     inputs: tuple[Option[object], ...] = (),
 ) -> object:
     if step_log_path is None:
@@ -72,8 +72,8 @@ def step_thread_name(label_path: StepLabelPath) -> str:
 
 
 def make_graph_observation_results(
-    state: GraphExecutionState,
-) -> GraphResultView | None:
+    state: ExecutionState,
+) -> ResultView | None:
     if state.results is None:
         return None
     return state.results
@@ -82,7 +82,7 @@ def make_graph_observation_results(
 def emit_graph_observation(
     *,
     observer: GraphObserver | None,
-    state: GraphExecutionState,
+    state: ExecutionState,
     graph: CompiledGraphRun,
     label_path: StepLabelPath,
     phase: GraphObservationPhase,

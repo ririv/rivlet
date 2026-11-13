@@ -36,11 +36,11 @@ from rivlet import GraphInterface
 port_123 = "123"
 
 a_graph = (a_1 >> a_2 >> a_3 >> a_4 >> a_5).graph(
-    label="A",
+
     interface=GraphInterface(outputs={port_123: a_3}),
 )
 b_graph = (b_a >> b_b >> b_c >> b_d >> b_e).graph(
-    label="B",
+
     interface=GraphInterface(inputs={port_123: b_b}),
 )
 a = a_graph.step(label="A")
@@ -55,7 +55,7 @@ Ports may reference direct Steps or descendant Steps inside preserved Python
 subgraphs. This allows wrapping a graph without losing its real readiness points:
 
 ```python
-wrapped = (prepare >> child_graph >> normalize).graph(
+wrapped = (prepare >> Step(child_graph) >> normalize).graph(
     interface=GraphInterface(
         inputs=child_graph,
         outputs={installed_runtime: normalize},
@@ -83,10 +83,10 @@ Omitting it means an empty interface, not automatic exposure of inner ports.
 
 ```python
 # Forward the full interface without copying Steps or flattening the child.
-outer = (prepare >> child_graph).graph(interface=child_graph)
+outer = (prepare >> Step(child_graph)).graph(interface=child_graph)
 
 # Forward inputs only; publish a different output.
-outer = (child_graph >> normalize).graph(
+outer = (Step(child_graph) >> normalize).graph(
     interface=GraphInterface(
         inputs=child_graph,
         outputs={installed_runtime: normalize},
@@ -205,7 +205,7 @@ bindings = resolve_port_requirements(
     (requirement,),
     selections=(ProviderSelection(requirement=requirement, provider=a),),
 )
-graph = Graph(label="root", steps=(a, b, c), edges=bindings)
+graph = Graph( steps=(a, b, c), edges=bindings)
 ```
 
 Ambiguity without a selection is an error. There is no “first ready wins” policy
@@ -288,7 +288,7 @@ compensate for A's failure, while unrelated consumer work can still proceed.
 ### Waiting for a whole subgraph is different
 
 ```python
-graph = (a_graph >> b_graph).graph()
+graph = (Step(a_graph) >> Step(b_graph)).graph()
 ```
 
 This waits for all of A to succeed before entering B:
@@ -317,8 +317,8 @@ Both subgraph boundaries remain. The compiler does not turn this into “all of 
 must finish before any of B starts.” Both public modes use the same lowering:
 
 ```python
-GraphExecution(graph=graph).run(mode="compiled")
-GraphExecution(graph=graph).run(mode="dynamic")
+Execution(root=Step(graph)).run(mode="compiled")
+Execution(root=Step(graph)).run(mode="dynamic")
 ```
 
 ## Language boundaries

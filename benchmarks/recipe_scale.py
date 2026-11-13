@@ -10,8 +10,8 @@ from typing import TYPE_CHECKING
 from rivlet import Graph, Step
 from rivlet.compile import compile_graph
 from rivlet.runtime import (
-    GraphExecutionControl,
-    GraphExecutionState,
+    ExecutionControl,
+    ExecutionState,
     ParallelGraphExecutor,
 )
 
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from rivlet.compile import GraphCompilation
 
 
-def _recipe_graph(recipe_index: int, *, steps: int) -> Graph:
+def _recipe_graph(*, steps: int) -> Graph:
     wiring = []
     previous: Step | None = None
     for phase_index in range(steps):
@@ -30,20 +30,18 @@ def _recipe_graph(recipe_index: int, *, steps: int) -> Graph:
         previous = phase
     return Graph.from_wiring(
         wiring=tuple(wiring),
-        label=f"recipe-{recipe_index}",
     )
 
 
 def _root_graph(*, recipes: int, steps: int, lanes: int) -> Graph:
     components = tuple(
         Step(
-            _recipe_graph(recipe_index, steps=steps),
+            _recipe_graph(steps=steps),
             label=f"recipe-{recipe_index}",
         )
         for recipe_index in range(recipes)
     )
     return Graph.from_wiring(
-        label="all-recipes",
         wiring=tuple(
             component.wire(
                 after=(
@@ -83,8 +81,8 @@ def _compile_samples(
 
 def _run(compilation: GraphCompilation, *, workers: int) -> None:
     ParallelGraphExecutor(
-        GraphExecutionState(),
-        execution_control=GraphExecutionControl(),
+        ExecutionState(),
+        execution_control=ExecutionControl(),
     ).execute(compilation, workers=workers)
 
 

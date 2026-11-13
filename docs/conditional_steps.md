@@ -13,7 +13,7 @@ composites, and NativeGraph composites.
 Defined in [step.py](../src/rivlet/model/step.py):
 
 ```python
-Step(action=..., label=..., condition=...)
+Step(node=..., label=..., condition=...)
 ```
 
 Label is optional presentation. `condition` accepts `None`, a zero-argument
@@ -50,7 +50,7 @@ Static rules belong to StaticConditions, not Step.condition:
 ```python
 static = StaticConditions(evaluator=evaluate_target_condition)
 graph = (prepare >> static.when(is_android, android) >> build).graph()
-child_graph = static.when(is_android, android_graph).graph()
+child_graph = static.when(is_android, Step(android_graph, label="android")).graph()
 ```
 
 False removes the node and its incident edges during compilation, without connecting

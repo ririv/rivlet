@@ -5,7 +5,7 @@
 `rivlet` 是一个显式、可组合的 Python DAG 声明与执行库。Python 导入入口为：
 
 ```python
-from rivlet import Graph, GraphExecution, Step
+from rivlet import Graph, Execution, Step
 ```
 
 库本身提供：
@@ -23,7 +23,7 @@ from rivlet import Graph, GraphExecution, Step
 
 ## 设计目标
 
-- `Graph` 只表达声明结构，单次执行状态由 `GraphExecution` 持有
+- `Graph` 只表达声明结构，单次执行状态由 `Execution` 持有
 - 声明期直接引用 Step 对象，挂载后才分配内部 `StepPath`
 - 依赖、条件读取和端口绑定全部显式参与拓扑校验
 - 子图可以组合，但不会被声明 DSL 隐式展开
@@ -57,7 +57,7 @@ from rivlet import Graph, GraphExecution, Step
 
 - `Graph`
   - 声明态 DAG 结构
-- `GraphExecution`
+- `Execution`
   - 声明图与一次执行作用域
 - `Step`
   - 可选展示 label、条件，以及 Python action、Python 子图或完整 Rust 原生子图
@@ -88,7 +88,7 @@ Graph core 不知道任何具体宿主领域，例如：
 ## 当前限制
 
 - 动态子图与根图共享动作预算，但 action 内部自行启动的工作不受此预算控制
-- `GraphExecutionState` 只允许一次执行，不提供 reset 或复用语义
+- `ExecutionState` 只允许一次执行，不提供 reset 或复用语义
 - Graph runtime 不聚合宿主领域结果
 - 运行时返回的子图无法提前编译，但返回后会立即进入同一 Rust 编译器
 

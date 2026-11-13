@@ -6,8 +6,8 @@ from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from ..events import GraphEventDeliveryError
-from .control import GraphExecutionStopped
+from ..events import EventDeliveryError
+from .control import ExecutionStopped
 from .session_tree import (
     BatchExecutionHost,
     DynamicSubgraph,
@@ -99,7 +99,7 @@ def run_threaded_session(
                         continue
                     try:
                         outcome = future.result()
-                    except (GraphExecutionStopped, GraphEventDeliveryError):
+                    except (ExecutionStopped, EventDeliveryError):
                         raise
                     except Exception as error:
                         tree.fail(item, error)
@@ -149,7 +149,7 @@ async def run_async_session(
                     continue
                 try:
                     outcome = task.result()
-                except (GraphExecutionStopped, GraphEventDeliveryError):
+                except (ExecutionStopped, EventDeliveryError):
                     raise
                 except Exception as error:
                     tree.fail(item, error)

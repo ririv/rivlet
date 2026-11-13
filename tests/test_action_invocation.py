@@ -8,11 +8,11 @@ from typing import Literal, Never
 import pytest
 
 from rivlet import (
+    Execution,
+    ExecutionControl,
+    ExecutionState,
     Graph,
-    GraphExecution,
-    GraphExecutionControl,
-    GraphExecutionState,
-    GraphResultStore,
+    ResultStore,
     SerialGraphExecutor,
     Step,
     StepPath,
@@ -20,14 +20,14 @@ from rivlet import (
 from rivlet.runtime import ParallelGraphExecutor
 
 
-def _execute(graph: Graph, workers: int) -> GraphResultStore:
-    compilation = GraphExecution(graph=graph).compile()
-    results = GraphResultStore()
-    state = GraphExecutionState(results=results)
+def _execute(graph: Graph, workers: int) -> ResultStore:
+    compilation = Execution(root=Step(graph)).compile()
+    results = ResultStore()
+    state = ExecutionState(results=results)
     if workers == 0:
         SerialGraphExecutor(state).execute(compilation)
     else:
-        ParallelGraphExecutor(state, execution_control=GraphExecutionControl()).execute(
+        ParallelGraphExecutor(state, execution_control=ExecutionControl()).execute(
             compilation, workers=workers
         )
     return results
@@ -50,9 +50,39 @@ def test_sync_actions_and_returned_graph_do_not_create_event_loop(
     steps = (Step(lambda: 42), Step(lambda: None), Step(make_graph))
     results = _execute(Graph(steps=steps), workers)
     assert calls == ["declare", "nested"]
-    assert results.require(StepPath((0,))).value == 42
-    assert results.require(StepPath((1,))).value is None
-    assert results.require(StepPath((2,))).value is None
+    assert (
+        results.require(
+            StepPath(
+                (
+                    0,
+                    0,
+                )
+            )
+        ).value
+        == 42
+    )
+    assert (
+        results.require(
+            StepPath(
+                (
+                    0,
+                    1,
+                )
+            )
+        ).value
+        is None
+    )
+    assert (
+        results.require(
+            StepPath(
+                (
+                    0,
+                    2,
+                )
+            )
+        ).value
+        is None
+    )
 
 
 @pytest.mark.parametrize("workers", [0, 1, 4])
@@ -86,7 +116,17 @@ def test_awaitable_results_remain_supported(
 
     results = _execute(Graph(steps=(Step(action),)), workers)
     assert calls == ["started", "finished"]
-    assert results.require(StepPath((0,))).value == 42
+    assert (
+        results.require(
+            StepPath(
+                (
+                    0,
+                    0,
+                )
+            )
+        ).value
+        == 42
+    )
 
 
 @pytest.mark.parametrize("workers", [0, 1, 4])

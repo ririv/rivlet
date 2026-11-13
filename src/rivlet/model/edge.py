@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING
 
 from ..errors import GraphError
 from ..interface import _validate_port_name
-from .action import LeafAction
 from .condition import _normalize_condition, _RuntimeCondition
+from .leaf import Leaf
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -79,7 +79,7 @@ class Edge:
     def results(sources: tuple[Step, ...], target: Step) -> tuple[Edge, ...]:
         """Connect local producer results to the target action in source order."""
 
-        if not isinstance(target.action, LeafAction):
+        if not isinstance(target.node, Leaf):
             raise GraphError("result target must have a callable action")
         if not sources:
             raise GraphError("result connections require at least one source")

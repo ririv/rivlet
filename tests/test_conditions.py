@@ -6,14 +6,14 @@ import pytest
 
 from rivlet import (
     Edge,
+    Execution,
     Graph,
     GraphError,
-    GraphExecution,
     Option,
     StaticCondition,
     StaticConditions,
     Step,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
     compile_graph,
     export_graph,
 )
@@ -32,8 +32,8 @@ def test_flat_condition_accepts_many_ordered_sources(mode):
         lambda: seen.append("action"),
         condition=(predicate, sources[0], *sources[1:]),
     )
-    GraphExecution(Graph(steps=(*sources, consumer))).run(
-        ThreadGraphRunOptions(workers=4), mode=mode
+    Execution(Step(Graph(steps=(*sources, consumer)))).run(
+        ThreadRunOptions(workers=4), mode=mode
     )
     assert seen == [*range(128), "action"]
 
@@ -49,7 +49,7 @@ def test_external_condition_source_does_not_remove_dsl_sequence_edge(mode):
     )
     graph = (probe >> prepare >> consumer).graph()
     assert Edge(prepare, consumer) in graph.edges
-    GraphExecution(graph).run(ThreadGraphRunOptions(workers=3), mode=mode)
+    Execution(Step(graph)).run(ThreadRunOptions(workers=3), mode=mode)
     assert calls == ["prepare", "consume"]
 
 
@@ -100,7 +100,7 @@ def test_excluded_edge_does_not_keep_or_resolve_its_condition_inputs():
             },
         ),
     )
-    execution = GraphExecution(graph)
+    execution = Execution(Step(graph))
     execution.run()
     document = export_graph(execution.compile())
     assert document["conditions"] == []

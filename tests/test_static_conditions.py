@@ -5,15 +5,15 @@ import pytest
 from rivlet import (
     Edge,
     ExactProviderRequirement,
+    Execution,
     Graph,
     GraphError,
-    GraphExecution,
     GraphInterface,
     GraphMode,
     StaticCondition,
     StaticConditions,
     Step,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
     compile_graph,
     render_graph,
     resolve_port_requirements,
@@ -57,7 +57,7 @@ def test_static_edge_keeps_both_actions(enabled: bool, mode: GraphMode) -> None:
 
     compiled = compile_graph(graph, root_label="root")
     assert bool(compiled.steps[1].after) is enabled
-    GraphExecution(graph).run(options=ThreadGraphRunOptions(), mode=mode)
+    Execution(Step(graph)).run(options=ThreadRunOptions(), mode=mode)
     assert sorted(calls) == ["first", "last"]
 
 
@@ -102,10 +102,10 @@ def test_inactive_subgraph_does_not_evaluate_nested_static_rules() -> None:
         .when(ENABLED, Step(lambda: pytest.fail("inactive action must not run")))
         .graph()
     )
-    graph = StaticConditions(evaluator=evaluate).when(DISABLED, child).graph()
+    graph = StaticConditions(evaluator=evaluate).when(DISABLED, Step(child)).graph()
 
     assert not compile_graph(graph, root_label="root").steps
-    GraphExecution(graph).run(options=ThreadGraphRunOptions())
+    Execution(Step(graph)).run(options=ThreadRunOptions())
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -128,7 +128,7 @@ def test_static_and_runtime_rules_coexist_on_nodes_and_edges(mode: GraphMode) ->
     compiled = compile_graph(graph, root_label="root")
     assert compiled.steps[1].condition is not None
     assert compiled.steps[1].after
-    GraphExecution(graph).run(options=ThreadGraphRunOptions(), mode=mode)
+    Execution(Step(graph)).run(options=ThreadRunOptions(), mode=mode)
     assert calls == ["first"]
 
 

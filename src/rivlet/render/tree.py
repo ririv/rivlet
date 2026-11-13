@@ -111,7 +111,7 @@ def append_tree_step(
 ) -> None:
     branch = "└─ " if is_last else "├─ "
     child_prefix = prefix + ("   " if is_last else "│  ")
-    action = step.action
+    action = step.node
     step_label = resolve_step_label(step, step_path)
     if isinstance(action, Graph):
         lines.append(

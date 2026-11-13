@@ -23,7 +23,7 @@ from ..events import (
 from ..model import Graph
 from ..observe import GraphObservationEvent, GraphObservationPhase
 from ..option import Nothing
-from .control import GraphExecutionStopped
+from .control import ExecutionStopped
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -31,9 +31,9 @@ if TYPE_CHECKING:
     from .._native import NativeExecutionEvent
     from ..model import StepPath
     from ..observe import GraphObserver
-    from .control import GraphExecutionControl
+    from .control import ExecutionControl
     from .session_tree import BatchExecutionHost, LeafInvocation
-    from .state import GraphExecutionState
+    from .state import ExecutionState
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +44,11 @@ class CompiledExecutionHost:
     def __init__(
         self,
         compilation: GraphCompilation,
-        state: GraphExecutionState,
+        state: ExecutionState,
         *,
         observer: GraphObserver | None,
         run_leaf: Callable[[CompiledStep], LeafInvocation],
-        execution_control: GraphExecutionControl | None = None,
+        execution_control: ExecutionControl | None = None,
         record_composites_as_steps: bool = False,
     ) -> None:
         self.compilation = compilation
@@ -101,7 +101,7 @@ class CompiledExecutionHost:
         for node, condition in requests:
             try:
                 value = self.evaluate_condition(node, condition)
-            except GraphExecutionStopped:
+            except ExecutionStopped:
                 raise
             except Exception as error:
                 self.record_failure(node, error)
@@ -335,7 +335,7 @@ class CompiledExecutionHost:
 def _emit_composite_observation(
     composite: CompiledComposite,
     *,
-    state: GraphExecutionState,
+    state: ExecutionState,
     observer: GraphObserver | None,
     phase: GraphObservationPhase,
 ) -> None:

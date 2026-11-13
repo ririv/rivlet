@@ -33,7 +33,7 @@ A/B 对比只改变返回值处理：基线对所有返回值创建事件循环�
 | 线程执行器，8 workers | 282.28 ms | 39.60 ms |
 
 声明和编译路径没有改动，小幅差异不作为收益或回归结论。
-`GraphExecution.run(ThreadGraphRunOptions(workers=1))` 仍使用线程执行器，
+`Execution.run(ThreadRunOptions(workers=1))` 仍使用线程执行器，
 不是表中的串行参考执行器。线程任务提交、同步及 Python/Rust 批量交互仍有成本，
 不能把执行一个 Step 等同于调用一个 Python 函数。
 
@@ -58,7 +58,7 @@ after  = [0.546870, 0.525995, 0.520759, 0.520433, 0.515768]
 
 ## Rivetoo 日志接入验证
 
-额外使用 Rivetoo 的真实 `RivetooGraphActionLog`，把 1,000 个 action 放入一个
+额外使用 Rivetoo 的真实 `RivetooActionLog`，把 1,000 个 action 放入一个
 composite 并给该 composite 绑定临时日志文件。每个 action 断言日志上下文已绑定；
 写日志场景逐个调用 `append_log_text`，运行后确认恰好写出 1,000 行。
 图编译和日志路径绑定不计入执行耗时，最终执行记录输出未启用。

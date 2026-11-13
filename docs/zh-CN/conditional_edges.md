@@ -166,7 +166,7 @@ graph = Graph.from_wiring((
 ))
 ```
 
-节点条件读取 permission，条件边读取 environment_check，action 读取 design。节点条件为假时跳过 implementation；条件边为假仅取消等待 prepare，不跳过 implementation，也不取消 prepare。匿名函数不需要额外手动包装成 LeafAction。
+节点条件读取 permission，条件边读取 environment_check，action 读取 design。节点条件为假时跳过 implementation；条件边为假仅取消等待 prepare，不跳过 implementation，也不取消 prepare。匿名函数不需要额外手动包装成 Leaf。
 
 每个使用位置有独立求值实例，复用同一个函数或元组不会合并求值。
 不同元组可以把同一个判断函数绑定到不同来源。

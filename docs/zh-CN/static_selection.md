@@ -9,7 +9,7 @@
 ## 完整条件与分支内容
 
 ```python
-from rivlet import Case, GraphExecution, Step, static
+from rivlet import Case, Execution, Step, static
 
 platform = "android"
 version = 3
@@ -30,16 +30,16 @@ graph = (
         ),
     )
     >> finish
-).graph(label="platform workflow")
+).graph()
 
-GraphExecution(graph).run()
+Execution(Step(graph, label="platform workflow")).run()
 ```
 
 结果为 `prepare → modern → finish`。每个 `Case(condition, component)` 只有两个参数：
 
 - `condition` 是完整静态布尔条件，必须显式提供。既不表示匹配值，也不是判断函数；
   不会把字符串、函数等非布尔对象隐式转换为真。
-- `component` 是 Step 或 Graph；Graph 按既有 `.step()` 语义挂载。
+- `component` 是 Step；图结构先通过 `Step(graph)` 或 `graph.step()` 显式挂载。
   `case.step` 是分支实际接入图的节点，可用于显式接线。
 - `static` 是 `rivlet.static` 模块，不是必须提供 evaluator 的 `StaticConditions` 实例。
 
@@ -70,7 +70,7 @@ Python 在调用 API 前计算布尔表达式，并构造所有候选组件。�
 不使用 DSL 时，可以声明同一份选择和拓扑：
 
 ```python
-from rivlet import Case, Graph, GraphExecution, StaticSelection, Step, Edge
+from rivlet import Case, Graph, Execution, StaticSelection, Step, Edge
 
 first = Step(lambda: print("first"), label="first")
 second = Step(lambda: print("second"), label="second")
@@ -82,7 +82,7 @@ graph = Graph(
     edges=tuple(Edge(case.step, finish) for case in cases),
     static_selections=(StaticSelection(cases=cases),),
 )
-GraphExecution(graph).run()
+Execution(Step(graph)).run()
 ```
 
 `Graph.from_wiring()` 和 `.graph()` 同样接受 `static_selections=`。DSL 自动携带声明，

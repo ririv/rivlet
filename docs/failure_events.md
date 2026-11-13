@@ -37,12 +37,13 @@ The event's mounted `step_path` identifies its consumer. Every related `source` 
 
 ```python
 from rivlet import (
+    Step,
     ActionFailed,
     BlockedByCondition,
     BlockedByConditionInput,
     BlockedByDependency,
     BlockedByParent,
-    GraphExecution,
+    Execution,
     StepExecutionEvent,
     SubgraphFailed,
 )
@@ -67,7 +68,7 @@ class Events:
                 print(event.step_path, event.state)
 
 
-GraphExecution(graph, events=Events()).run()
+Execution(Step(graph), events=Events()).run()
 ```
 
 ## Direct witnesses
@@ -95,7 +96,7 @@ Events describe committed runtime states. Callbacks are synchronous and serializ
 within one execution, but not bound to the coordinator thread. Keep them short.
 A host needing a dedicated persistence/UI thread can enqueue events and explicitly
 drain its queue after execution. Rivlet does not create an implicit event thread.
-A callback error still stops execution as `GraphEventDeliveryError`.
+A callback error still stops execution as `EventDeliveryError`.
 
 Without a subscription, public events and their label index are not constructed.
 No sequence numbers, timestamps, global run IDs, persistence, retries, or checkpoint

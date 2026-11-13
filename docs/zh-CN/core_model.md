@@ -9,7 +9,7 @@ Graph / Step
     ↓ compile_graph(...)
 GraphCompilation
     ↓ Graph runtime
-GraphExecutionState
+ExecutionState
 ```
 
 声明层只表达结构，不保存某次执行的状态；内部身份只在图挂载时产生。
@@ -23,7 +23,7 @@ GraphExecutionState
 - `graph.py`：图边界、接口、观察消息与静态声明。
 - `wiring.py`：接线输入、DSL 组合和归一化。
 - `condition.py`：轻量运行时判断及其来源绑定。
-- `action.py`：Python callable 的签名适配与调用约定。
+- `leaf.py`：Python callable 的签名适配与调用约定。
 - `validation.py`：拓扑、结果绑定与挂载接口校验。
 - `__init__.py`：公开导出与跨模块联合类型；在真实类型加载后统一装配，避免重复定义。
 
@@ -55,7 +55,6 @@ GraphExecutionState
 
 `Graph` 是声明态执行 DAG，包含：
 
-- `label: str | None`
 - `steps: tuple[Step, ...]`
 - `edges: tuple[GraphEdge, ...]`
 - `interface: GraphInterface`：统一持有输入和输出的只读映射；声明时也可传入
@@ -65,11 +64,8 @@ GraphExecutionState
 
 `Graph` 不负责执行，也不带 `run()`。
 
-`label` 只用于展示，不是调度身份。它可以省略：
-
-- 根图省略 label 时，显示为 `<unlabeled>`
-- 嵌套图省略 label 时，使用承载它的 Step 的已解析 label
-- Graph 显式声明 label 时，该值优先
+Graph 不持有节点身份、label 或运行时条件。每次挂载由 Step 表达，
+名称与条件统一属于该 Step；匿名节点按实际挂载路径显示。
 
 显式接线只保存在 `Graph.edges` 中。规范化后的 `Graph` 不接受 `StepWiring`，
 Step 本身不保存执行或结果接线。`Edge.results()` 生成同时传递 action 结果的 Edge；
@@ -80,20 +76,20 @@ Step 本身不保存执行或结果接线。`Edge.results()` 生成同时传递 
 `Step` 是声明态执行节点，包含：
 
 - `label: str | None`
-- `action: LeafAction | Graph | NativeGraph`
+- `node: Leaf | Graph | NativeGraph`
 - 构造参数 `condition: ConditionInput | None`，内部归一化为轻量条件声明
 
-`Step` 没有公开 `id`，也不保存 `after`。
+`Step.id` 是声明身份；Step 不保存 `after`，接线属于 Graph。
 
 ```python
 prepare = Step(prepare_source, label="prepare")
 compile_step = Step(lambda: compile_source(flags), label="compile")
 ```
 
-直接传入 callable 时，`Step` 会把它规范化为 `LeafAction`。Graph core 和
+直接传入 callable 时，`Step` 会把它规范化为 `Leaf`。Graph core 和
 runtime 消费三种 action：
 
-- `LeafAction`：执行叶子动作
+- `Leaf`：执行叶子动作
 - `Graph`：保留显式 Python 子图边界
 - `NativeGraph`：挂载完整 Rust 原生子图，内部 action 由 Rust 执行
 
@@ -119,10 +115,7 @@ runtime 消费三种 action：
   - 供 compiler、runtime 和结果存储使用
 - `Step.label`
   - 可选展示名
-- `Graph.label`
-  - 图自身的可选展示名
-
-`Graph.label` 和 `Step.label` 都不承担身份语义。
+Graph 不声明名称；`Step.label` 只用于展示，不承担身份语义。
 编译节点通过 `.id` 提供声明身份，通过 `.path` 提供挂载位置；编译引用只携带 `.path`。
 同一个声明可以对应多个挂载后的编译节点。
 
@@ -214,10 +207,10 @@ graph = (
 这里的入口、出口是 wiring 的结构边界，不是 `GraphInterface` 的具名端口；
 `>>` 不会自动公开或绑定子图的端口接口。
 
-已有 Graph 作为 operand 时会被包装成一个 Step，不会自动展开：
+已有 Graph 必须显式挂载成 Step，再作为 operand，不自动分配节点身份：
 
 ```python
-pipeline = (prepare >> child_graph >> install).graph()
+pipeline = (prepare >> Step(child_graph, label="child") >> install).graph()
 ```
 
 这样会保留 `child_graph` 的子图边界。Graph 也可以显式转换为 Step，并传递挂载参数：
@@ -268,7 +261,7 @@ selected_graph = select_one(
 这与 `Step.condition` 的语义不同：`Step.condition` 是执行图中一个节点的运行时启用条件；
 `select_one()` 是进入 Graph 之前的严格构图选择。
 
-## `LeafAction`
+## `Leaf`
 
 没有结果输入时，调用 `fn()` 或 `fn(ctx)`。两种形式都有效时固定使用零参，
 保留 `lambda value=value: ...` 这种闭包默认值。
@@ -295,7 +288,7 @@ graph = Graph.from_wiring((
 
 ## 运行时返回子图
 
-LeafAction 可以在运行时返回 Graph。runtime 会把返回值作为当前 Step 的显式子图
+Leaf 可以在运行时返回 Graph。runtime 会把返回值作为当前 Step 的显式子图
 编译成嵌套 execution session，交给本次执行的同一个驱动调度：
 
 ```python
@@ -338,30 +331,30 @@ condition=(lambda result: not bool(result.unwrap()), cache_probe)
 这些引用参与调度、环检测和接线边界计算，不再产生重复的 action 结果边。
 action 参数仍通过 `wire().results(...)` 独立声明。
 
-## `GraphExecution`
+## `Execution`
 
 位置：
 
 - [src/rivlet/execution.py](../../src/rivlet/execution.py)
 
-`GraphExecution` 把声明图绑定到一次执行：
+`Execution` 把声明图绑定到一次执行：
 
 ```python
-execution = GraphExecution(
-    graph=graph,
-    execution_state=GraphExecutionState(),
-    execution_control=GraphExecutionControl(),
+execution = Execution(
+    root=Step(graph),
+    execution_state=ExecutionState(),
+    execution_control=ExecutionControl(),
 )
 ```
 
 它包含：
 
-- `graph: Graph`
+- `root: Step`
 - `shared`：显式注入的业务共享对象
-- `execution_state: GraphExecutionState`
-- `execution_control: GraphExecutionControl`
-- `action_log: GraphActionLog`
-- `execution_output: GraphExecutionOutput`
+- `execution_state: ExecutionState`
+- `execution_control: ExecutionControl`
+- `action_log: ActionLog`
+- `execution_output: ExecutionOutput`
 
 并提供：
 
@@ -370,29 +363,33 @@ execution = GraphExecution(
 - `await arun(...)`
 - `require_result(step)`
 
-图名只在 `Graph.label` 声明。编译、渲染和执行输出统一读取 `graph.display_label`：
-有名字时使用声明值，匿名图显示为 `<unlabeled>`。这个展示值不是身份，调度和结果
-定位继续使用 `StepPath`；GraphExecution 不再为图另外起名。
+执行名称、身份和运行时条件统一来自根 Step，不再由 Graph 保存第二份名称。
+`Execution` 只接受 Step；图结构通过 `Step(graph, label="pipeline")` 显式挂载。
+根路径为 `0`，直接子步骤为 `0.0`、`0.1`；匿名 Step 按实际挂载路径显示。
+根的条件、跳过、日志、生命周期与失败事件都遵循普通 Step 规则。
+编译器使用只包含根 Step 的结构作用域，不额外创建节点身份或空 action。
+底层 `compile_graph(graph, root_label=...)` 仍用于纯结构检查或运行时展开，
+不是接受裸 Graph 执行的兼容入口。根为 Graph 时只有复合生命周期，根为 Leaf 时直接执行动作。
 
-`GraphExecutionState` 只属于当前 GraphExecution 的一次运行。`GraphExecutionControl`
-默认同样由 GraphExecution 独享；宿主若需要把多个顺序 GraphExecution 归入同一次停止控制，可以显式
+`ExecutionState` 只属于当前 Execution 的一次运行。`ExecutionControl`
+默认同样由 Execution 独享；宿主若需要把多个顺序 Execution 归入同一次停止控制，可以显式
 把同一实例传给它们，但不会因此合并两份执行结果。control 收到停止请求后不可
 恢复；需要新的执行作用域时必须创建新实例。
 
-`GraphExecution` 本身不读取宿主的全局日志目录、日志上下文或停止状态。独立使用时，
+`Execution` 本身不读取宿主的全局日志目录、日志上下文或停止状态。独立使用时，
 `action_log` 不接入宿主日志设施，`execution_output` 也不写外部文件；需要文件输出时，
 宿主显式传入 Graph 提供的 `TreeFileExecutionOutput(output_dir)`。
 
 已有事件循环的程序直接使用异步入口：
 
 ```python
-state = await GraphExecution(graph=graph).arun(
-    AsyncGraphRunOptions(concurrency=8),
+state = await Execution(root=Step(graph)).arun(
+    AsyncRunOptions(concurrency=8),
 )
 ```
 
 `arun()` 不创建嵌套事件循环；底层 `AsyncGraphExecutor.aexecute()` 同样可被等待。
-同步 `run(AsyncGraphRunOptions(...))` 则在自己的事件循环中调用同一条异步执行路径。
+同步 `run(AsyncRunOptions(...))` 则在自己的事件循环中调用同一条异步执行路径。
 
 ## `GraphCompilation`
 
@@ -447,7 +444,7 @@ graph = Graph(
 结果边已经包含等待生产者结束的约束；上例的 prepare 是额外的纯执行前置。
 输入顺序与重复来源均保留，不需要 receiver 或手写参数索引。
 每个目标只能接入一组完整结果边，不可切片或拼接多组独立绑定；构造 Graph 时校验函数参数数量。
-目标必须是当前图内的 LeafAction 步骤。跨子图结果端口暂不支持，端口仍只表达就绪关系。
+目标必须是当前图内的 Leaf 步骤。跨子图结果端口暂不支持，端口仍只表达就绪关系。
 节点条件和每条条件边通过 `condition=(predicate, source_step, ...)` 声明独立输入，
 不接收 ctx。复用函数或条件元组不会合并不同位置的求值，
 不同挂载之间也独立。不使用函数名查找，不增加端口包装类型。
@@ -457,20 +454,20 @@ graph = Graph(
 预先声明的 Graph-valued Step 没有接收参数的 callable；条件输入仍在 condition 中声明。
 需要把运行期值带入子图时，使用接收结果参数、返回 Graph 的 Python action。
 
-GraphResultStore 按 StepPath 将成功结果登记一次，包装为 Some(value)。
+ResultStore 按 StepPath 将成功结果登记一次，包装为 Some(value)。
 显式结果边在生产者执行前自动开启记录。
 Nothing() 表示生产者已终态但没有结果，例如被跳过；
 Some(None) 表示正常执行并返回 None。生产者失败会阻断消费者，不转换成 Nothing。
 输入来源被静态裁剪时编译报错，不静默传入缺失值。
 
-执行状态和观察器公开 GraphResultView，只提供 get/require/has，不提供 record。
+执行状态和观察器公开 ResultView，只提供 get/require/has，不提供 record。
 快照复制当时的记录，但值本身不深拷贝、不冻结。发布后的值应视为不可变；
 需要共同修改的数据使用显式共享状态。
 
 StepRunContext 只提供 step_id、step_path、
 control 和 shared(Type)。不再提供结果查询、结果视图或作用域索引绕行入口。
 StepReadContext 与祖先结果引用已移除；执行外部的
-GraphExecution.require_result 仍可用于查看结果。
+Execution.require_result 仍可用于查看结果。
 
 `ctx.step_id` 等于声明的 `Step.id`。Python 与原生声明共用 Rust 的进程内计数器，
 不从标签、路径或函数哈希推导身份；不保证跨进程重启稳定，不进入缓存键。
@@ -504,12 +501,12 @@ async def task(ctx: StepRunContext) -> None:
 日志路径在构造执行对象时声明：
 
 ```python
-execution = GraphExecution(graph=graph, step_log_paths={step: log_path})
+execution = Execution(root=Step(graph), step_log_paths={step: log_path})
 ```
 
 日志路径属于执行设施，不属于 action 的输入；StepRunContext 不再公开 step_log_path。
 执行器解析当前步骤的直接绑定或继承路径，再在内部传给日志作用域、异常记录与动态子图。
-实际日志路由仍由宿主的 GraphActionLog 适配器负责，绑定与继承规则不变。
+实际日志路由仍由宿主的 ActionLog 适配器负责，绑定与继承规则不变。
 
 构造器对完整图一次性解析全部 Step 引用并保存路径快照；每个引用必须对应唯一的挂载
 位置，不再提供构造后的绑定 API。V 个挂载步骤、K 个绑定的处理时间和空间均为
@@ -519,7 +516,7 @@ O(V + K)；没有绑定时不遍历图。
 
 ## 执行级共享状态
 
-`GraphExecution(shared=...)` 接收调用方显式构造的业务对象，各 Python action 通过
+`Execution(shared=...)` 接收调用方显式构造的业务对象，各 Python action 通过
 `ctx.shared(ExpectedType)` 取得同一个对象。此入口返回确定的类型，并在类型不符或未
 提供共享对象时明确报错；不创建默认字典，也不按类型查找或创建其他实例。
 
@@ -527,7 +524,7 @@ O(V + K)；没有绑定时不遍历图。
 from dataclasses import dataclass, field
 from threading import Lock
 
-from rivlet import GraphExecution, Step, StepRunContext, ThreadGraphRunOptions
+from rivlet import Execution, Step, StepRunContext, ThreadRunOptions
 
 
 @dataclass
@@ -547,11 +544,11 @@ def task(ctx: StepRunContext) -> None:
 
 graph = (Step(task) >> Step(task)).graph()
 progress = Progress()
-GraphExecution(graph=graph, shared=progress).run(ThreadGraphRunOptions(workers=2))
+Execution(root=Step(graph), shared=progress).run(ThreadRunOptions(workers=2))
 assert progress.completed == 2
 ```
 
-共享对象绑定到执行入口，不进入 `Graph` 声明、`GraphExecutionState`、结果 store 或
+共享对象绑定到执行入口，不进入 `Graph` 声明、`ExecutionState`、结果 store 或
 执行快照。静态子图和 action 动态返回的子图沿用同一引用；每个 action 只增加 O(1)
 引用传递，不复制对象。直接使用串行、线程或异步执行器时，同样可以传 `shared=`。
 
@@ -573,7 +570,7 @@ trace、timing 和展示，不修改执行结果，也不替代显式 Step。
 需要跟踪步骤状态时，显式订阅独立的执行事件：
 
 ```python
-from rivlet import GraphExecution, StepExecutionEvent
+from rivlet import Execution, StepExecutionEvent
 
 
 class Events:
@@ -581,7 +578,7 @@ class Events:
         print(event.step_id, event.step_path, event.step_path.labels, event.state)
 
 
-execution = GraphExecution(graph=graph, events=Events())
+execution = Execution(root=Step(graph), events=Events())
 execution.run()
 ```
 
@@ -596,17 +593,17 @@ execution.run()
 
 事件回调同步、串行执行，但线程不固定，不保证在协调线程，应保持短小，耗时会计入
 执行时间。回调报错抛出
-`GraphEventDeliveryError` 并停止执行；不会把已经完成的 Step 重新标成失败。
+`EventDeliveryError` 并停止执行；不会把已经完成的 Step 重新标成失败。
 未配置 `events` 时不构造事件、标签索引或消息文本，也不复制结果表。事件只描述运行
 状态，不负责消息传递、持久化或从历史状态恢复。
 
-`GraphExecutionState` 只服务一次执行，记录：
+`ExecutionState` 只服务一次执行，记录：
 
 - 已执行和已完成的 StepPath
 - 已进入和已完成的 composite
 - skip 状态
 - failed / blocked 状态与节点失败记录
 - runtime condition 结果
-- 可选 `GraphResultStore`
+- 可选 `ResultStore`
 
 同一个状态不能用于第二次 run，也不提供 reset 或兜底恢复语义。

@@ -11,30 +11,28 @@ from rivlet import (
     CompiledStepRef,
     ConditionalPrerequisite,
     Edge,
+    Execution,
+    ExecutionState,
     Graph,
     GraphCompilation,
     GraphError,
-    GraphExecution,
-    GraphExecutionState,
-    GraphRenderOptions,
-    GraphResultStore,
-    LeafAction,
+    Leaf,
+    ResultStore,
     StaticCondition,
     StaticConditionEvaluator,
     StaticConditions,
     Step,
     StepPath,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
     all_,
     any_,
     compile_graph,
     not_,
-    render_execution_structure,
+    render_execution,
     render_graph,
     render_graph_compilation_mermaid,
-    render_graph_execution,
     render_graph_mermaid,
-    render_live_graph_execution,
+    render_live_execution,
 )
 
 
@@ -57,7 +55,7 @@ def test_compile_graph_flattens_nested_graph_and_preserves_structure() -> None:
     compilation = compile_graph(root_graph, root_label="plan")
 
     assert isinstance(compilation, GraphCompilation)
-    assert compilation.label == "root"
+    assert compilation.label == "plan"
     assert [step.path for step in compilation.steps] == [
         StepPath((0,)),
         StepPath((1, 0)),
@@ -134,10 +132,9 @@ def test_pruned_native_side_tables_keep_only_compiled_nodes() -> None:
 
 def test_graph_compilation_rejects_unknown_prerequisite() -> None:
     source_graph = Graph.from_wiring(
-        label="root",
-        wiring=(Step(label="build", action=LeafAction(fn=lambda: None)).wire(),),
+        wiring=(Step(label="build", node=Leaf(action=lambda: None)).wire(),),
     )
-    compilation = GraphExecution(graph=source_graph).compile()
+    compilation = compile_graph(source_graph, root_label="root")
     invalid_step = replace(
         compilation.steps[0],
         after=(CompiledStepRef(StepPath((99,))),),
@@ -155,7 +152,7 @@ def test_graph_compilation_rejects_unknown_prerequisite() -> None:
 
 def test_graph_compilation_rejects_missing_composite_child() -> None:
     source_graph = _make_nested_graph(stage_graph=_make_stage_graph())
-    compilation = GraphExecution(graph=source_graph).compile()
+    compilation = compile_graph(source_graph, root_label="root")
     invalid_composite = replace(compilation.composites[0], children=())
 
     with pytest.raises(GraphError, match="children do not match owned nodes"):
@@ -170,13 +167,12 @@ def test_graph_compilation_rejects_missing_composite_child() -> None:
 
 def test_graph_compilation_rejects_dependency_cycle() -> None:
     source_graph = Graph.from_wiring(
-        label="root",
         wiring=(
-            Step(label="prepare", action=LeafAction(fn=lambda: None)).wire(),
-            Step(label="build", action=LeafAction(fn=lambda: None)).wire(),
+            Step(label="prepare", node=Leaf(action=lambda: None)).wire(),
+            Step(label="build", node=Leaf(action=lambda: None)).wire(),
         ),
     )
-    compilation = GraphExecution(graph=source_graph).compile()
+    compilation = compile_graph(source_graph, root_label="root")
     prepare, build = compilation.steps
 
     with pytest.raises(GraphError, match="dependency cycle"):
@@ -193,15 +189,14 @@ def test_graph_compilation_rejects_dependency_cycle() -> None:
 
 
 def test_graph_rejects_runtime_condition_read_cycle() -> None:
-    build = Step(label="build", action=lambda: None)
+    build = Step(label="build", node=lambda: None)
     prepare = Step(
         label="prepare",
         condition=(_prepare_condition := (lambda _ctx: True, build)),
-        action=lambda _ctx, *_inputs: None,
+        node=lambda _ctx, *_inputs: None,
     )
     with pytest.raises(GraphError, match="dependency cycle"):
         Graph.from_wiring(
-            label="root",
             wiring=(
                 prepare.wire().results(build),
                 build.wire(after=(prepare,)),
@@ -211,13 +206,12 @@ def test_graph_rejects_runtime_condition_read_cycle() -> None:
 
 def test_graph_compilation_rejects_runtime_condition_read_cycle() -> None:
     source_graph = Graph.from_wiring(
-        label="root",
         wiring=(
-            Step(label="prepare", action=lambda: None).wire(),
-            Step(label="build", action=lambda: None).wire(),
+            Step(label="prepare", node=lambda: None).wire(),
+            Step(label="build", node=lambda: None).wire(),
         ),
     )
-    compilation = GraphExecution(graph=source_graph).compile()
+    compilation = compile_graph(source_graph, root_label="root")
     prepare, build = compilation.steps
 
     with pytest.raises(GraphError, match="dependency cycle"):
@@ -240,71 +234,171 @@ def test_graph_compilation_rejects_runtime_condition_read_cycle() -> None:
 
 
 def test_run_compiled_matches_dynamic_run_and_preserves_local_step_lookup() -> None:
-    dynamic_state = GraphExecutionState(results=GraphResultStore())
-    compiled_state = GraphExecutionState(results=GraphResultStore())
+    dynamic_state = ExecutionState(results=ResultStore())
+    compiled_state = ExecutionState(results=ResultStore())
 
-    dynamic_plan = GraphExecution(
-        graph=_make_value_graph(), execution_state=dynamic_state
+    dynamic_plan = Execution(
+        root=Step(_make_value_graph()), execution_state=dynamic_state
     )
-    compiled_plan = GraphExecution(
-        graph=_make_value_graph(), execution_state=compiled_state
+    compiled_plan = Execution(
+        root=Step(_make_value_graph()), execution_state=compiled_state
     )
 
-    dynamic_plan.run(options=ThreadGraphRunOptions(workers=1))
-    compiled_plan.run(options=ThreadGraphRunOptions(workers=1), mode="compiled")
+    dynamic_plan.run(options=ThreadRunOptions(workers=1))
+    compiled_plan.run(options=ThreadRunOptions(workers=1), mode="compiled")
 
     assert dynamic_state.executed_steps == [
         StepPath((0,)),
-        StepPath((1,)),
-        StepPath((1, 0)),
-        StepPath((1, 1)),
-        StepPath((2,)),
+        StepPath(
+            (
+                0,
+                0,
+            )
+        ),
+        StepPath(
+            (
+                0,
+                1,
+            )
+        ),
+        StepPath((0, 1, 0)),
+        StepPath((0, 1, 1)),
+        StepPath(
+            (
+                0,
+                2,
+            )
+        ),
     ]
     assert compiled_state.executed_steps == [
-        StepPath((0,)),
-        StepPath((1, 0)),
-        StepPath((1, 1)),
-        StepPath((2,)),
+        StepPath(
+            (
+                0,
+                0,
+            )
+        ),
+        StepPath((0, 1, 0)),
+        StepPath((0, 1, 1)),
+        StepPath(
+            (
+                0,
+                2,
+            )
+        ),
     ]
-    assert compiled_state.entered_composites == {StepPath((1,))}
-    assert compiled_state.completed_composites == {StepPath((1,))}
-    assert "stage [graph] [completed]" in render_graph_execution(
-        _make_value_graph(),
+    assert compiled_state.entered_composites == {
+        StepPath((0,)),
+        StepPath(
+            (
+                0,
+                1,
+            )
+        ),
+    }
+    assert compiled_state.completed_composites == {
+        StepPath((0,)),
+        StepPath(
+            (
+                0,
+                1,
+            )
+        ),
+    }
+    assert "stage [graph] [completed]" in render_execution(
+        Step(_make_value_graph(), label="root"),
         compiled_state,
-        root_label="root",
         mode="compiled",
     )
     assert dynamic_state.results is not None
     assert compiled_state.results is not None
-    assert dynamic_state.results.require(StepPath((1, 1))).value == "seed:configured"
-    assert compiled_state.results.require(StepPath((1, 1))).value == "seed:configured"
-    assert dynamic_state.results.require(StepPath((2,))).value == "packaged"
-    assert compiled_state.results.require(StepPath((2,))).value == "packaged"
+    assert dynamic_state.results.require(StepPath((0, 1, 1))).value == "seed:configured"
+    assert (
+        compiled_state.results.require(StepPath((0, 1, 1))).value == "seed:configured"
+    )
+    assert (
+        dynamic_state.results.require(
+            StepPath(
+                (
+                    0,
+                    2,
+                )
+            )
+        ).value
+        == "packaged"
+    )
+    assert (
+        compiled_state.results.require(
+            StepPath(
+                (
+                    0,
+                    2,
+                )
+            )
+        ).value
+        == "packaged"
+    )
 
 
 def test_run_compiled_skips_composite_step_by_prefix() -> None:
-    state = GraphExecutionState(
-        initial_skip_requests={StepPath((1,))},
-        results=GraphResultStore(),
+    state = ExecutionState(
+        initial_skip_requests={
+            StepPath(
+                (
+                    0,
+                    1,
+                )
+            )
+        },
+        results=ResultStore(),
     )
-    plan = GraphExecution(graph=_make_value_graph(), execution_state=state)
+    plan = Execution(root=Step(_make_value_graph()), execution_state=state)
 
-    plan.run(options=ThreadGraphRunOptions(workers=1), mode="compiled")
+    plan.run(options=ThreadRunOptions(workers=1), mode="compiled")
 
-    assert state.executed_steps == [StepPath((0,)), StepPath((2,))]
+    assert state.executed_steps == [
+        StepPath(
+            (
+                0,
+                0,
+            )
+        ),
+        StepPath(
+            (
+                0,
+                2,
+            )
+        ),
+    ]
     assert state.results is not None
-    assert state.results.require(StepPath((0,))).value == "seed"
-    assert state.results.require(StepPath((2,))).value == "packaged"
-    assert not state.results.has(StepPath((1, 0)))
-    assert not state.results.has(StepPath((1, 1)))
+    assert (
+        state.results.require(
+            StepPath(
+                (
+                    0,
+                    0,
+                )
+            )
+        ).value
+        == "seed"
+    )
+    assert (
+        state.results.require(
+            StepPath(
+                (
+                    0,
+                    2,
+                )
+            )
+        ).value
+        == "packaged"
+    )
+    assert not state.results.has(StepPath((0, 1, 0)))
+    assert not state.results.has(StepPath((0, 1, 1)))
 
 
 def test_render_graph_renders_terminal_tree() -> None:
-    rendered = render_execution_structure(
-        GraphExecution(
-            graph=_make_nested_graph(stage_graph=_make_stage_graph()),
-        ),
-        options=GraphRenderOptions(),
+    rendered = render_graph(
+        _make_nested_graph(stage_graph=_make_stage_graph()), root_label="root"
     )
 
     assert rendered == "\n".join(
@@ -321,9 +415,9 @@ def test_render_graph_renders_terminal_tree() -> None:
 
 def test_render_graph_accepts_graph_compilation_as_structure_view() -> None:
     rendered = render_graph(
-        GraphExecution(
-            graph=_make_nested_graph(stage_graph=_make_stage_graph())
-        ).compile(),
+        compile_graph(
+            _make_nested_graph(stage_graph=_make_stage_graph()), root_label="root"
+        ),
         root_label="root",
     )
 
@@ -362,9 +456,9 @@ def test_render_graph_can_render_compilation_view_from_graph() -> None:
 
 def test_render_graph_can_render_compilation_view_from_compilation() -> None:
     rendered = render_graph(
-        GraphExecution(
-            graph=_make_nested_graph(stage_graph=_make_stage_graph())
-        ).compile(),
+        compile_graph(
+            _make_nested_graph(stage_graph=_make_stage_graph()), root_label="root"
+        ),
         root_label="root",
         mode="compiled",
     )
@@ -398,9 +492,9 @@ def test_render_graph_mermaid_renders_graph_structure() -> None:
 
 def test_render_graph_mermaid_accepts_graph_compilation_as_structure_view() -> None:
     rendered = render_graph_mermaid(
-        GraphExecution(
-            graph=_make_nested_graph(stage_graph=_make_stage_graph())
-        ).compile(),
+        compile_graph(
+            _make_nested_graph(stage_graph=_make_stage_graph()), root_label="root"
+        ),
         root_label="root",
     )
 
@@ -410,9 +504,9 @@ def test_render_graph_mermaid_accepts_graph_compilation_as_structure_view() -> N
 
 def test_render_graph_compilation_mermaid_shows_compiled_graph_and_composites() -> None:
     rendered = render_graph_compilation_mermaid(
-        GraphExecution(
-            graph=_make_nested_graph(stage_graph=_make_stage_graph())
-        ).compile(),
+        compile_graph(
+            _make_nested_graph(stage_graph=_make_stage_graph()), root_label="root"
+        ),
         root_label="root",
     )
 
@@ -436,9 +530,9 @@ def test_render_graph_mermaid_can_render_compilation_view_from_graph() -> None:
 
 def test_render_graph_mermaid_can_render_compilation_view_from_compilation() -> None:
     rendered = render_graph_mermaid(
-        GraphExecution(
-            graph=_make_nested_graph(stage_graph=_make_stage_graph())
-        ).compile(),
+        compile_graph(
+            _make_nested_graph(stage_graph=_make_stage_graph()), root_label="root"
+        ),
         root_label="root",
         mode="compiled",
     )
@@ -447,70 +541,74 @@ def test_render_graph_mermaid_can_render_compilation_view_from_compilation() -> 
     assert 'compiled_4["stage [composite]"]' in rendered
 
 
-def test_render_graph_execution_overlays_runtime_status() -> None:
-    probe = Step(label="probe", action=LeafAction(fn=lambda _ctx: True))
+def test_render_execution_overlays_runtime_status() -> None:
+    probe = Step(label="probe", node=Leaf(action=lambda _ctx: True))
     build = Step(
         label="build",
         condition=(
             _build_condition := (lambda result: not bool(result.unwrap()), probe)
         ),
-        action=LeafAction(fn=lambda _ctx, *_inputs: None),
+        node=Leaf(action=lambda _ctx, *_inputs: None),
     )
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             probe.wire(),
             build.wire(after=()).results(probe),
         ),
     )
-    state = GraphExecutionState(results=GraphResultStore())
+    state = ExecutionState(results=ResultStore())
 
-    GraphExecution(graph=graph, execution_state=state).run(
-        options=ThreadGraphRunOptions(workers=1)
+    Execution(root=Step(graph, label="root"), execution_state=state).run(
+        options=ThreadRunOptions(workers=1)
     )
 
-    rendered = render_graph_execution(graph, state, root_label="root")
+    rendered = render_execution(
+        Step(graph, label="root"),
+        state,
+    )
 
     assert rendered == "\n".join(
         [
             "execution: root (mode=dynamic)",
-            "├─ probe [executed] [result=true]",
-            "└─ build [condition=false] [skipped] [after: probe (action input: 0), probe (condition input: 0)]",
+            "└─ root [graph] [completed]",
+            "   ├─ probe [executed] [result=true]",
+            "   └─ build [condition=false] [skipped] [after: probe (action input: 0), probe (condition input: 0)]",
         ]
     )
 
 
-def test_render_live_graph_execution_hides_not_reached_steps() -> None:
-    probe = Step(label="probe", action=LeafAction(fn=lambda _ctx: True))
+def test_render_live_execution_hides_not_reached_steps() -> None:
+    probe = Step(label="probe", node=Leaf(action=lambda _ctx: True))
     build = Step(
         label="build",
         condition=(
             _build_condition := (lambda result: not bool(result.unwrap()), probe)
         ),
-        action=LeafAction(fn=lambda _ctx, *_inputs: None),
+        node=Leaf(action=lambda _ctx, *_inputs: None),
     )
-    package = Step(label="package", action=LeafAction(fn=lambda _ctx: None))
+    package = Step(label="package", node=Leaf(action=lambda _ctx: None))
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             probe.wire(),
             build.wire(after=()).results(probe),
             package.wire(after=(build,)),
         ),
     )
-    state = GraphExecutionState(results=GraphResultStore())
+    state = ExecutionState(results=ResultStore())
 
-    rendered = render_live_graph_execution(graph, state, root_label="root")
+    rendered = render_live_execution(
+        Step(graph, label="root"),
+        state,
+    )
 
     assert rendered == "graph=root mode=dynamic running=idle last=- remaining=3"
 
 
 def test_compile_graph_resolves_static_conditions() -> None:
-    prepare = Step(label="prepare", action=LeafAction(fn=lambda: None))
-    android_shim = Step(label="android_shim", action=LeafAction(fn=lambda: None))
-    archive = Step(label="archive", action=LeafAction(fn=lambda: None))
+    prepare = Step(label="prepare", node=Leaf(action=lambda: None))
+    android_shim = Step(label="android_shim", node=Leaf(action=lambda: None))
+    archive = Step(label="archive", node=Leaf(action=lambda: None))
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             prepare.wire(),
             android_shim.wire(),
@@ -536,9 +634,9 @@ def test_compile_graph_resolves_static_conditions() -> None:
 
 
 def test_compile_graph_removes_static_condition_edge_when_false() -> None:
-    prepare = Step(label="prepare", action=lambda: None)
-    android_shim = Step(label="android_shim", action=lambda: None)
-    archive = Step(label="archive", action=lambda: None)
+    prepare = Step(label="prepare", node=lambda: None)
+    android_shim = Step(label="android_shim", node=lambda: None)
+    archive = Step(label="archive", node=lambda: None)
     graph = Graph.from_wiring(
         (
             prepare.wire(),
@@ -550,7 +648,6 @@ def test_compile_graph_removes_static_condition_edge_when_false() -> None:
                 )
             ),
         ),
-        label="root",
         static=StaticConditions(
             evaluator=_ConditionEvaluator(active=frozenset({"ios"})),
             conditions={(android_shim, archive): _condition("android")},
@@ -563,13 +660,13 @@ def test_compile_graph_removes_static_condition_edge_when_false() -> None:
 
 
 def test_compile_graph_preserves_runtime_condition_edge() -> None:
-    probe = Step(label="probe", action=lambda: "miss")
-    configure = Step(label="configure", action=lambda: None)
+    probe = Step(label="probe", node=lambda: "miss")
+    configure = Step(label="configure", node=lambda: None)
 
     def condition(result):
         return result.unwrap() == "miss"
 
-    build = Step(label="build", action=lambda _ctx, *_inputs: None)
+    build = Step(label="build", node=lambda _ctx, *_inputs: None)
     graph = Graph.from_wiring(
         (
             probe.wire(),
@@ -582,7 +679,6 @@ def test_compile_graph_preserves_runtime_condition_edge() -> None:
                 )
             ).results(probe),
         ),
-        label="root",
     )
 
     compilation = compile_graph(graph, root_label="root")
@@ -603,11 +699,10 @@ def test_compile_graph_accepts_static_condition_eval_function() -> None:
     def _eval(condition: StaticCondition) -> bool:
         return condition.payload == _condition("android").payload
 
-    prepare = Step(label="prepare", action=LeafAction(fn=lambda: None))
-    android_shim = Step(label="android_shim", action=LeafAction(fn=lambda: None))
-    archive = Step(label="archive", action=LeafAction(fn=lambda: None))
+    prepare = Step(label="prepare", node=Leaf(action=lambda: None))
+    android_shim = Step(label="android_shim", node=Leaf(action=lambda: None))
+    archive = Step(label="archive", node=Leaf(action=lambda: None))
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             prepare.wire(),
             android_shim.wire(),
@@ -632,12 +727,11 @@ def test_compile_graph_accepts_static_condition_eval_function() -> None:
 
 
 def test_compile_graph_handles_builtin_static_condition_combinators() -> None:
-    prepare = Step(label="prepare", action=LeafAction(fn=lambda: None))
-    android_shim = Step(label="android_shim", action=LeafAction(fn=lambda: None))
-    shared_only = Step(label="shared_only", action=LeafAction(fn=lambda: None))
-    archive = Step(label="archive", action=LeafAction(fn=lambda: None))
+    prepare = Step(label="prepare", node=Leaf(action=lambda: None))
+    android_shim = Step(label="android_shim", node=Leaf(action=lambda: None))
+    shared_only = Step(label="shared_only", node=Leaf(action=lambda: None))
+    archive = Step(label="archive", node=Leaf(action=lambda: None))
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             prepare.wire(),
             android_shim.wire(),
@@ -675,11 +769,10 @@ def test_compile_graph_handles_builtin_static_condition_combinators() -> None:
 
 
 def test_compile_graph_preserves_conditional_dependency_without_gate_step() -> None:
-    probe = Step(label="probe", action=LeafAction(fn=lambda: "miss"))
-    configure = Step(label="configure", action=LeafAction(fn=lambda: "configured"))
-    build = Step(label="build", action=LeafAction(fn=lambda _ctx, *_inputs: "built"))
+    probe = Step(label="probe", node=Leaf(action=lambda: "miss"))
+    configure = Step(label="configure", node=Leaf(action=lambda: "configured"))
+    build = Step(label="build", node=Leaf(action=lambda _ctx, *_inputs: "built"))
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             probe.wire(),
             configure.wire(),
@@ -699,28 +792,65 @@ def test_compile_graph_preserves_conditional_dependency_without_gate_step() -> N
         ),
     )
 
-    compilation = GraphExecution(graph=graph).compile()
+    compilation = Execution(root=Step(graph, label="root")).compile()
 
     assert [step.path for step in compilation.steps] == [
-        StepPath((0,)),
-        StepPath((1,)),
-        StepPath((2,)),
+        StepPath(
+            (
+                0,
+                0,
+            )
+        ),
+        StepPath(
+            (
+                0,
+                1,
+            )
+        ),
+        StepPath(
+            (
+                0,
+                2,
+            )
+        ),
     ]
     build_step = compilation.steps[2]
-    assert build_step.after[0] == CompiledStepRef(StepPath((0,)))
+    assert build_step.after[0] == CompiledStepRef(
+        StepPath(
+            (
+                0,
+                0,
+            )
+        )
+    )
     conditional = build_step.after[1]
     assert isinstance(conditional, CompiledConditionalDependency)
-    assert conditional.node == CompiledStepRef(StepPath((1,)))
-    assert conditional.condition.inputs == (CompiledStepRef(StepPath((0,))),)
+    assert conditional.node == CompiledStepRef(
+        StepPath(
+            (
+                0,
+                1,
+            )
+        )
+    )
+    assert conditional.condition.inputs == (
+        CompiledStepRef(
+            StepPath(
+                (
+                    0,
+                    0,
+                )
+            )
+        ),
+    )
 
 
-def test_graph_execution_compile_supports_static_and_runtime_conditions() -> None:
-    probe = Step(label="probe", action=LeafAction(fn=lambda: "miss"))
-    configure = Step(label="configure", action=LeafAction(fn=lambda: "configured"))
-    android_shim = Step(label="android_shim", action=LeafAction(fn=lambda: None))
-    build = Step(label="build", action=LeafAction(fn=lambda _ctx, *_inputs: "built"))
+def test_execution_compile_supports_static_and_runtime_conditions() -> None:
+    probe = Step(label="probe", node=Leaf(action=lambda: "miss"))
+    configure = Step(label="configure", node=Leaf(action=lambda: "configured"))
+    android_shim = Step(label="android_shim", node=Leaf(action=lambda: None))
+    build = Step(label="build", node=Leaf(action=lambda _ctx, *_inputs: "built"))
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             probe.wire(),
             configure.wire(),
@@ -746,26 +876,59 @@ def test_graph_execution_compile_supports_static_and_runtime_conditions() -> Non
         ),
     )
 
-    compilation = GraphExecution(graph=graph).compile()
+    compilation = Execution(root=Step(graph, label="root")).compile()
 
     assert [step.path for step in compilation.steps] == [
-        StepPath((0,)),
-        StepPath((1,)),
-        StepPath((2,)),
-        StepPath((3,)),
+        StepPath(
+            (
+                0,
+                0,
+            )
+        ),
+        StepPath(
+            (
+                0,
+                1,
+            )
+        ),
+        StepPath(
+            (
+                0,
+                2,
+            )
+        ),
+        StepPath(
+            (
+                0,
+                3,
+            )
+        ),
     ]
     build_after = compilation.steps[3].after
-    assert build_after[0] == CompiledStepRef(StepPath((0,)))
+    assert build_after[0] == CompiledStepRef(
+        StepPath(
+            (
+                0,
+                0,
+            )
+        )
+    )
     assert isinstance(build_after[1], CompiledConditionalDependency)
-    assert build_after[2] == CompiledStepRef(StepPath((2,)))
+    assert build_after[2] == CompiledStepRef(
+        StepPath(
+            (
+                0,
+                2,
+            )
+        )
+    )
 
 
 def test_render_graph_compiled_shows_conditional_dependency() -> None:
-    probe = Step(label="probe", action=LeafAction(fn=lambda: "miss"))
-    configure = Step(label="configure", action=LeafAction(fn=lambda: "configured"))
-    build = Step(label="build", action=LeafAction(fn=lambda _ctx, *_inputs: "built"))
+    probe = Step(label="probe", node=Leaf(action=lambda: "miss"))
+    configure = Step(label="configure", node=Leaf(action=lambda: "configured"))
+    build = Step(label="build", node=Leaf(action=lambda _ctx, *_inputs: "built"))
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             probe.wire(),
             configure.wire(),
@@ -791,14 +954,13 @@ def test_render_graph_compiled_shows_conditional_dependency() -> None:
 
 
 def test_compile_graph_removes_static_disabled_step_and_dependency() -> None:
-    prepare = Step(label="prepare", action=LeafAction(fn=lambda: None))
+    prepare = Step(label="prepare", node=Leaf(action=lambda: None))
     android_only = Step(
         label="android_only",
-        action=LeafAction(fn=lambda: None),
+        node=Leaf(action=lambda: None),
     )
-    archive = Step(label="archive", action=LeafAction(fn=lambda: None))
+    archive = Step(label="archive", node=Leaf(action=lambda: None))
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             prepare.wire(),
             android_only.wire(),
@@ -817,41 +979,43 @@ def test_compile_graph_removes_static_disabled_step_and_dependency() -> None:
 
 
 def test_compile_graph_preserves_runtime_when_on_leaf_step() -> None:
-    probe = Step(label="probe", action=LeafAction(fn=lambda: False))
+    probe = Step(label="probe", node=Leaf(action=lambda: False))
     write_cache = Step(
         label="write_cache",
-        action=LeafAction(fn=lambda _ctx, *_inputs: None),
+        node=Leaf(action=lambda _ctx, *_inputs: None),
         condition=(
             _write_cache_condition := (lambda result: bool(result.unwrap()), probe)
         ),
     )
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             probe.wire(),
             write_cache.wire().results(probe),
         ),
     )
 
-    compilation = GraphExecution(graph=graph).compile()
+    compilation = Execution(root=Step(graph, label="root")).compile()
 
-    assert compilation.steps[1].path == StepPath((1,))
+    assert compilation.steps[1].path == StepPath(
+        (
+            0,
+            1,
+        )
+    )
     assert compilation.steps[1].condition is not None
 
 
 def test_compile_graph_flattens_runtime_conditioned_composite() -> None:
-    probe = Step(label="probe", action=LeafAction(fn=lambda: False))
-    configure = Step(label="configure", action=LeafAction(fn=lambda: None))
+    probe = Step(label="probe", node=Leaf(action=lambda: False))
+    configure = Step(label="configure", node=Leaf(action=lambda: None))
     stage = Step(
         label="stage",
         condition=(_stage_condition := (lambda result: bool(result.unwrap()), probe)),
-        action=Graph.from_wiring(
-            label="stage",
+        node=Graph.from_wiring(
             wiring=(configure.wire(),),
         ),
     )
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             probe.wire(),
             stage.wire(
@@ -860,7 +1024,7 @@ def test_compile_graph_flattens_runtime_conditioned_composite() -> None:
         ),
     )
 
-    compilation = GraphExecution(graph=graph).compile()
+    compilation = compile_graph(graph, root_label="root")
 
     assert [step.path for step in compilation.steps] == [
         StepPath((0,)),
@@ -876,10 +1040,9 @@ def test_compile_graph_flattens_runtime_conditioned_composite() -> None:
 
 
 def test_compile_graph_flattens_child_with_conditional_dependency() -> None:
-    source = Step(label="source", action=lambda: None)
-    target = Step(label="target", action=lambda: None)
+    source = Step(label="source", node=lambda: None)
+    target = Step(label="target", node=lambda: None)
     child = Graph.from_wiring(
-        label="child",
         wiring=(
             source.wire(),
             target.wire(
@@ -892,17 +1055,16 @@ def test_compile_graph_flattens_child_with_conditional_dependency() -> None:
             ),
         ),
     )
-    child_step = Step(label="child", action=child)
-    package = Step(label="package", action=lambda: None)
+    child_step = Step(label="child", node=child)
+    package = Step(label="package", node=lambda: None)
     graph = Graph.from_wiring(
-        label="root",
         wiring=(
             child_step.wire(),
             package.wire(after=(child_step,)),
         ),
     )
 
-    compilation = GraphExecution(graph=graph).compile()
+    compilation = compile_graph(graph, root_label="root")
 
     assert [step.path for step in compilation.steps] == [
         StepPath((0, 0)),
@@ -923,11 +1085,10 @@ def test_compile_graph_flattens_child_with_conditional_dependency() -> None:
 
 
 def _make_nested_graph(*, stage_graph: Graph) -> Graph:
-    prepare = Step(label="prepare", action=LeafAction(fn=lambda: None))
-    stage = Step(label="stage", action=stage_graph)
-    package = Step(label="package", action=LeafAction(fn=lambda: None))
+    prepare = Step(label="prepare", node=Leaf(action=lambda: None))
+    stage = Step(label="stage", node=stage_graph)
+    package = Step(label="package", node=Leaf(action=lambda: None))
     return Graph.from_wiring(
-        label="root",
         wiring=(
             prepare.wire(),
             stage.wire(after=(prepare,)),
@@ -937,10 +1098,9 @@ def _make_nested_graph(*, stage_graph: Graph) -> Graph:
 
 
 def _make_stage_graph() -> Graph:
-    configure = Step(label="configure", action=LeafAction(fn=lambda: None))
-    build = Step(label="build", action=LeafAction(fn=lambda: None))
+    configure = Step(label="configure", node=Leaf(action=lambda: None))
+    build = Step(label="build", node=Leaf(action=lambda: None))
     return Graph.from_wiring(
-        label="stage",
         wiring=(
             configure.wire(),
             build.wire(after=(configure,)),
@@ -950,25 +1110,23 @@ def _make_stage_graph() -> Graph:
 
 def _make_value_graph() -> Graph:
     seed = "seed"
-    prepare = Step(label="prepare", action=LeafAction(fn=lambda: seed))
+    prepare = Step(label="prepare", node=Leaf(action=lambda: seed))
     configure = Step(
         label="configure",
-        action=LeafAction(fn=lambda: f"{seed}:configured"),
+        node=Leaf(action=lambda: f"{seed}:configured"),
     )
     build = Step(
         label="build",
-        action=LeafAction(fn=lambda _ctx, result: result.unwrap()),
+        node=Leaf(action=lambda _ctx, result: result.unwrap()),
     )
     stage = Step(
         label="stage",
-        action=Graph.from_wiring(
-            label="stage",
+        node=Graph.from_wiring(
             wiring=(configure.wire(), build.wire().results(configure)),
         ),
     )
-    package = Step(label="package", action=LeafAction(fn=lambda: "packaged"))
+    package = Step(label="package", node=Leaf(action=lambda: "packaged"))
     return Graph.from_wiring(
-        label="root",
         wiring=(
             prepare.wire(),
             stage.wire(after=(prepare,)),

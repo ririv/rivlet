@@ -5,7 +5,7 @@ English | [简体中文](./zh-CN/index.md)
 `rivlet` is an explicit, composable DAG declaration and execution library:
 
 ```python
-from rivlet import Graph, GraphExecution, Step
+from rivlet import Graph, Execution, Step
 ```
 
 ## Features
@@ -23,7 +23,7 @@ from rivlet import Graph, GraphExecution, Step
 
 ## Design goals
 
-`Graph` describes structure; `GraphExecution` owns one execution scope. Declarations
+`Graph` describes structure; `Execution` owns one execution scope. Declarations
 refer directly to Step objects. Internal `StepPath` values are assigned to mounted
 nodes, while labels serve presentation only.
 
@@ -60,7 +60,7 @@ performance guarantee for the latest release.
 | Type or field | Responsibility |
 | --- | --- |
 | `Graph` | Declarative execution DAG |
-| `GraphExecution` | A declaration and one execution scope |
+| `Execution` | A declaration and one execution scope |
 | `Step` | Optional label and condition; Python action, Python subgraph, or Rust-native subgraph |
 | `Graph.edges` | Explicit wiring |
 | `Step.wire().results(...)` / `Edge.results(...)` | Ordered action results; conditions declare their own sources |
@@ -78,7 +78,7 @@ interfaces. There are no implicit branches for a particular host application.
 
 - Runtime-created graphs receive nested sessions under the root action budget;
   work created inside an action is outside that budget.
-- `GraphExecutionState` is single-use, with no reset or reuse operation.
+- `ExecutionState` is single-use, with no reset or reuse operation.
 - The runtime does not aggregate host-domain results.
 - Runtime-generated subgraphs cannot be compiled in advance. Once returned, they
   enter the same Rust compiler used for statically declared graphs.

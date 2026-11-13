@@ -5,13 +5,13 @@ import asyncio
 import pytest
 
 from rivlet import (
-    AsyncGraphRunOptions,
+    AsyncRunOptions,
     Case,
     CompiledStep,
     Edge,
+    Execution,
     Graph,
     GraphError,
-    GraphExecution,
     GraphInterface,
     GraphMode,
     MultipleStaticBranchesSelectedError,
@@ -20,7 +20,7 @@ from rivlet import (
     StaticConditions,
     StaticSelection,
     Step,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
     compile_graph,
     render_graph,
     render_graph_mermaid,
@@ -54,7 +54,7 @@ def test_selection_preserves_sequence_and_captures_conditions(
     assert graph.steps == (prepare, modern, legacy, linux, finish)
     assert len(graph.static_selections[0].cases) == 3
     assert len(compile_graph(graph, root_label="root").steps) == 3
-    GraphExecution(graph).run(ThreadGraphRunOptions(workers=4), mode=mode)
+    Execution(Step(graph)).run(ThreadRunOptions(workers=4), mode=mode)
     assert calls == ["prepare", "modern" if version >= 3 else "legacy", "finish"]
 
 
@@ -113,7 +113,7 @@ def test_unique_selection_is_independent_of_case_order(reverse: bool) -> None:
     graph = static.select(cases=cases[::-1] if reverse else cases).graph()
     compiled_step = compile_graph(graph, root_label="root").steps[0]
     assert isinstance(compiled_step, CompiledStep)
-    assert compiled_step.action is selected.action
+    assert compiled_step.action is selected.node
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -122,7 +122,7 @@ def test_invalid_selection_prevents_all_actions(mode: GraphMode) -> None:
     prepare = Step(lambda: calls.append("prepare"))
     graph = (prepare >> static.select(cases=())).graph()
     with pytest.raises(NoStaticBranchSelectedError):
-        GraphExecution(graph).run(mode=mode)
+        Execution(Step(graph)).run(mode=mode)
     assert not calls
 
 
@@ -143,9 +143,11 @@ def test_direct_graph_declaration_matches_dsl() -> None:
 
 
 def test_nested_unselected_rules_are_not_evaluated() -> None:
-    invalid = static.select(cases=()).graph(label="unselected")
+    invalid = static.select(cases=()).graph()
     valid = static.select(cases=(Case(True, Step(lambda: None)),)).graph()
-    graph = static.select(cases=(Case(False, invalid), Case(True, valid))).graph()
+    graph = static.select(
+        cases=(Case(False, Step(invalid)), Case(True, Step(valid)))
+    ).graph()
     assert len(compile_graph(graph, root_label="root").steps) == 1
 
 
@@ -153,7 +155,7 @@ def test_selection_in_statically_pruned_graph_is_not_evaluated() -> None:
     invalid = static.select(cases=()).graph()
     graph = (
         StaticConditions(evaluator=lambda _condition: False)
-        .when(StaticCondition(payload=False, description="disabled"), invalid)
+        .when(StaticCondition(payload=False, description="disabled"), Step(invalid))
         .graph()
     )
     assert not compile_graph(graph, root_label="root").steps
@@ -163,11 +165,11 @@ def test_graph_can_be_mounted_twice_without_sharing_step_paths() -> None:
     calls: list[str] = []
     chosen = static.select(
         cases=(Case(True, Step(lambda: calls.append("chosen"))),)
-    ).graph(label="choice")
-    graph = (chosen | chosen).graph()
+    ).graph()
+    graph = (Step(chosen) | Step(chosen)).graph()
     compiled = compile_graph(graph, root_label="root")
     assert len({step.path for step in compiled.steps}) == 2
-    GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
+    Execution(Step(graph)).run(ThreadRunOptions(workers=2))
     assert calls == ["chosen", "chosen"]
 
 
@@ -183,8 +185,8 @@ def test_parallel_selections_keep_independent_decisions() -> None:
     assert {
         step.action for step in compiled_steps if isinstance(step, CompiledStep)
     } == {
-        first.action,
-        second.action,
+        first.node,
+        second.node,
     }
 
 
@@ -200,7 +202,7 @@ def test_runtime_condition_and_result_binding_remain_independent() -> None:
         (source.wire(), selected.wire().results(source)),
         static_selections=choice.static_selections,
     )
-    GraphExecution(graph).run()
+    Execution(Step(graph)).run()
     assert calls == [42]
 
 
@@ -229,7 +231,7 @@ def test_selected_subgraph_retains_its_interface_ports() -> None:
     provider = Graph(
         steps=(produce,), interface=GraphInterface(outputs={ready: produce})
     )
-    case = Case(True, provider)
+    case = Case(True, Step(provider))
     consumer = Graph(
         steps=(consume,), interface=GraphInterface(inputs={ready: consume})
     ).step()
@@ -238,7 +240,7 @@ def test_selected_subgraph_retains_its_interface_ports() -> None:
         edges=(Edge(case.step, consumer, ports=ready),),
         static_selections=(StaticSelection((case,)),),
     )
-    GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
+    Execution(Step(graph)).run(ThreadRunOptions(workers=2))
     assert calls == ["produce", "consume"]
 
 
@@ -249,7 +251,7 @@ def test_required_port_cannot_use_unselected_provider() -> None:
     provider = Graph(
         steps=(produce,), interface=GraphInterface(outputs={ready: produce})
     )
-    provider_case = Case(False, provider)
+    provider_case = Case(False, Step(provider))
     selected = Step(lambda: None)
     consumer = Graph(
         steps=(consume,), interface=GraphInterface(inputs={ready: consume})
@@ -267,8 +269,8 @@ def test_selected_empty_subgraph_preserves_composite_ordering() -> None:
     calls: list[str] = []
     first = Step(lambda: calls.append("first"))
     last = Step(lambda: calls.append("last"))
-    graph = (first >> static.select(cases=(Case(True, Graph()),)) >> last).graph()
-    GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
+    graph = (first >> static.select(cases=(Case(True, Step(Graph())),)) >> last).graph()
+    Execution(Step(graph)).run(ThreadRunOptions(workers=2))
     assert calls == ["first", "last"]
 
 
@@ -283,7 +285,7 @@ def test_runtime_created_graph_uses_the_same_static_selection() -> None:
             ),
         ).graph()
 
-    GraphExecution(Graph(steps=(Step(create_graph),))).run()
+    Execution(Step(Graph(steps=(Step(create_graph),)))).run()
     assert calls == ["selected"]
 
 
@@ -300,5 +302,5 @@ def test_async_driver_executes_only_the_selected_case() -> None:
             Case(True, Step(action)),
         ),
     ).graph()
-    asyncio.run(GraphExecution(graph).arun(AsyncGraphRunOptions(concurrency=2)))
+    asyncio.run(Execution(Step(graph)).arun(AsyncRunOptions(concurrency=2)))
     assert calls == ["selected"]

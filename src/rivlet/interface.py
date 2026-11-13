@@ -218,11 +218,11 @@ def _require_mounted_component(
 def _require_component_graph(component: Step) -> Graph:
     from .model import Graph
 
-    if not isinstance(component.action, Graph):
+    if not isinstance(component.node, Graph):
         raise GraphError(
             f"port component must be a graph-valued step: {_step_label(component)}"
         )
-    return component.action
+    return component.node
 
 
 def _require_declared_port_input(

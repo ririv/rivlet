@@ -12,7 +12,7 @@
 定义见 [step.py](../../src/rivlet/model/step.py)：
 
 ```python
-Step(action=..., label=..., condition=...)
+Step(node=..., label=..., condition=...)
 ```
 
 label 只用于展示。`condition` 接受 `None`、零参判断函数，或至少包含一个来源的
@@ -56,7 +56,7 @@ graph = Graph.from_wiring((
 ```python
 static = StaticConditions(evaluator=evaluate_target_condition)
 graph = (prepare >> static.when(is_android, android) >> build).graph()
-child_graph = static.when(is_android, android_graph).graph()
+child_graph = static.when(is_android, Step(android_graph, label="android")).graph()
 ```
 
 条件为假时，编译器移除节点及关联边，不自动把前驱接到后继。声明图保持不变，

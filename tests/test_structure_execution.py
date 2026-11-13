@@ -7,10 +7,10 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from rivlet import (
-    AsyncGraphRunOptions,
+    AsyncRunOptions,
+    Execution,
     Graph,
     GraphError,
-    GraphExecution,
     StaticCondition,
     StaticConditions,
     Step,
@@ -40,7 +40,7 @@ def test_actual_run_compilation_is_available_before_actions(asynchronous) -> Non
         .when(StaticCondition(object(), "private"), step)
         .graph()
     )
-    execution = GraphExecution(graph)
+    execution = Execution(Step(graph))
     assert execution.compilation is None
     prepared = execution.compile()
     assert execution.compilation is prepared
@@ -74,7 +74,7 @@ def test_failed_preparation_is_not_committed_and_can_be_retried() -> None:
         .when(StaticCondition(object(), "condition"), Step(lambda: None))
         .graph()
     )
-    execution = GraphExecution(graph)
+    execution = Execution(Step(graph))
     with pytest.raises(GraphError, match="preparation failed"):
         execution.compile()
     assert execution.compilation is None
@@ -91,14 +91,14 @@ def test_new_execution_and_standalone_compilation_make_fresh_static_decisions() 
         .when(StaticCondition(object(), "condition"), Step(lambda: None))
         .graph()
     )
-    first = GraphExecution(graph)
+    first = Execution(Step(graph))
     prepared = first.compile()
     assert len(prepared.steps) == 1
     enabled[0] = False
     first.run()
     assert first.compile() is prepared
     assert len(first.compile().steps) == 1
-    assert GraphExecution(graph).compile().steps == ()
+    assert Execution(Step(graph)).compile().steps == ()
     assert compile_graph(graph, root_label="independent").steps == ()
 
 
@@ -106,18 +106,18 @@ def test_failed_action_keeps_this_run_compilation() -> None:
     def fail():
         raise ValueError("private failure")
 
-    execution = GraphExecution(Graph(steps=(Step(fail),)))
+    execution = Execution(Step(Graph(steps=(Step(fail),))))
     with pytest.raises(ValueError, match="private failure"):
         execution.run()
     assert execution.compilation is not None
     document = export_graph(execution.compilation)
     assert "private failure" not in str(document)
-    assert len(document["nodes"]) == 1
+    assert len(document["nodes"]) == 2
 
 
 def test_run_with_async_options_records_same_arun_compilation() -> None:
-    execution = GraphExecution(Graph())
-    execution.run(AsyncGraphRunOptions())
+    execution = Execution(Step(Graph()))
+    execution.run(AsyncRunOptions())
     assert execution.compilation is not None
 
 
@@ -134,7 +134,7 @@ def test_concurrent_preparation_commits_one_successful_compilation() -> None:
         .when(StaticCondition(object(), "condition"), Step(lambda: None))
         .graph()
     )
-    execution = GraphExecution(graph)
+    execution = Execution(Step(graph))
     with ThreadPoolExecutor(max_workers=4) as pool:
         prepared = list(pool.map(lambda _: execution.compile(), range(4)))
     assert all(compilation is prepared[0] for compilation in prepared)

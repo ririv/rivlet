@@ -10,11 +10,11 @@ from pathlib import Path
 import pytest
 
 from rivlet import (
-    AsyncGraphRunOptions,
+    AsyncRunOptions,
+    Execution,
     Graph,
-    GraphExecution,
     Step,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
 )
 from rivlet._native import _native_process_graph
 
@@ -44,7 +44,6 @@ print('stderr marker', file=sys.stderr, flush=True)
 """
     native = Step(
         _native_process_graph(
-            "portable",
             [
                 (
                     "process",
@@ -57,10 +56,8 @@ print('stderr marker', file=sys.stderr, flush=True)
             [],
         )
     )
-    GraphExecution(Graph(steps=(native,)), step_log_paths={native: log_path}).run(
-        AsyncGraphRunOptions(concurrency=2)
-        if asynchronous
-        else ThreadGraphRunOptions(workers=2)
+    Execution(Step(Graph(steps=(native,))), step_log_paths={native: log_path}).run(
+        AsyncRunOptions(concurrency=2) if asynchronous else ThreadRunOptions(workers=2)
     )
     result = json.loads((directory / "result.json").read_text(encoding="utf-8"))
     assert Path(result["cwd"]) == directory.resolve()

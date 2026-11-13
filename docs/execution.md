@@ -6,10 +6,10 @@ English | [简体中文](./zh-CN/execution.md)
 
 Both public modes use the same Rust declaration compiler and execution session:
 
-- `GraphExecution.run(mode="dynamic")` retains compatibility presentation records:
+- `Execution.run(mode="dynamic")` retains compatibility presentation records:
   composites also appear in `executed_steps/completed_steps`.
-- `GraphExecution.run(mode="compiled")` records composites through their dedicated
-  entry/completion state. `GraphExecution.compile()` exposes the compiled structure.
+- `Execution.run(mode="compiled")` records composites through their dedicated
+  entry/completion state. `Execution.compile()` exposes the compiled structure.
 
 str bindings use the same lowering in both modes. The runtime consumes
 GraphCompilation, not a second Python scheduling model. Runtime-returned graphs
@@ -18,11 +18,11 @@ ancestor result scopes.
 
 ## Compilation preparation
 
-GraphExecution binds its declaration and host references immutably. Its first
+Execution binds its declaration and host references immutably. Its first
 successful `compile()`, `run()`, or `arun()` prepares and fixes one root compilation;
 later calls reuse that same object. `execution.compilation` is None before successful
 preparation and exposes that object afterward. Compilation errors commit nothing.
-Create a new GraphExecution to reevaluate static choices; the standalone compile_graph
+Create a new Execution to reevaluate static choices; the standalone compile_graph
 tool remains independent. Preparation reuse does not reset execution state or cache
 business results. See [structural export](./graph_export.md) to freeze the exact graph.
 
@@ -63,7 +63,7 @@ See [render/](../src/rivlet/render/).
 
 `render_graph(...)` and `render_graph_mermaid(...)` accept Graph or
 GraphCompilation and require an explicit `root_label`. They do not infer the
-execution root label from Graph.label.
+execution root label from a Graph, which carries no label.
 
 - Dynamic mode renders the declaration structure. For GraphCompilation, it uses
   `source_graph`.
@@ -72,27 +72,29 @@ execution root label from Graph.label.
   available for an existing compilation.
 
 Execution views use recorded condition results; they do not rerun predicates.
+`render_execution(root_step, state)` and `render_live_execution(root_step, state)`
+receive the actual root Step and derive its name; they do not accept a second `root_label`.
 
 ## Run options
 
 [Run options](../src/rivlet/runtime/run.py) form a union:
 
-- `ThreadGraphRunOptions(workers=..., observer=...)`
-- `AsyncGraphRunOptions(concurrency=..., observer=...)`
+- `ThreadRunOptions(workers=..., observer=...)`
+- `AsyncRunOptions(concurrency=..., observer=...)`
 
 Both concurrency limits default to 1. Observer is optional; without one, graph
 observation is not emitted. Pass either option type to
-`GraphExecution.run(options=..., mode=...)`.
+`Execution.run(options=..., mode=...)`.
 
 Inside an existing event loop, use
-`await GraphExecution(graph).arun(AsyncGraphRunOptions(concurrency=8))`.
+`await Execution(root_step).arun(AsyncRunOptions(concurrency=8))`.
 Both entry points use the same asynchronous implementation.
 
 ## Execution control
 
-GraphExecutionControl holds stop state and stop handlers, not action results.
+ExecutionControl holds stop state and stop handlers, not action results.
 Ordinary action or runtime-predicate exceptions do not request global cancellation.
-Explicit host cancellation, GraphExecutionStopped, KeyboardInterrupt, and other
+Explicit host cancellation, ExecutionStopped, KeyboardInterrupt, and other
 execution interrupts stop the run. The host can register handlers to reclaim
 running subprocesses and other resources.
 
@@ -103,18 +105,18 @@ prevents new dispatch, waits for already-started work, then reports cancellation
 Each execution has independent control by default:
 
 ```python
-execution = GraphExecution(graph=graph)
+execution = Execution(root=Step(graph))
 ```
 
 A host may share control between sequential executions:
 
 ```python
-control = GraphExecutionControl()
-first_execution = GraphExecution(graph=first_graph, execution_control=control)
-second_execution = GraphExecution(graph=second_graph, execution_control=control)
+control = ExecutionControl()
+first_execution = Execution(root=Step(first_graph), execution_control=control)
+second_execution = Execution(root=Step(second_graph), execution_control=control)
 ```
 
-These remain separate runs with independent GraphExecutionState values. Sharing
+These remain separate runs with independent ExecutionState values. Sharing
 control shares cancellation and resource-stop signals, not results. After an
 explicit stop, the second execution cannot start. If the caller catches an ordinary
 failure and explicitly starts the next execution, control does not prevent it.
@@ -130,7 +132,7 @@ handlers are called before any handler failures are raised together.
 
 ## Step execution events
 
-Pass `events=StepEventSink` to GraphExecution to receive `StepExecutionEvent`
+Pass `events=StepEventSink` to Execution to receive `StepExecutionEvent`
 values with declaration `step_id`, mounted `step_path` (including `.labels`),
 typed `state_detail`, and a derived
 `state: StepExecutionState`:
@@ -138,7 +140,7 @@ typed `state_detail`, and a derived
 Static and runtime-generated subgraphs and Rust-native actions use the same
 interface. Events describe committed transitions; composite events do not depend
 on presentation mode. An event callback is synchronous and serialized. A callback
-failure stops the execution with `GraphEventDeliveryError`, preserving the
+failure stops the execution with `EventDeliveryError`, preserving the
 transition already committed. With no subscription, no event objects or event
 label index are created. GraphObserver remains the separate presentation interface.
 
@@ -186,15 +188,15 @@ Direct-child counters make composite terminal-state aggregation O(V) overall.
 
 ## Host runtime interfaces
 
-GraphExecution connects host facilities through two independent interfaces:
+Execution connects host facilities through two independent interfaces:
 
-- GraphActionLog establishes an action log scope and appends Python exception text
+- ActionLog establishes an action log scope and appends Python exception text
   from parallel actions.
-- GraphExecutionOutput consumes the final state after success or failure.
+- ExecutionOutput consumes the final state after success or failure.
   TreeFileExecutionOutput writes a view into an explicitly supplied directory.
 
 Standalone defaults do not connect host logging or write execution-view files.
-Control remains the responsibility of GraphExecutionControl, not the logger.
+Control remains the responsibility of ExecutionControl, not the logger.
 There is no global-directory discovery or silent change of behavior.
 
 ## Explicit skipping
@@ -213,7 +215,7 @@ Graph does not provide hidden before/after-step hooks for cache probes, cache
 writes, or skip decisions. Such behavior belongs in the visible declaration:
 
 - Cache probes and writeback are explicit Steps.
-- Logging is an explicit GraphActionLog integration or action wrapper.
+- Logging is an explicit ActionLog integration or action wrapper.
 - Skipping is an explicit host write through execution control/state APIs.
 
 Observers exist for tracing, timing, visualization, and summaries, not for replacing

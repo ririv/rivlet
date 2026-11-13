@@ -22,30 +22,30 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
     from pathlib import Path
 
-    from ..model import LeafAction
+    from ..model import Leaf
     from ..observe import GraphObserver
     from ..results import StepRunContext
-    from .action_log import GraphActionLog
-    from .control import GraphExecutionControl
-    from .state import GraphExecutionState
+    from .action_log import ActionLog
+    from .control import ExecutionControl
+    from .state import ExecutionState
 
 
 @dataclass(frozen=True, slots=True)
 class PythonActionRuntime:
     """Bind Python actions and runtime subgraphs without recursive execution."""
 
-    state: GraphExecutionState
-    control: GraphExecutionControl
+    state: ExecutionState
+    control: ExecutionControl
     observer: GraphObserver | None
-    action_log: GraphActionLog
+    action_log: ActionLog
     shared: object | None
     record_composites_as_steps: bool
     invoke: Callable[
         [
-            LeafAction,
+            Leaf,
             StepRunContext,
             Path | None,
-            GraphActionLog,
+            ActionLog,
             tuple[Option[object], ...],
         ],
         object,

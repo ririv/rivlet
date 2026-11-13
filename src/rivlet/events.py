@@ -121,5 +121,5 @@ class StepEventSink(Protocol):
     def emit(self, event: StepExecutionEvent) -> None: ...
 
 
-class GraphEventDeliveryError(RuntimeError):
+class EventDeliveryError(RuntimeError):
     """An event consumer failed after a runtime transition was committed."""

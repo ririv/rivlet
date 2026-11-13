@@ -5,11 +5,13 @@ English | [简体中文](./zh-CN/core_model.md)
 Declarations, compilation, and execution are separate:
 
 ```text
-Graph / Step
-    ↓ compile_graph(...)
+Graph / Leaf
+    ↓ Step(node, label=..., condition=...)
+Execution(root_step)
+    ↓ compile()
 GraphCompilation
     ↓ Graph runtime
-GraphExecutionState
+ExecutionState
 ```
 
 Declarations describe structure, not a particular run's state. Internal identities
@@ -25,7 +27,7 @@ by responsibility, without a second set of declaration types:
 - `graph.py`: graph boundaries, interfaces, observation and static declarations.
 - `wiring.py`: input wiring, DSL composition and normalization.
 - `condition.py`: lightweight runtime predicates and their source bindings.
-- `action.py`: Python callable signature adaptation and invocation.
+- `leaf.py`: Python callable signature adaptation and invocation.
 - `validation.py`: topology, result-binding and mounted-interface validation.
 - `__init__.py`: public exports and cross-module union types, assembled once
   after their concrete types are available.
@@ -48,7 +50,6 @@ including cross-subgraph port connections. See [topology complexity](./topology_
 
 Defined in [graph.py](../src/rivlet/model/graph.py), `Graph` contains:
 
-- `label: str | None`
 - `steps: tuple[Step, ...]`
 - `edges: tuple[GraphEdge, ...]`
 - `interface: GraphInterface`
@@ -59,9 +60,9 @@ It describes an execution DAG and has no `run()` method. Its interface holds
 read-only input/output mappings. At construction, passing an inner Graph as
 `interface` explicitly forwards its entire interface.
 
-Labels are optional display names, not scheduling identities. An unlabeled root
-is displayed as `<unlabeled>`; an unlabeled nested graph uses its mounting Step's resolved
-label. An explicit Graph label takes precedence.
+Graph has no identity, label or runtime condition. Each mount is a Step; all display
+names and runtime activation conditions belong to that Step. An unlabeled Step
+uses its numeric mounted path, including `0` for an unlabeled execution root.
 
 Explicit wiring lives in `Graph.edges`. A normalized Graph does not accept
 StepWiring objects, and Step does not store execution or result wiring. `Edge.results()`
@@ -74,7 +75,7 @@ A Step contains:
 
 ```python
 label: str | None
-action: LeafAction | Graph | NativeGraph
+node: Leaf | Graph | NativeGraph
 condition: ConditionInput | None  # constructor input, normalized internally
 ```
 
@@ -85,9 +86,9 @@ prepare = Step(prepare_source, label="prepare")
 compile_step = Step(lambda: compile_source(flags), label="compile")
 ```
 
-Callables are normalized to `LeafAction`. The three action forms are:
+Callables are normalized to `Leaf(action)`. The node content forms are:
 
-- `LeafAction`: a Python leaf action.
+- `Leaf`: a Python leaf action.
 - `Graph`: an explicit Python subgraph.
 - `NativeGraph`: a complete Rust-native subgraph whose actions execute in Rust.
 
@@ -105,7 +106,12 @@ steps outside their graph; cross-subgraph synchronization uses interface ports.
   Compilation, scheduling, and result storage use this identity.
 - Compiled nodes expose declaration `.id` and mounted `.path`; compiled references
   carry only `.path`. The same declaration can have more than one compiled node.
-- Step and Graph labels are only presentation.
+- Step labels are only presentation; Graph does not declare a label.
+
+`Execution` requires a real root Step. The root is mounted at `0`; its direct
+children are `0.0`, `0.1`, and so on. Root conditions, skip, identity, logs and
+failure events follow the same rules as nested Steps. A Graph root compiles to a
+composite lifecycle boundary, not an extra no-op action. A Leaf root executes directly.
 
 An unlabeled Step uses its mounted StepPath as its compiled display name. Lambdas
 therefore need no fabricated stable label.
@@ -175,10 +181,11 @@ graph = (prepare >> (compile_a | compile_b) >> install).graph()
 These are wiring boundaries, not named GraphInterface ports. The DSL does
 not automatically expose or bind ports.
 
-Using an existing Graph as an operand wraps it in a Step and preserves its boundary:
+Mount a Graph explicitly before using it as an operand; composition never allocates
+an implicit node identity:
 
 ```python
-pipeline = (prepare >> child_graph >> install).graph()
+pipeline = (prepare >> Step(child_graph, label="child") >> install).graph()
 child_step = child_graph.step(label="build", condition=condition)
 ```
 
@@ -220,9 +227,9 @@ selected_graph = select_one(
 Unlike selection before construction, `Step.condition` controls a node's participation
 inside an already declared graph.
 
-## LeafAction
+## Leaf
 
-Without result inputs, LeafAction calls `fn()` or `fn(ctx)`. If both forms
+Without result inputs, Leaf calls `fn()` or `fn(ctx)`. If both forms
 are valid, the zero-argument form wins, preserving default-value closures.
 
 With `wire().results(producer, ...)`, the call is always
@@ -243,7 +250,7 @@ graph = Graph.from_wiring((
 ))
 ```
 
-The `step(action)` helper derives labels from named functions or Graph labels.
+The `step(node)` helper derives labels from named functions, not from Graph structure.
 It does not bind business arguments or introduce a second execution protocol.
 
 ## Returning a graph at runtime
@@ -285,46 +292,49 @@ tuple. Each source is a local Step whose Option result becomes one argument.
 These references participate in cycle detection, scheduling and wiring boundaries.
 Action parameters remain bound separately through `wire().results(...)`.
 
-## GraphExecution
+## Execution
 
-Defined in [execution.py](../src/rivlet/execution.py), GraphExecution binds a declaration to
+Defined in [execution.py](../src/rivlet/execution.py), Execution binds a declaration to
 one execution:
 
 ```python
-execution = GraphExecution(
-    graph=graph,
-    execution_state=GraphExecutionState(),
-    execution_control=GraphExecutionControl(),
+execution = Execution(
+    root=Step(graph),
+    execution_state=ExecutionState(),
+    execution_control=ExecutionControl(),
 )
 ```
 
-It contains `graph`, `shared`, `execution_state`, `execution_control`,
+It contains `root: Step`, `shared`, `execution_state`, `execution_control`,
 `action_log`, and `execution_output`, and provides `compile()`, `run(...)`, `arun(...)`,
 and `require_result(step)`.
 
-The graph's name is declared only through `Graph.label`. Compilation, rendering,
-and execution output all use `graph.display_label`: the declared name, or
-`<unlabeled>` for an anonymous graph. This display value is not an identity;
-scheduling and result lookup use `StepPath`. GraphExecution does not rename the graph.
+The execution name comes from its root Step, as do its identity and runtime condition.
+Compilation, rendering and output do not invent or override another graph name.
+Execution accepts only Step; a Graph must be mounted explicitly with `Step(graph)`.
+The compiler uses a single-root structural scope, which creates no additional
+Step or action. Lower-level `compile_graph(graph, root_label=...)` still compiles
+a bare structure for inspection or runtime expansion; it is not an alternative
+execution-root API.
 
 State is single-use. Control is independent by default; a host can explicitly
 share one control between sequential executions to share cancellation, not results.
 Once stopped, control cannot be reset.
 
-GraphExecution does not read global host logging or stop state. By default it neither
+Execution does not read global host logging or stop state. By default it neither
 connects a host action logger nor writes an execution file. For file output,
 explicitly pass `TreeFileExecutionOutput(output_dir)`.
 
 Use the asynchronous entry point inside an existing event loop:
 
 ```python
-state = await GraphExecution(graph=graph).arun(
-    AsyncGraphRunOptions(concurrency=8),
+state = await Execution(root=Step(graph)).arun(
+    AsyncRunOptions(concurrency=8),
 )
 ```
 
 `arun()` and the lower-level `AsyncGraphExecutor.aexecute()` use the caller's loop.
-Synchronous `run(AsyncGraphRunOptions(...))` runs that same asynchronous path in
+Synchronous `run(AsyncRunOptions(...))` runs that same asynchronous path in
 its own event loop.
 
 ## GraphCompilation
@@ -367,7 +377,7 @@ ordering-only prerequisite. Sources are passed in declaration order, including
 repeated sources. There is no receiver lookup or user-supplied argument index.
 Each target has one complete result group; do not slice a returned group or combine
 independent groups for the same target. Graph construction checks callable arity.
-The target must be a callable LeafAction in this graph. Result transport through
+The target must be a callable Leaf in this graph. Result transport through
 subgraph ports is not supported; ports continue to express readiness only.
 Node and edge conditions declare their independent arguments in
 `condition=(predicate, source, ...)`, without receiving ctx.
@@ -381,14 +391,14 @@ A predeclared Graph-valued Step has no callable to receive action parameters;
 its condition declares sources independently. Use a Python action returning a Graph to pass
 runtime values into a newly declared child graph.
 
-`GraphResultStore` records each successful StepPath once as `Some(value)`.
+`ResultStore` records each successful StepPath once as `Some(value)`.
 Explicit result edges enable recording before producers run. `Nothing()` means
 a terminal producer has no result, for example because it was skipped;
 `Some(None)` means it successfully returned None. Producer failure blocks the
 consumer; it is not converted into Nothing. Static removal of an input is a
 compilation error.
 
-Execution state and observers expose a `GraphResultView` with get/require/has,
+Execution state and observers expose a `ResultView` with get/require/has,
 not record. Snapshots copy the records. Values themselves are not deep-copied or
 frozen. Treat published values as immutable; use explicit shared state for
 intentional mutation.
@@ -396,7 +406,7 @@ intentional mutation.
 StepRunContext exposes step_id, step_path,
 control and shared(Type). It has no result lookup methods, result view or
 scope-index escape hatch. StepReadContext and ancestor result references are
-removed. External result inspection through GraphExecution.require_result remains.
+removed. External result inspection through Execution.require_result remains.
 
 `ctx.step_id` equals the declaration's `Step.id`. It is allocated by a shared
 Rust process-local counter for Python and native declarations, not from labels,
@@ -436,13 +446,13 @@ Handler failures are collected after all handlers have been called.
 Bind logs when constructing the execution:
 
 ```python
-execution = GraphExecution(graph=graph, step_log_paths={step: log_path})
+execution = Execution(root=Step(graph), step_log_paths={step: log_path})
 ```
 
 Log paths remain execution infrastructure, not action inputs. StepRunContext does
 not expose step_log_path. The executor resolves a step's bound or inherited path
 and passes it internally to log scopes, exception recording, and dynamic subgraphs.
-The host's GraphActionLog adapter still owns the actual log routing.
+The host's ActionLog adapter still owns the actual log routing.
 
 The constructor resolves all Step references against the complete graph in one
 batch and snapshots the paths. A reference must identify exactly one mounted
@@ -454,7 +464,7 @@ actions cannot change the bindings at runtime.
 
 ## Execution shared state
 
-Pass an explicitly constructed business object with `GraphExecution(shared=...)`.
+Pass an explicitly constructed business object with `Execution(shared=...)`.
 Python actions access that same object through `ctx.shared(ExpectedType)`, which
 returns the requested type and rejects a missing object or a type mismatch. It
 does not create a default dictionary or resolve objects from a registry.
@@ -463,7 +473,7 @@ does not create a default dictionary or resolve objects from a registry.
 from dataclasses import dataclass, field
 from threading import Lock
 
-from rivlet import GraphExecution, Step, StepRunContext, ThreadGraphRunOptions
+from rivlet import Execution, Step, StepRunContext, ThreadRunOptions
 
 
 @dataclass
@@ -483,7 +493,7 @@ def task(ctx: StepRunContext) -> None:
 
 graph = (Step(task) >> Step(task)).graph()
 progress = Progress()
-GraphExecution(graph=graph, shared=progress).run(ThreadGraphRunOptions(workers=2))
+Execution(root=Step(graph), shared=progress).run(ThreadRunOptions(workers=2))
 assert progress.completed == 2
 ```
 
@@ -509,7 +519,7 @@ explicit Steps.
 Subscribe separately to step transitions when needed:
 
 ```python
-from rivlet import GraphExecution, StepExecutionEvent
+from rivlet import Execution, StepExecutionEvent
 
 
 class Events:
@@ -517,7 +527,7 @@ class Events:
         print(event.step_id, event.step_path, event.step_path.labels, event.state)
 
 
-execution = GraphExecution(graph=graph, events=Events())
+execution = Execution(root=Step(graph), events=Events())
 execution.run()
 ```
 
@@ -534,11 +544,11 @@ condition, port, identity, and construction rules.
 
 Callbacks execute synchronously and serially, but are not bound to the coordinator
 thread; keep them short, as their cost is
-part of execution time. A callback failure raises `GraphEventDeliveryError` and
+part of execution time. A callback failure raises `EventDeliveryError` and
 stops execution, without relabeling a completed Step as failed. Without `events`,
 no events, label index, message text, or result copies are constructed. Events do
 not implement messaging, persistence, or replay-based recovery.
 
-GraphExecutionState records executed/completed steps, entered/completed composites,
-skips, failures, blocked nodes, condition results, and an optional GraphResultStore.
+ExecutionState records executed/completed steps, entered/completed composites,
+skips, failures, blocked nodes, condition results, and an optional ResultStore.
 It cannot be used for a second run and has no reset or recovery fallback.

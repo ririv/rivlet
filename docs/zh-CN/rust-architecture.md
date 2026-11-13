@@ -165,7 +165,7 @@ requirement 与 selection 映射成连续整数 ID。provider 索引、任意 pr
   携带任意 Python 对象，也不作为单个 Python API 暴露
 - PyO3 adapter 在一次编译调用中遍历声明对象；静态 predicate 的业务求值仍调用 Python
 - Python `GraphCompilation` 只恢复 action、predicate、observe、label path 与结果作用域侧表
-- `GraphExecutionState` 保存可供 Python action 动态写入的 skip、结果与渲染快照
+- `ExecutionState` 保存可供 Python action 动态写入的 skip、结果与渲染快照
 
 ready 队列、节点状态机、条件阻塞、层级生命周期、执行 DAG 校验、port provider
 求解与 binding lowering 均只有 Rust 一份实现。继续把上述宿主对象包装成原生对象只会

@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from .option import Some
-from .runtime.control import GraphExecutionControl
+from .runtime.control import ExecutionControl
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -21,8 +21,8 @@ class GraphScope:
 @dataclass(frozen=True, slots=True)
 class StepControl:
     # action 只读取协作停止状态，不修改其他步骤的调度。
-    _execution_control: GraphExecutionControl = field(
-        default_factory=GraphExecutionControl, repr=False, kw_only=True
+    _execution_control: ExecutionControl = field(
+        default_factory=ExecutionControl, repr=False, kw_only=True
     )
 
     def stop_requested(self) -> bool:
@@ -33,10 +33,10 @@ class StepControl:
 
 
 @dataclass(frozen=True, slots=True)
-class GraphResultView:
+class ResultView:
     """Read-only access to step result records, without copying their values."""
 
-    _store: GraphResultStore = field(repr=False)
+    _store: ResultStore = field(repr=False)
 
     def get(self, step_path: StepPath) -> Some[object] | None:
         return self._store.get(step_path)
@@ -49,7 +49,7 @@ class GraphResultView:
 
 
 @dataclass(slots=True)
-class GraphResultStore:
+class ResultStore:
     """以本次图挂载分配的 `StepPath` 保存执行结果的线程安全存储。
 
     runtime worker 与 observer/render 可能并发读写结果，因此所有访问都由
@@ -62,14 +62,14 @@ class GraphResultStore:
         init=False,
         repr=False,
     )
-    _view: GraphResultView = field(init=False, repr=False)
+    _view: ResultView = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         # 每个 store 只创建一个 O(1) 视图；各步骤和观察者共享，不复制结果表。
-        self._view = GraphResultView(self)
+        self._view = ResultView(self)
 
     @property
-    def view(self) -> GraphResultView:
+    def view(self) -> ResultView:
         return self._view
 
     def record(self, step_path: StepPath, value: object | None) -> None:
@@ -92,9 +92,9 @@ class GraphResultStore:
         with self._lock:
             return step_path in self._results
 
-    def copy(self) -> GraphResultStore:
+    def copy(self) -> ResultStore:
         with self._lock:
-            copied = GraphResultStore(_results=dict(self._results))
+            copied = ResultStore(_results=dict(self._results))
         return copied
 
 

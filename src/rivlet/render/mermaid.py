@@ -118,7 +118,7 @@ def append_graph_mermaid(
         selection_suffix = render_selection_suffix(graph, step)
         node_id = mermaid_step_node_id(graph_path, step_label, index)
         node_ids[step] = node_id
-        action = step.action
+        action = step.node
         if isinstance(action, Graph):
             lines.append(
                 f'{indent}    {node_id}["{escape_label(step_label + selection_suffix)}"]'

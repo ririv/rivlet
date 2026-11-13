@@ -6,7 +6,7 @@ from enum import StrEnum
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from ..events import GraphEventDeliveryError, StepExecutionEvent, StepExecutionState
+from ..events import EventDeliveryError, StepExecutionEvent, StepExecutionState
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Mapping
@@ -19,7 +19,7 @@ if TYPE_CHECKING:
         StepFailureCause,
     )
     from ..model import StepId, StepLabelPath, StepPath
-    from ..results import GraphResultStore, GraphResultView
+    from ..results import ResultStore, ResultView
 
 
 def _is_same_or_descendant(step_path: StepPath, ancestor: StepPath) -> bool:
@@ -41,7 +41,7 @@ class _StepEvents:
 
 
 @dataclass(slots=True, init=False)
-class GraphExecutionState:
+class ExecutionState:
     """Own the mutable facts produced by exactly one Graph run.
 
     调用方只能提供初始 skip 请求，不能通过构造器伪造“已执行”“已完成”或
@@ -57,7 +57,7 @@ class GraphExecutionState:
     _entered_composites: set[StepPath]
     _completed_composites: set[StepPath]
     _step_label_paths: dict[StepPath, StepLabelPath]
-    _results: GraphResultStore | None
+    _results: ResultStore | None
     _step_log_paths: Mapping[StepPath, Path]
     _runtime_condition_values: dict[StepPath, bool]
     _node_failures: dict[StepPath, GraphNodeFailure]
@@ -70,7 +70,7 @@ class GraphExecutionState:
         self,
         *,
         initial_skip_requests: Iterable[StepPath] = (),
-        results: GraphResultStore | None = None,
+        results: ResultStore | None = None,
     ) -> None:
         self._skip_requests = set(initial_skip_requests)
         self._matched_skip_requests = set()
@@ -98,11 +98,11 @@ class GraphExecutionState:
 
     def _enable_results(self) -> None:
         """Enable recording before executing a graph with result edges."""
-        from ..results import GraphResultStore
+        from ..results import ResultStore
 
         with self._lock:
             if self._results is None:
-                self._results = GraphResultStore()
+                self._results = ResultStore()
 
     def _emit(
         self, step_path: StepPath, state_detail: StepExecutionStateDetail
@@ -116,10 +116,10 @@ class GraphExecutionState:
             try:
                 self._events.sink.emit(StepExecutionEvent(identity, path, state_detail))
             except Exception as error:
-                raise GraphEventDeliveryError("step event delivery failed") from error
+                raise EventDeliveryError("step event delivery failed") from error
 
     @property
-    def results(self) -> GraphResultView | None:
+    def results(self) -> ResultView | None:
         return None if self._results is None else self._results.view
 
     @property
@@ -165,11 +165,11 @@ class GraphExecutionState:
                 raise RuntimeError("graph execution state cannot be reused")
             self._started = True
 
-    def snapshot(self) -> GraphExecutionSnapshot:
+    def snapshot(self) -> ExecutionSnapshot:
         """在同一把锁下复制一份内部一致的只读执行快照。"""
 
         with self._lock:
-            return GraphExecutionSnapshot(
+            return ExecutionSnapshot(
                 skipped_steps=frozenset(self._skipped_steps),
                 executed_steps=tuple(self._executed_steps),
                 completed_steps=frozenset(self._completed_steps),
@@ -390,7 +390,7 @@ class GraphExecutionState:
 
 
 @dataclass(frozen=True, slots=True)
-class GraphExecutionSnapshot:
+class ExecutionSnapshot:
     """从执行状态原子复制出的渲染与观察快照。"""
 
     skipped_steps: frozenset[StepPath]
@@ -399,6 +399,6 @@ class GraphExecutionSnapshot:
     entered_composites: frozenset[StepPath]
     completed_composites: frozenset[StepPath]
     step_label_paths: dict[StepPath, StepLabelPath]
-    results: GraphResultView | None
+    results: ResultView | None
     runtime_condition_values: dict[StepPath, bool]
     node_failures: dict[StepPath, GraphNodeFailure]

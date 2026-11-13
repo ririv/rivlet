@@ -7,9 +7,9 @@ from typing import Literal, assert_type
 import pytest
 
 from rivlet import (
-    AsyncGraphRunOptions,
+    AsyncRunOptions,
+    Execution,
     Graph,
-    GraphExecution,
     GraphMode,
     SerialGraphExecutor,
     Step,
@@ -17,7 +17,7 @@ from rivlet import (
     StepId,
     StepPath,
     StepRunContext,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
 )
 
 
@@ -58,19 +58,19 @@ def test_shared_object_reaches_parallel_and_nested_actions(
     # 同一份声明执行两次，各次显式提供的对象互不污染。
     for _ in range(2):
         progress = Progress()
-        execution = GraphExecution(graph=graph, shared=progress)
+        execution = Execution(root=Step(graph), shared=progress)
         match executor:
             case "serial":
                 SerialGraphExecutor(shared=progress).execute(execution.compile())
             case "threads":
-                execution.run(ThreadGraphRunOptions(workers=4), mode=mode)
+                execution.run(ThreadRunOptions(workers=4), mode=mode)
             case "async":
-                execution.run(AsyncGraphRunOptions(concurrency=4), mode=mode)
+                execution.run(AsyncRunOptions(concurrency=4), mode=mode)
         assert progress.completed == {
-            *(str(index) for index in range(12)),
-            "12.0",
-            "13",
-            "13.0",
+            *(f"0.{index}" for index in range(12)),
+            "0.12.0",
+            "0.13",
+            "0.13.0",
         }
         assert execution.execution_state.results is None
 

@@ -9,7 +9,7 @@ Python actions.
 
 ```text
 Python Graph / Step
-    ├── Python LeafAction ──────────┐
+    ├── Python Leaf ──────────┐
     └── Step(NativeGraph)           │
           └── NativeStep / Arc     │
                                    ▼

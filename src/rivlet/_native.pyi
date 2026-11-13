@@ -9,8 +9,6 @@ type NativeExecutionEvent = (
 )
 
 class NativeGraph:
-    @property
-    def label(self) -> str: ...
     def structure(self) -> tuple[list[str], list[tuple[int, int]]]: ...
     def step_ids(self) -> list[int]: ...
 
@@ -81,7 +79,6 @@ def compile_declaration(
     id_prefix: list[int] = ...,
 ) -> NativeDeclarationCompilation: ...
 def _native_process_graph(
-    label: str,
     processes: list[tuple[str, str, list[str], str, dict[str, str]]],
     arcs: list[tuple[int, int]],
 ) -> NativeGraph: ...

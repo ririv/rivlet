@@ -9,19 +9,19 @@ import threading
 import pytest
 
 from rivlet import (
-    AsyncGraphRunOptions,
+    AsyncRunOptions,
     ExactProviderRequirement,
+    Execution,
+    ExecutionState,
     Graph,
-    GraphExecution,
-    GraphExecutionState,
     GraphInterface,
-    GraphResultStore,
     Option,
+    ResultStore,
     Step,
     StepExecutionEvent,
     StepExecutionState,
     StepRunContext,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
     resolve_port_requirements,
 )
 from rivlet._native import _native_process_graph
@@ -60,7 +60,6 @@ change(-1)
 
     def branch() -> Graph:
         native = _native_process_graph(
-            "native",
             [("process", command[0], command[1:], str(tmp_path), dict(os.environ))],
             [],
         )
@@ -79,10 +78,10 @@ change(-1)
         )
         thread.start()
         try:
-            GraphExecution(graph, events=Sink()).run(
-                AsyncGraphRunOptions(concurrency=2)
+            Execution(Step(graph), events=Sink()).run(
+                AsyncRunOptions(concurrency=2)
                 if asynchronous
-                else ThreadGraphRunOptions(workers=2)
+                else ThreadRunOptions(workers=2)
             )
         finally:
             server.shutdown()
@@ -140,11 +139,7 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
             Step(expand, label="expand").wire().results(prepared),
         )
     )
-    GraphExecution(
-        graph, execution_state=GraphExecutionState(results=GraphResultStore())
-    ).run(
-        AsyncGraphRunOptions(concurrency=1)
-        if asynchronous
-        else ThreadGraphRunOptions(workers=1)
+    Execution(Step(graph), execution_state=ExecutionState(results=ResultStore())).run(
+        AsyncRunOptions(concurrency=1) if asynchronous else ThreadRunOptions(workers=1)
     )
     assert calls == ["prepared", "consumed"]

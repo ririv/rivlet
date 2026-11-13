@@ -168,12 +168,7 @@ impl<'py> Collector<'py> {
         id_prefix: &[usize],
         parent_active: bool,
     ) -> PyResult<usize> {
-        let declared_label = source_graph.getattr("label")?;
-        let label = if declared_label.is_none() {
-            default_label.to_owned()
-        } else {
-            declared_label.extract::<String>()?
-        };
+        let label = default_label.to_owned();
         let graph_index = self.graphs.len();
         self.graphs.push(GraphRecord {
             source_graph: source_graph.clone().unbind(),
@@ -225,7 +220,7 @@ impl<'py> Collector<'py> {
             let active = parent_active
                 && !inactive_selection_steps.contains(&object_key(step))
                 && (!has_static_bindings || Self::static_node_active(&static_bindings, step)?);
-            let action = step.getattr("action")?;
+            let action = step.getattr("node")?;
             self.nodes.push(NodeRecord {
                 source_step: Some(step.clone().unbind()),
                 identity: step.getattr("id")?.getattr("value")?.extract()?,
@@ -292,7 +287,7 @@ impl<'py> Collector<'py> {
                 action,
                 native_graph.graph(),
                 child_label_path,
-                Some(node_index),
+                node_index,
                 step_path,
                 active,
             ))
@@ -317,16 +312,16 @@ impl<'py> Collector<'py> {
         source_graph: &Bound<'py, PyAny>,
         native_graph: &native_graph::NativeGraph,
         label_path: Vec<String>,
-        owner: Option<usize>,
+        owner: usize,
         id_prefix: &[usize],
         parent_active: bool,
     ) -> usize {
         let graph_index = self.graphs.len();
         self.graphs.push(GraphRecord {
             source_graph: source_graph.clone().unbind(),
-            label: native_graph.label().to_owned(),
+            label: self.nodes[owner].label.clone(),
             label_path,
-            owner,
+            owner: Some(owner),
             local_steps: HashMap::new(),
             local_step_order: Vec::with_capacity(native_graph.steps().len()),
         });

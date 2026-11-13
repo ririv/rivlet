@@ -3,28 +3,28 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING
 
-from .action_log import NO_GRAPH_ACTION_LOG, GraphActionLog
+from .action_log import NO_ACTION_LOG, ActionLog
 from .batch_driver import run_threaded_session
 from .executor_common import invoke_sync_action, step_thread_name
 from .python_actions import PythonActionRuntime
-from .state import GraphExecutionState
+from .state import ExecutionState
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from ..model import LeafAction
+    from ..model import Leaf
     from ..observe import GraphObserver
     from ..option import Option
     from ..results import StepRunContext
-    from .control import GraphExecutionControl
+    from .control import ExecutionControl
     from .run import ExecutableGraph
 
 
 def _invoke_thread_action(
-    action: LeafAction,
+    action: Leaf,
     ctx: StepRunContext,
     step_log_path: Path | None,
-    action_log: GraphActionLog,
+    action_log: ActionLog,
     inputs: tuple[Option[object], ...] = (),
 ) -> object:
     thread = threading.current_thread()
@@ -41,15 +41,15 @@ class ParallelGraphExecutor:
 
     def __init__(
         self,
-        state: GraphExecutionState | None = None,
+        state: ExecutionState | None = None,
         *,
         shared: object | None = None,
-        execution_control: GraphExecutionControl,
+        execution_control: ExecutionControl,
         observer: GraphObserver | None = None,
-        action_log: GraphActionLog = NO_GRAPH_ACTION_LOG,
+        action_log: ActionLog = NO_ACTION_LOG,
         record_composites_as_steps: bool = False,
     ) -> None:
-        self.state = state or GraphExecutionState()
+        self.state = state or ExecutionState()
         self.execution_control = execution_control
         self._runtime = PythonActionRuntime(
             self.state,
@@ -61,7 +61,7 @@ class ParallelGraphExecutor:
             _invoke_thread_action,
         )
 
-    def execute(self, graph: ExecutableGraph, *, workers: int) -> GraphExecutionState:
+    def execute(self, graph: ExecutableGraph, *, workers: int) -> ExecutionState:
         self.execution_control.require_running()
         self.state.begin_run()
         definition = self._runtime.prepare(graph)

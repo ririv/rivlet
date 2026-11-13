@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
     from .model import Graph, Step, StepLabelPath, StepPath
     from .option import Some
-    from .results import GraphResultView
+    from .results import ResultView
 
 
 class GraphObservationPhase(StrEnum):
@@ -25,7 +25,7 @@ class GraphObservationEvent:
     graph_label: str
     graph_label_path: StepLabelPath
     graph_step_paths: Mapping[Step, StepPath]
-    results: GraphResultView | None = None
+    results: ResultView | None = None
 
     def result(self, step: Step) -> Some[object] | None:
         """按声明 step 引用读取当前观察图的实时结果。"""

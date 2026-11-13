@@ -3,23 +3,23 @@ from __future__ import annotations
 import pytest
 
 from rivlet import (
+    Execution,
+    ExecutionState,
     Graph,
-    GraphExecution,
-    GraphExecutionState,
     GraphObservationEvent,
     GraphObservationMessages,
-    GraphResultStore,
-    GraphResultView,
     Option,
+    ResultStore,
+    ResultView,
     Step,
     StepPath,
     StepRunContext,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
 )
 
 
 def test_result_view_is_live_and_preserves_none_results() -> None:
-    store = GraphResultStore()
+    store = ResultStore()
     view = store.view
     step_path = StepPath((0,))
     assert not view.has(step_path)
@@ -32,7 +32,7 @@ def test_result_view_is_live_and_preserves_none_results() -> None:
 
 
 def test_record_rejects_overwriting_an_existing_result() -> None:
-    store = GraphResultStore()
+    store = ResultStore()
     step_path = StepPath((0,))
     store.record(step_path, "first")
     with pytest.raises(RuntimeError, match="step result already recorded"):
@@ -41,7 +41,7 @@ def test_record_rejects_overwriting_an_existing_result() -> None:
 
 
 def test_state_snapshot_keeps_its_result_records() -> None:
-    state = GraphExecutionState(results=GraphResultStore())
+    state = ExecutionState(results=ResultStore())
     first, second = StepPath((0,)), StepPath((1,))
     state.record_step(first, ("first",))
     state.record_result(first, "first")
@@ -49,16 +49,16 @@ def test_state_snapshot_keeps_its_result_records() -> None:
     state.record_step(second, ("second",))
     state.record_result(second, "second")
 
-    assert isinstance(state.results, GraphResultView)
-    assert isinstance(snapshot.results, GraphResultView)
+    assert isinstance(state.results, ResultView)
+    assert isinstance(snapshot.results, ResultView)
     assert snapshot.results.require(first).value == "first"
     assert not snapshot.results.has(second)
     assert state.results.has(second)
 
 
 def test_actions_receive_bound_results_and_observers_receive_read_only_view() -> None:
-    state = GraphExecutionState(results=GraphResultStore())
-    received: list[GraphResultView] = []
+    state = ExecutionState(results=ResultStore())
+    received: list[ResultView] = []
     prepare = Step(lambda: "source")
 
     def consume(_ctx: StepRunContext, source: Option[object]) -> str:
@@ -69,20 +69,22 @@ def test_actions_receive_bound_results_and_observers_receive_read_only_view() ->
 
     class Observer:
         def emit(self, event: GraphObservationEvent) -> None:
-            assert isinstance(event.results, GraphResultView)
+            assert isinstance(event.results, ResultView)
             received.append(event.results)
             result = event.result(finish)
             assert result is not None
             assert result.value == "output"
 
-    execution = GraphExecution(
-        graph=Graph.from_wiring(
-            (prepare.wire(), finish.wire().results(prepare)),
-            observation=GraphObservationMessages(after_success="done"),
+    execution = Execution(
+        root=Step(
+            Graph.from_wiring(
+                (prepare.wire(), finish.wire().results(prepare)),
+                observation=GraphObservationMessages(after_success="done"),
+            )
         ),
         execution_state=state,
     )
-    execution.run(ThreadGraphRunOptions(workers=2, observer=Observer()))
+    execution.run(ThreadRunOptions(workers=2, observer=Observer()))
     assert len(received) == 1
     assert all(view is state.results for view in received)
     assert execution.require_result(finish).value == "output"

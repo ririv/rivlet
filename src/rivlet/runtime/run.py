@@ -13,12 +13,12 @@ if TYPE_CHECKING:
 
     from ..model import Graph, GraphObservationMessages, Step, StepLabelPath, StepPath
     from ..observe import GraphObserver
-    from .control import GraphExecutionControl
-    from .state import GraphExecutionState
+    from .control import ExecutionControl
+    from .state import ExecutionState
 
 
 @dataclass(frozen=True, slots=True)
-class ThreadGraphRunOptions:
+class ThreadRunOptions:
     """使用线程池执行同步或可等待 action 的运行参数。"""
 
     workers: int = 1
@@ -30,7 +30,7 @@ class ThreadGraphRunOptions:
 
 
 @dataclass(frozen=True, slots=True)
-class AsyncGraphRunOptions:
+class AsyncRunOptions:
     """使用 asyncio 调度 action 的运行参数。"""
 
     concurrency: int = 1
@@ -41,7 +41,7 @@ class AsyncGraphRunOptions:
             raise GraphError("graph run concurrency must be >= 1")
 
 
-type GraphRunOptions = ThreadGraphRunOptions | AsyncGraphRunOptions
+type RunOptions = ThreadRunOptions | AsyncRunOptions
 type ExecutableGraph = GraphCompilation
 
 
@@ -91,7 +91,7 @@ class CompiledGraphRun:
         runtime_step: RuntimeStep,
         *,
         shared: object | None = None,
-        execution_control: GraphExecutionControl,
+        execution_control: ExecutionControl,
     ) -> StepRunContext:
         step = runtime_step.step
         context = step.context
@@ -106,7 +106,7 @@ class CompiledGraphRun:
 
     def step_log_path_for(
         self,
-        state: GraphExecutionState,
+        state: ExecutionState,
         step: CompiledStep | CompiledNativeStep,
     ) -> Path | None:
         """Resolve a step's explicit or inherited log path without creating a run context."""
@@ -125,7 +125,7 @@ class CompiledGraphRun:
 
     def native_action_contexts(
         self,
-        state: GraphExecutionState,
+        state: ExecutionState,
     ) -> list[tuple[int, str | None]]:
         """Project native leaf log contexts without exposing their actions."""
 

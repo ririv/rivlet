@@ -16,7 +16,7 @@ from rivlet._native import _experimental_run_tokio_callbacks
 from rivlet.compile import compile_graph
 from rivlet.runtime.batch_driver import run_threaded_session
 from rivlet.runtime.compiled import CompiledExecutionHost
-from rivlet.runtime.state import GraphExecutionState
+from rivlet.runtime.state import ExecutionState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -34,7 +34,7 @@ def _compilation(nodes: int) -> GraphCompilation:
 def _host(compilation: GraphCompilation) -> CompiledExecutionHost:
     return CompiledExecutionHost(
         compilation,
-        GraphExecutionState(),
+        ExecutionState(),
         observer=None,
         run_leaf=lambda _step: None,
     )

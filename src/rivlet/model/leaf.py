@@ -1,4 +1,4 @@
-"""Leaf action callable adaptation and invocation contracts."""
+"""Leaf behavior and callable invocation contracts."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
     from ..results import StepRunContext
 
 
-type LeafActionCallable = Callable[..., object]
+type LeafCallable = Callable[..., object]
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,14 +29,14 @@ class _StepContextCall:
 
 @dataclass(frozen=True, slots=True)
 class _ResultCall:
-    fn: LeafActionCallable
+    fn: LeafCallable
 
 
-type _LeafActionCall = _NoArgsCall | _StepContextCall | _ResultCall
+type _LeafCall = _NoArgsCall | _StepContextCall | _ResultCall
 
 
 def _accepts_no_args(
-    _fn: LeafActionCallable,
+    _fn: LeafCallable,
     signature: inspect.Signature,
 ) -> TypeGuard[Callable[[], object]]:
     try:
@@ -47,7 +47,7 @@ def _accepts_no_args(
 
 
 def _accepts_step_context(
-    _fn: LeafActionCallable,
+    _fn: LeafCallable,
     signature: inspect.Signature,
 ) -> TypeGuard[Callable[[StepRunContext], object]]:
     try:
@@ -58,7 +58,7 @@ def _accepts_step_context(
 
 
 @dataclass(frozen=True, slots=True, init=False, eq=False)
-class LeafAction:
+class Leaf:
     """封装 action；数据参数由图的结果边显式绑定。
 
     无数据输入时调用 fn() 或 fn(ctx)，两者都可调用时固定选择零参，
@@ -66,9 +66,10 @@ class LeafAction:
     完整签名在图接线后校验，不按参数名或类型标注猜测调用方式。
     """
 
-    _call: _LeafActionCall
+    _call: _LeafCall
 
-    def __init__(self, fn: LeafActionCallable) -> None:
+    def __init__(self, action: LeafCallable) -> None:
+        fn = action
         try:
             signature = inspect.signature(fn)
         except (TypeError, ValueError) as exc:
@@ -79,7 +80,7 @@ class LeafAction:
         if _accepts_no_args(fn, signature):
             # 同时支持零参和单参的 callable 固定按零参调用，避免把
             # `lambda value=value: ...` 的闭包默认值误覆盖成运行上下文。
-            call: _LeafActionCall = _NoArgsCall(fn=fn)
+            call: _LeafCall = _NoArgsCall(fn=fn)
         elif _accepts_step_context(fn, signature):
             call = _StepContextCall(fn=fn)
         else:
@@ -89,13 +90,13 @@ class LeafAction:
         object.__setattr__(self, "_call", call)
 
     @property
-    def fn(self) -> LeafActionCallable:
+    def action(self) -> LeafCallable:
         return self._call.fn
 
     def validate_inputs(self, count: int) -> None:
         try:
             if count:
-                inspect.signature(self.fn).bind(object(), *([object()] * count))
+                inspect.signature(self.action).bind(object(), *([object()] * count))
             elif isinstance(self._call, _ResultCall):
                 raise TypeError("action requires result inputs")
         except TypeError as exc:
@@ -107,7 +108,7 @@ class LeafAction:
         self, run_ctx: StepRunContext, inputs: tuple[Option[object], ...] = ()
     ) -> object:
         if inputs:
-            return self.fn(run_ctx, *inputs)
+            return self.action(run_ctx, *inputs)
         match self._call:
             case _NoArgsCall(fn=fn):
                 return fn()

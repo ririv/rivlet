@@ -1,7 +1,6 @@
 """Public graph-model declarations, assembled from their owning modules."""
 
 from .._native import NativeGraph
-from .action import LeafAction, LeafActionCallable
 from .condition import (
     ConditionalEdgePredicate,
 )
@@ -19,6 +18,7 @@ from .graph import (
     GraphObservationMessages,
 )
 from .identity import StepId, StepPath
+from .leaf import Leaf, LeafCallable
 from .step import (
     Step,
     StepLabelPath,
@@ -33,13 +33,13 @@ from .wiring import (
 
 # 跨模块的联合类型在装配入口定义一次。此时真实声明类型已加载，
 # 类型检查和运行时读取 TypeAliasType.__value__ 使用同一组类型身份。
-type StepAction = LeafAction | Graph | NativeGraph
-type StepActionInput = StepAction | LeafActionCallable
+type Node = Leaf | Graph | NativeGraph
+type NodeInput = Node | LeafCallable
 type ConditionInput = (
     ConditionalEdgePredicate | tuple[ConditionalEdgePredicate, Step, *tuple[Step, ...]]
 )
 type StepPrerequisite = Step | ConditionalPrerequisite
-type GraphWiringOperand = Step | Graph | GraphWiring
+type GraphWiringOperand = Step | GraphWiring
 type GraphWiringInput = tuple[StepWiring, ...] | GraphWiring
 
 __all__ = [
@@ -49,10 +49,10 @@ __all__ = [
     "StepLabelPath",
     "GraphMode",
     "GraphObservationMessages",
-    "LeafActionCallable",
-    "LeafAction",
-    "StepAction",
-    "StepActionInput",
+    "LeafCallable",
+    "Leaf",
+    "Node",
+    "NodeInput",
     "ConditionalEdgePredicate",
     "ConditionInput",
     "ConditionalPrerequisite",

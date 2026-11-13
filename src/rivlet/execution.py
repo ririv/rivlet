@@ -11,17 +11,17 @@ from .compile import (
 )
 from .errors import GraphError
 from .execution_output import (
-    NO_GRAPH_EXECUTION_OUTPUT,
-    GraphExecutionOutput,
+    NO_EXECUTION_OUTPUT,
+    ExecutionOutput,
 )
 from .runtime import (
-    NO_GRAPH_ACTION_LOG,
-    AsyncGraphRunOptions,
-    GraphActionLog,
-    GraphExecutionControl,
-    GraphExecutionState,
-    GraphRunOptions,
-    ThreadGraphRunOptions,
+    NO_ACTION_LOG,
+    ActionLog,
+    AsyncRunOptions,
+    ExecutionControl,
+    ExecutionState,
+    RunOptions,
+    ThreadRunOptions,
 )
 
 if TYPE_CHECKING:
@@ -34,15 +34,16 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True)
-class GraphExecution:
-    """DAG 图的实例化执行载体。
+class Execution:
+    """Bind one declared root Step to a single execution.
 
-    `GraphExecution` 把一张 `Graph` DAG 绑定到“这一次”的运行与编译上下文上。
+    根与内部 Step 使用相同的身份、条件和生命周期；根可承载 Graph、Leaf
+    或原生图结构。这里只绑定运行状态，不重命名或替换声明。
 
     它持有：
-    - 原始图结构
-    - 这次执行共享的 `GraphExecutionState`
-    - 这次执行使用的 `GraphExecutionControl`
+    - 根 Step 声明
+    - 这次执行共享的 `ExecutionState`
+    - 这次执行使用的 `ExecutionControl`
     - 调用方显式提供、由各 Python action 共享的业务对象
 
     它负责的入口包括：
@@ -50,14 +51,15 @@ class GraphExecution:
     - `run()`：按 dynamic / compiled 两种模式执行这次图实例
     """
 
-    graph: Graph
+    root: Step
+    _declaration_graph: Graph = field(init=False, repr=False, compare=False)
     shared: object | None = field(default=None, kw_only=True, repr=False)
-    execution_state: GraphExecutionState = field(default_factory=GraphExecutionState)
-    execution_control: GraphExecutionControl = field(
-        default_factory=GraphExecutionControl,
+    execution_state: ExecutionState = field(default_factory=ExecutionState)
+    execution_control: ExecutionControl = field(
+        default_factory=ExecutionControl,
     )
-    action_log: GraphActionLog = NO_GRAPH_ACTION_LOG
-    execution_output: GraphExecutionOutput = NO_GRAPH_EXECUTION_OUTPUT
+    action_log: ActionLog = NO_ACTION_LOG
+    execution_output: ExecutionOutput = NO_EXECUTION_OUTPUT
     step_log_paths: InitVar[Mapping[Step, Path] | None] = field(
         default=None, kw_only=True
     )
@@ -74,13 +76,20 @@ class GraphExecution:
         """Return this execution's successfully prepared root compilation.
 
         首次 compile/run/arun 成功编译后固定；执行失败不删除它。重新求值静态
-        条件须创建新的 GraphExecution，声明和宿主绑定不允许事后替换。
+        条件须创建新的 Execution，声明和宿主绑定不允许事后替换。
         """
         return self._compilation
 
     def __post_init__(
         self, step_log_paths: Mapping[Step, Path] | None, events: StepEventSink | None
     ) -> None:
+        from .model import Graph, Step
+
+        if not isinstance(self.root, Step):
+            raise TypeError("Execution requires a root Step")
+        # 根 Step 是唯一真实根节点。此 Graph 只是编译输入的结构作用域，
+        # 不分配身份、不生成空 action，也不再次包装已有节点。
+        object.__setattr__(self, "_declaration_graph", Graph(steps=(self.root,)))
         if not step_log_paths:
             if events is not None:
                 self.execution_state._initialize_execution_inputs({}, events)
@@ -105,7 +114,7 @@ class GraphExecution:
             compilation = self._compilation
             if compilation is None:
                 compilation = compile_graph(
-                    self.graph, root_label=self.graph.display_label
+                    self._declaration_graph, root_label=self._root_label
                 )
                 object.__setattr__(self, "_compilation", compilation)
             return compilation
@@ -146,12 +155,12 @@ class GraphExecution:
                 parent_step_path=parent_step_path,
             ).items():
                 mounted_step_paths.setdefault(candidate, []).append(candidate_id)
-                if isinstance(candidate.action, Graph):
-                    _collect(candidate.action, candidate_id)
+                if isinstance(candidate.node, Graph):
+                    _collect(candidate.node, candidate_id)
 
         # V 为静态挂载中的 step 出现次数。一次批量绑定以 O(V) 时间和空间建立索引，
         # 随后的 K 次查找均为 O(1)，总复杂度为 O(V + K)，避免退化为 O(K * V)。
-        _collect(self.graph, None)
+        _collect(self._declaration_graph, None)
         return {
             candidate: tuple(step_paths)
             for candidate, step_paths in mounted_step_paths.items()
@@ -167,9 +176,8 @@ class GraphExecution:
 
         try:
             self.execution_output.write(
-                self.graph,
+                self.root,
                 self.execution_state,
-                root_label=self.graph.display_label,
                 mode=mode,
             )
         except Exception as output_error:
@@ -179,6 +187,12 @@ class GraphExecution:
                 f"failed to write graph execution output: {output_error}"
             )
 
+    @property
+    def _root_label(self) -> str:
+        from .model import StepPath, resolve_step_label
+
+        return resolve_step_label(self.root, StepPath((0,)))
+
     def _compile_for_run(self, mode: GraphMode) -> GraphCompilation:
         self.execution_control.require_running()
         if mode not in ("dynamic", "compiled"):
@@ -187,16 +201,16 @@ class GraphExecution:
 
     def run(
         self,
-        options: GraphRunOptions | None = None,
+        options: RunOptions | None = None,
         *,
         mode: GraphMode = "dynamic",
-    ) -> GraphExecutionState:
+    ) -> ExecutionState:
         from .runtime import ParallelGraphExecutor
 
-        run_options = options or ThreadGraphRunOptions()
-        if isinstance(run_options, AsyncGraphRunOptions):
+        run_options = options or ThreadRunOptions()
+        if isinstance(run_options, AsyncRunOptions):
             return asyncio.run(self.arun(run_options, mode=mode))
-        if not isinstance(run_options, ThreadGraphRunOptions):
+        if not isinstance(run_options, ThreadRunOptions):
             raise GraphError(
                 f"unsupported graph run options: {type(run_options).__name__}"
             )
@@ -218,15 +232,15 @@ class GraphExecution:
 
     async def arun(
         self,
-        options: AsyncGraphRunOptions | None = None,
+        options: AsyncRunOptions | None = None,
         *,
         mode: GraphMode = "dynamic",
-    ) -> GraphExecutionState:
+    ) -> ExecutionState:
         """Execute asynchronous actions in the caller's event loop."""
 
         from .runtime import AsyncGraphExecutor
 
-        run_options = options or AsyncGraphRunOptions()
+        run_options = options or AsyncRunOptions()
         target_graph = self._compile_for_run(mode)
         try:
             result = await AsyncGraphExecutor(

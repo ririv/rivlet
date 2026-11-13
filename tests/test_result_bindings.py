@@ -6,20 +6,20 @@ from typing import Literal
 import pytest
 
 from rivlet import (
-    AsyncGraphRunOptions,
+    AsyncRunOptions,
     ConditionalPrerequisite,
     Edge,
+    Execution,
+    ExecutionState,
     Graph,
     GraphError,
-    GraphExecution,
-    GraphExecutionState,
     Nothing,
     Option,
     SerialGraphExecutor,
     Some,
     Step,
     StepRunContext,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
     compile_graph,
 )
 
@@ -28,16 +28,16 @@ type Backend = Literal["serial", "thread", "async"]
 
 def execute(graph: Graph, backend: Backend) -> None:
     if backend == "serial":
-        SerialGraphExecutor(GraphExecutionState()).execute(
+        SerialGraphExecutor(ExecutionState()).execute(
             compile_graph(graph, root_label="root")
         )
     else:
         options = (
-            ThreadGraphRunOptions(workers=2)
+            ThreadRunOptions(workers=2)
             if backend == "thread"
-            else AsyncGraphRunOptions(concurrency=2)
+            else AsyncRunOptions(concurrency=2)
         )
-        GraphExecution(graph).run(options)
+        Execution(Step(graph)).run(options)
 
 
 def test_option_preserves_none_and_false_values() -> None:
@@ -149,11 +149,13 @@ def test_repeated_input_preserves_arguments_without_rewrapping() -> None:
         lambda _ctx, _first, _second: None,
         condition=(_consumer_condition := (condition, probe, probe)),
     )
-    execution = GraphExecution(
-        Graph.from_wiring(
-            (
-                consumer.wire().results(probe, probe),
-                probe.wire(),
+    execution = Execution(
+        Step(
+            Graph.from_wiring(
+                (
+                    consumer.wire().results(probe, probe),
+                    probe.wire(),
+                )
             )
         )
     )
@@ -316,7 +318,7 @@ def test_false_node_condition_does_not_wait_for_other_receiver_inputs() -> None:
             ).results(action_input),
         )
     )
-    GraphExecution(graph).run(AsyncGraphRunOptions(concurrency=4))
+    Execution(Step(graph)).run(AsyncRunOptions(concurrency=4))
     assert decided.is_set()
 
 

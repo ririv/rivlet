@@ -4,16 +4,16 @@
 
 ## Dynamic / Compiled 模式
 
-`GraphExecution` 保留两个公开模式，但二者不再对应两套执行器：
+`Execution` 保留两个公开模式，但二者不再对应两套执行器：
 
 - dynamic
-  - `GraphExecution.run(mode="dynamic")`
+  - `Execution.run(mode="dynamic")`
   - 使用 Rust 声明编译器和 Rust execution session
   - 为兼容结构视图，composite 同时记录到 `executed_steps/completed_steps`
   - 端口连接 与 compiled 模式使用同一 lowering
 - compiled
-  - `GraphExecution.compile()`
-  - `GraphExecution.run(mode="compiled")`
+  - `Execution.compile()`
+  - `Execution.run(mode="compiled")`
   - 使用同一个 Rust 声明编译器和 Rust execution session
   - composite 只记录专门的进入与完成状态
   - 支持 端口连接 lowering
@@ -23,9 +23,9 @@ step id、label path 与父结果作用域，再进入同一个编译执行流�
 
 ## 编译准备
 
-GraphExecution 的声明及宿主引用在构造后不可替换。首次成功的 `compile()`、`run()` 或
+Execution 的声明及宿主引用在构造后不可替换。首次成功的 `compile()`、`run()` 或
 `arun()` 固定同一份根编译结果，后续复用；只读 `execution.compilation` 在准备成功前为
-None，之后返回该对象。编译异常不提交半成品。重新求静态条件需要新建 GraphExecution；
+None，之后返回该对象。编译异常不提交半成品。重新求静态条件需要新建 Execution；
 独立工具 compile_graph 仍独立编译。准备结果复用不重置执行状态，也不是业务结果缓存。
 冻结当次真实图的用法见[结构导出](./graph_export.md)。
 
@@ -73,13 +73,13 @@ None，之后返回该对象。编译异常不提交半成品。重新求静态�
 
 - `render_graph(...)`
   - 接受 `Graph | GraphCompilation`
-  - 必须显式接收根执行 `root_label`，不从 `Graph.label` 推导
+  - 纯结构展示显式接收标题 `root_label`，Graph 自身没有 label
   - `mode="dynamic"` 时返回终端友好的组合结构树
   - `mode="compiled"` 时返回 compilation 视图文本
   - 若传入 `GraphCompilation` 且 `mode="dynamic"`，按 `source_graph` 的组合结构渲染
 - `render_graph_mermaid(...)`
   - 接受 `Graph | GraphCompilation`
-  - 必须显式接收根执行 `root_label`，不从 `Graph.label` 推导
+  - 纯结构展示显式接收标题 `root_label`，Graph 自身没有 label
   - `mode="dynamic"` 时返回原始 `Graph` 的结构 mermaid
   - `mode="compiled"` 时返回 compilation mermaid
   - 若传入 `Graph` 且 `mode="compiled"`，内部会先 `compile_graph(...)`
@@ -96,10 +96,10 @@ None，之后返回该对象。编译异常不提交半成品。重新求静态�
 
 当前运行选项拆成两类：
 
-- `ThreadGraphRunOptions`
+- `ThreadRunOptions`
   - `workers`
   - `observer`
-- `AsyncGraphRunOptions`
+- `AsyncRunOptions`
   - `concurrency`
   - `observer`
 
@@ -110,50 +110,50 @@ None，之后返回该对象。编译异常不提交半成品。重新求静态�
 - 两者默认值都为 `1`
 - `observer` 是可选的
 - 未传 `observer` 时，不会发出 graph observation
-- `GraphExecution.run(options=..., mode=...)` 接受它们的联合类型
+- `Execution.run(options=..., mode=...)` 接受它们的联合类型
 
 已有事件循环时使用：
 
 ```python
-state = await GraphExecution(graph).arun(AsyncGraphRunOptions(concurrency=8))
+state = await Execution(Step(graph)).arun(AsyncRunOptions(concurrency=8))
 ```
 
-同步 `run(AsyncGraphRunOptions(...))` 与 `arun()` 复用同一异步实现。
+同步 `run(AsyncRunOptions(...))` 与 `arun()` 复用同一异步实现。
 
 ## 执行控制
 
-`GraphExecutionControl` 保存停止状态和停止处理器，不保存 step 结果。普通 action 或
-运行时条件的异常不会请求全局停止；宿主主动取消、`GraphExecutionStopped` 或
+`ExecutionControl` 保存停止状态和停止处理器，不保存 step 结果。普通 action 或
+运行时条件的异常不会请求全局停止；宿主主动取消、`ExecutionStopped` 或
 `KeyboardInterrupt` 等执行中断仍终止整图。宿主可以注册资源停止处理器，回收仍在运行的子进程。
 
 control 是一次性的执行作用域：一旦收到停止请求，就不会恢复，也不提供 `reset()`。
-运行前已经停止的 GraphExecution 会直接抛出 `GraphExecutionStopped`；运行过程中收到停止请求
+运行前已经停止的 Execution 会直接抛出 `ExecutionStopped`；运行过程中收到停止请求
 后，runtime 不再派发新的 ready step，但会等待已经启动的 step 结束，再报告停止。
 
-`GraphExecution` 默认创建独享 control：
+`Execution` 默认创建独享 control：
 
 ```python
-execution = GraphExecution(graph=graph)
+execution = Execution(root=Step(graph))
 ```
 
-独立使用 Graph 时，不会触碰宿主的进程级停止状态。若宿主把多个顺序 GraphExecution 视为同一
+独立使用 Graph 时，不会触碰宿主的进程级停止状态。若宿主把多个顺序 Execution 视为同一
 次请求，可以显式共享一份 control：
 
 ```python
-control = GraphExecutionControl()
-first_execution = GraphExecution(graph=first_graph, execution_control=control)
-second_execution = GraphExecution(
-    graph=second_graph,
+control = ExecutionControl()
+first_execution = Execution(root=Step(first_graph), execution_control=control)
+second_execution = Execution(
+    root=Step(second_graph),
     execution_control=control,
 )
 ```
 
-这仍然是两次顺序执行，而不是在一个 GraphExecution 的 step 内嵌套启动另一个 GraphExecution。两个
-GraphExecution 各自持有独立的 `GraphExecutionState`；共享的只有请求停止与宿主资源回收信号。
-显式停止后，后一个 GraphExecution 会在开始执行前看到停止状态，因此不会继续运行。
-普通失败仍会从 `run()` 抛出异常；调用方若捕获异常后主动运行第二个 GraphExecution，control 不会阻止它。
-两个 GraphExecution 间需要成功依赖时，应组合成一张图或由调用方明确处理，不能用共享 control 代替依赖边。
-信号处理、子进程终止和多个 GraphExecution 的请求级协调由宿主负责，不属于 Graph core。
+这仍然是两次顺序执行，而不是在一个 Execution 的 step 内嵌套启动另一个 Execution。两个
+Execution 各自持有独立的 `ExecutionState`；共享的只有请求停止与宿主资源回收信号。
+显式停止后，后一个 Execution 会在开始执行前看到停止状态，因此不会继续运行。
+普通失败仍会从 `run()` 抛出异常；调用方若捕获异常后主动运行第二个 Execution，control 不会阻止它。
+两个 Execution 间需要成功依赖时，应组合成一张图或由调用方明确处理，不能用共享 control 代替依赖边。
+信号处理、子进程终止和多个 Execution 的请求级协调由宿主负责，不属于 Graph core。
 
 action 可以调用 `ctx.control.stop_requested()` 或 `ctx.control.require_running()` 协作
 响应停止。取消等待 `arun()` 的 task 会请求停止，并等待已启动动作清理退出。停止
@@ -161,13 +161,13 @@ action 可以调用 `ctx.control.stop_requested()` 或 `ctx.control.require_runn
 
 ## 步骤执行事件
 
-通过 `GraphExecution(events=...)` 显式传入 `StepEventSink`，接收包含声明 step_id、
+通过 `Execution(events=...)` 显式传入 `StepEventSink`，接收包含声明 step_id、
 挂载 step_path（标签由 .labels 读取）、
 结构化 `state_detail` 及派生 `state: StepExecutionState` 的 `StepExecutionEvent`：
 `STARTED`、`COMPLETED`、`FAILED`、
 `BLOCKED`、`SKIPPED`。静态子图、动态子图和原生动作使用同一接口。通知发生在状态
 提交之后，组合边界的事件不依赖展示模式。回调同步、串行执行；回调失败以
-`GraphEventDeliveryError` 停止执行，不撤销已提交状态。未订阅时不创建事件对象或事件
+`EventDeliveryError` 停止执行，不撤销已提交状态。未订阅时不创建事件对象或事件
 标签索引。原有 `GraphObserver` 继续独立负责图级展示消息。示例见[核心模型](./core_model.md)。
 
 ## 失败传播
@@ -204,19 +204,19 @@ C（成功）→ D（继续执行）
 ## 宿主运行设施边界
 
 Graph runtime 只负责图本身的调度、状态和结果，不隐式读取宿主的进程级设施。
-`GraphExecution` 通过两个独立端口接入宿主：
+`Execution` 通过两个独立端口接入宿主：
 
-- `GraphActionLog`
+- `ActionLog`
   - 为 action 建立宿主日志作用域
   - 在并行 action 抛出 Python 异常时追加异常文本
-- `GraphExecutionOutput`
+- `ExecutionOutput`
   - 在一次执行结束或失败后消费最终图状态
   - Graph 提供 `TreeFileExecutionOutput(output_dir)`，把执行视图写入显式目录
 
-独立使用 `GraphExecution` 时，这两个端口采用明确的 standalone 行为：既不接入宿主日志，
-也不产生外部执行视图文件。停止控制只由独立的 `GraphExecutionControl` 负责，不属于
-action 日志端口。需要日志或执行视图时，宿主必须显式传入自己的 `GraphActionLog`
-实现和 `GraphExecutionOutput`；核心不会探测全局目录或静默切换行为。
+独立使用 `Execution` 时，这两个端口采用明确的 standalone 行为：既不接入宿主日志，
+也不产生外部执行视图文件。停止控制只由独立的 `ExecutionControl` 负责，不属于
+action 日志端口。需要日志或执行视图时，宿主必须显式传入自己的 `ActionLog`
+实现和 `ExecutionOutput`；核心不会探测全局目录或静默切换行为。
 
 ## 显式跳过
 
@@ -239,8 +239,8 @@ action 日志端口。需要日志或执行视图时，宿主必须显式传入�
 当前模型刻意要求这些行为都留在声明层显式表达：
 
 - cache：显式 probe step / writeback step
-- log：显式接入 `GraphActionLog`，或在声明层组合 action wrapper
-- skip：由宿主显式写入 `GraphExecutionState`
+- log：显式接入 `ActionLog`，或在声明层组合 action wrapper
+- skip：由宿主显式写入 `ExecutionState`
 
 这样图本身就能直接表达：
 
@@ -269,7 +269,7 @@ Graph 将本层显式边和运行时条件读取投影为整数节点与阻塞�
 
 ## 子图语义
 
-父图中的 `step.action = subgraph` 是声明态组合节点。
+父图中的 `Step(subgraph)` 是声明态组合节点，其内容保存在 `step.node`。
 
 Rust compiler 会转换所有声明期已知子图：
 
@@ -304,10 +304,10 @@ Rust compiler 会转换所有声明期已知子图：
 
 当前 Graph runtime 通过运行选项联合类型控制执行后端与并发度：
 
-- `ThreadGraphRunOptions(workers=...)`
+- `ThreadRunOptions(workers=...)`
   - 同步 Python step 直接执行，异步 Python step 通过 `asyncio.run(...)` 桥接
   - Rust action 由 Rust session 直接派发，并与 Python action 共享同一总并发预算
-- `AsyncGraphRunOptions(concurrency=...)`
+- `AsyncRunOptions(concurrency=...)`
   - 异步 step 直接 await，同步 step 通过 `asyncio.to_thread(...)` 桥接
   - Rust action 同样通过受控 worker 执行，不阻塞 asyncio event loop
   - 同步和异步 action 的日志作用域都通过 `ContextVar` 保持任务级隔离

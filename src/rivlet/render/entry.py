@@ -8,7 +8,7 @@ from .mermaid import render_graph_mermaid
 from .tree import render_graph
 
 if TYPE_CHECKING:
-    from ..execution import GraphExecution
+    from ..execution import Execution
     from ..model import GraphMode
 
 type GraphRenderFormat = Literal["tree", "mermaid"]
@@ -21,21 +21,21 @@ class GraphRenderOptions:
 
 
 def render_execution_structure(
-    graph_execution: GraphExecution,
+    execution: Execution,
     *,
     options: GraphRenderOptions,
 ) -> str:
     match options.fmt:
         case "tree":
             return render_graph(
-                graph_execution.graph,
-                root_label=graph_execution.graph.display_label,
+                execution._declaration_graph,
+                root_label=execution._root_label,
                 mode=options.mode,
             )
         case "mermaid":
             return render_graph_mermaid(
-                graph_execution.graph,
-                root_label=graph_execution.graph.display_label,
+                execution._declaration_graph,
+                root_label=execution._root_label,
                 mode=options.mode,
             )
         case _:

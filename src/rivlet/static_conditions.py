@@ -14,7 +14,7 @@ from .static_condition import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from .model import Graph, GraphWiring, Step
+    from .model import GraphWiring, Step
 
 
 type StaticTarget = Step | tuple[Step, Step]
@@ -53,11 +53,12 @@ class StaticConditions:
             conditions={**self.conditions, target: condition},
         )
 
-    def when(self, condition: StaticCondition, component: Step | Graph) -> GraphWiring:
-        from .model import Graph, GraphWiring
+    def when(self, condition: StaticCondition, component: Step) -> GraphWiring:
+        from .model import GraphWiring
 
-        mounted = component.step() if isinstance(component, Graph) else component
-        return GraphWiring(steps=(mounted,), static=(self._append(mounted, condition),))
+        return GraphWiring(
+            steps=(component,), static=(self._append(component, condition),)
+        )
 
     def edge(
         self, source: Step, target: Step, *, condition: StaticCondition

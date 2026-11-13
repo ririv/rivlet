@@ -2,12 +2,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .action_log import NO_GRAPH_ACTION_LOG, GraphActionLog
+from .action_log import NO_ACTION_LOG, ActionLog
 from .batch_driver import run_serial_session
-from .control import GraphExecutionControl
+from .control import ExecutionControl
 from .executor_common import invoke_sync_action
 from .python_actions import PythonActionRuntime
-from .state import GraphExecutionState
+from .state import ExecutionState
 
 if TYPE_CHECKING:
     from ..observe import GraphObserver
@@ -19,16 +19,16 @@ class SerialGraphExecutor:
 
     def __init__(
         self,
-        state: GraphExecutionState | None = None,
+        state: ExecutionState | None = None,
         *,
         shared: object | None = None,
-        execution_control: GraphExecutionControl | None = None,
+        execution_control: ExecutionControl | None = None,
         observer: GraphObserver | None = None,
-        action_log: GraphActionLog = NO_GRAPH_ACTION_LOG,
+        action_log: ActionLog = NO_ACTION_LOG,
         record_composites_as_steps: bool = False,
     ) -> None:
-        self.state = state or GraphExecutionState()
-        self.execution_control = execution_control or GraphExecutionControl()
+        self.state = state or ExecutionState()
+        self.execution_control = execution_control or ExecutionControl()
         self._runtime = PythonActionRuntime(
             self.state,
             self.execution_control,
@@ -39,7 +39,7 @@ class SerialGraphExecutor:
             invoke_sync_action,
         )
 
-    def execute(self, graph: ExecutableGraph) -> GraphExecutionState:
+    def execute(self, graph: ExecutableGraph) -> ExecutionState:
         self.execution_control.require_running()
         self.state.begin_run()
         definition = self._runtime.prepare(graph)

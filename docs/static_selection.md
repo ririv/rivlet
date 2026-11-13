@@ -10,7 +10,7 @@ GraphTemplate, or second Step/Graph API.
 ## Complete conditions and branch contents
 
 ```python
-from rivlet import Case, GraphExecution, Step, static
+from rivlet import Case, Execution, Step, static
 
 platform = "android"
 version = 3
@@ -31,16 +31,16 @@ graph = (
         ),
     )
     >> finish
-).graph(label="platform workflow")
+).graph()
 
-GraphExecution(graph).run()
+Execution(Step(graph, label="platform workflow")).run()
 ```
 
 This runs `prepare → modern → finish`. Each `Case(condition, component)` has two arguments:
 
 - `condition` is a required, complete static bool, not a matching value or predicate.
   Strings, functions, and other non-boolean objects are not implicitly made true.
-- `component` is a Step or Graph. Graphs use normal `.step()` mounting semantics.
+- `component` is a Step. Mount a Graph explicitly using `Step(graph)` or `graph.step()`.
   `case.step` is the actual node available for explicit wiring.
 - `static` is the `rivlet.static` module, not a `StaticConditions` evaluator instance.
 
@@ -74,7 +74,7 @@ fail.” Another true condition still produces a conflict. There is no implicit 
 The same rules and topology can be declared without the DSL:
 
 ```python
-from rivlet import Case, Graph, GraphExecution, StaticSelection, Step, Edge
+from rivlet import Case, Graph, Execution, StaticSelection, Step, Edge
 
 first = Step(lambda: print("first"), label="first")
 second = Step(lambda: print("second"), label="second")
@@ -86,7 +86,7 @@ graph = Graph(
     edges=tuple(Edge(case.step, finish) for case in cases),
     static_selections=(StaticSelection(cases=cases),),
 )
-GraphExecution(graph).run()
+Execution(Step(graph)).run()
 ```
 
 `Graph.from_wiring()` and `.graph()` also accept `static_selections=`.

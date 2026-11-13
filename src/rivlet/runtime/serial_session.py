@@ -4,8 +4,8 @@ import inspect
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ..events import GraphEventDeliveryError
-from .control import GraphExecutionStopped
+from ..events import EventDeliveryError
+from .control import ExecutionStopped
 from .session_tree import DynamicSubgraph, RootSession, SessionDefinition
 
 if TYPE_CHECKING:
@@ -110,7 +110,7 @@ def run_serial_definition(root: SessionDefinition) -> None:
                     raise TypeError(
                         "synchronous driver received an asynchronous action host"
                     )
-            except (GraphExecutionStopped, GraphEventDeliveryError):
+            except (ExecutionStopped, EventDeliveryError):
                 raise
             except Exception as error:
                 host.record_failure(node, error)

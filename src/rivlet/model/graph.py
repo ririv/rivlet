@@ -19,14 +19,12 @@ from .edge import Edge, GraphEdge, _condition_uses
 from .wiring import (
     GraphWiring,
     _graph_wiring_from_step_wirings,
-    _parallel_wiring,
-    _sequence_wiring,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from . import ConditionInput, GraphWiringInput, GraphWiringOperand
+    from . import ConditionInput, GraphWiringInput
     from .step import Step
 
 
@@ -47,7 +45,6 @@ class Graph:
     以及这张图的静态条件与选择声明。
 
     它表达的是：
-    - 可选的可读 label
     - 这张图有哪些 step
     - step 之间有哪些依赖边
     - 哪些 step 挂子图
@@ -58,10 +55,9 @@ class Graph:
     它不表达的是：
     - 图挂载后的结构身份
     - 这次执行的 results / skip 状态
-    - GraphExecution 的展示与 composite 记录模式
+    - Execution 的展示与 composite 记录模式
     """
 
-    label: str | None = None
     steps: tuple[Step, ...] = field(default_factory=tuple)
     edges: tuple[GraphEdge, ...] = field(default_factory=tuple)
     interface: GraphInterface = field(default_factory=GraphInterface)
@@ -79,7 +75,6 @@ class Graph:
 
     def __init__(
         self,
-        label: str | None = None,
         steps: tuple[Step, ...] = (),
         edges: tuple[GraphEdge, ...] = (),
         interface: GraphInterfaceInput | None = None,
@@ -87,7 +82,6 @@ class Graph:
         static: StaticConditionsInput = (),
         static_selections: tuple[StaticSelection, ...] = (),
     ) -> None:
-        object.__setattr__(self, "label", label)
         object.__setattr__(self, "steps", steps)
         object.__setattr__(self, "edges", edges)
         object.__setattr__(
@@ -137,7 +131,6 @@ class Graph:
         cls,
         wiring: GraphWiringInput,
         *,
-        label: str | None = None,
         interface: GraphInterfaceInput | None = None,
         observation: GraphObservationMessages | None = None,
         static: StaticConditionsInput = (),
@@ -146,10 +139,9 @@ class Graph:
         normalized = (
             wiring
             if isinstance(wiring, GraphWiring)
-            else _graph_wiring_from_step_wirings(wiring, label=label)
+            else _graph_wiring_from_step_wirings(wiring)
         )
         return cls(
-            label=label,
             steps=normalized.steps,
             edges=normalized.edges,
             interface=interface,
@@ -172,12 +164,6 @@ class Graph:
             )
         return tuple(inactive)
 
-    def __rshift__(self, other: GraphWiringOperand) -> GraphWiring:
-        return _sequence_wiring(self, other)
-
-    def __or__(self, other: GraphWiringOperand) -> GraphWiring:
-        return _parallel_wiring(self, other)
-
     def step(
         self,
         *,
@@ -190,7 +176,7 @@ class Graph:
 
         return Step(
             self,
-            label=self.label if label is None else label,
+            label=label,
             condition=condition,
         )
 
@@ -201,9 +187,3 @@ class Graph:
             if edge.target is step
             and not (isinstance(edge, Edge) and edge.ports is not None)
         )
-
-    @property
-    def display_label(self) -> str:
-        """返回图名；匿名图使用明确的未命名展示标识，不生成身份。"""
-
-        return "<unlabeled>" if self.label is None else self.label

@@ -9,7 +9,7 @@ Rust `CompiledExecutionGraph`，共享依赖、层级、失败传播和并发预
 ```text
 Python Graph / Step
         │
-        ├── Python LeafAction ───────────────┐
+        ├── Python Leaf ───────────────┐
         │                                    │
         └── Step(NativeGraph)                │
                 └── NativeStep / Arc         │

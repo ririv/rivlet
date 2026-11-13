@@ -21,7 +21,7 @@ from .formatting import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from ..runtime import GraphExecutionSnapshot, GraphExecutionState
+    from ..runtime import ExecutionSnapshot, ExecutionState
 
 
 class ExecutionRenderStatus(StrEnum):
@@ -38,30 +38,31 @@ class ExecutionRenderStatus(StrEnum):
     BLOCKED = "blocked"
 
 
-def render_graph_execution(
-    graph: Graph,
-    state: GraphExecutionState,
+def render_execution(
+    root: Step,
+    state: ExecutionState,
     *,
-    root_label: str,
     mode: GraphMode = "dynamic",
 ) -> str:
-    return _render_graph_execution_impl(
+    graph = Graph(steps=(root,))
+    return _render_execution_impl(
         graph,
         state,
-        root_label=root_label,
+        root_label=resolve_step_label(root, StepPath((0,))),
         mode=mode,
         include_not_reached=True,
         title="execution",
     )
 
 
-def render_live_graph_execution(
-    graph: Graph,
-    state: GraphExecutionState,
+def render_live_execution(
+    root: Step,
+    state: ExecutionState,
     *,
-    root_label: str,
     mode: GraphMode = "dynamic",
 ) -> str:
+    graph = Graph(steps=(root,))
+    root_label = resolve_step_label(root, StepPath((0,)))
     snapshot = state.snapshot()
     leaf_steps = collect_leaf_steps(graph)
     running_step_paths = deepest_running_step_paths(snapshot)
@@ -90,9 +91,9 @@ def render_live_graph_execution(
     )
 
 
-def _render_graph_execution_impl(
+def _render_execution_impl(
     graph: Graph,
-    state: GraphExecutionState,
+    state: ExecutionState,
     *,
     root_label: str,
     mode: GraphMode,
@@ -122,7 +123,7 @@ def append_execution_graph(
     lines: list[str],
     graph: Graph,
     *,
-    snapshot: GraphExecutionSnapshot,
+    snapshot: ExecutionSnapshot,
     active_step_paths: set[StepPath],
     label_path: tuple[str, ...],
     parent_step_path: StepPath | None,
@@ -152,7 +153,7 @@ def append_execution_step(
     graph: Graph,
     step: Step,
     *,
-    snapshot: GraphExecutionSnapshot,
+    snapshot: ExecutionSnapshot,
     active_step_paths: set[StepPath],
     label_path: tuple[str, ...],
     graph_step_paths: Mapping[Step, StepPath],
@@ -175,7 +176,7 @@ def append_execution_step(
         return
     branch = "└─ " if is_last else "├─ "
     child_prefix = prefix + ("   " if is_last else "│  ")
-    action = step.action
+    action = step.node
     base = (
         f"{step_label} [graph]"
         if isinstance(action, Graph)
@@ -208,7 +209,7 @@ def resolve_execution_status(
     step: Step,
     *,
     step_path: StepPath,
-    snapshot: GraphExecutionSnapshot,
+    snapshot: ExecutionSnapshot,
     active_step_paths: set[StepPath],
     ancestor_skipped: bool,
 ) -> ExecutionRenderStatus:
@@ -218,7 +219,7 @@ def resolve_execution_status(
         return ExecutionRenderStatus.SKIPPED_BY_ANCESTOR
     if step_path in snapshot.skipped_steps:
         return ExecutionRenderStatus.SKIPPED
-    if isinstance(step.action, Graph):
+    if isinstance(step.node, Graph):
         if (
             step_path in snapshot.completed_composites
             or step_path in snapshot.completed_steps
@@ -251,7 +252,7 @@ def render_execution_condition_suffix(
 
 
 def active_execution_step_paths(
-    snapshot: GraphExecutionSnapshot,
+    snapshot: ExecutionSnapshot,
 ) -> set[StepPath]:
     active: set[StepPath] = set()
     for step_path in [
@@ -268,7 +269,7 @@ def active_execution_step_paths(
 
 
 def deepest_running_step_paths(
-    snapshot: GraphExecutionSnapshot,
+    snapshot: ExecutionSnapshot,
 ) -> tuple[StepPath, ...]:
     """返回当前未完成路径中最深的 step，避免同时展示其执行中祖先。"""
 
@@ -307,10 +308,10 @@ def collect_step_labels(
     ).items():
         step_label_path = (*label_path, resolve_step_label(step, step_path))
         out.append((step_path, step_label_path))
-        if isinstance(step.action, Graph):
+        if isinstance(step.node, Graph):
             out.extend(
                 collect_step_labels(
-                    step.action,
+                    step.node,
                     label_path=step_label_path,
                     parent_step_path=step_path,
                 )
@@ -330,10 +331,10 @@ def collect_leaf_steps(
         parent_step_path=parent_step_path,
     ).items():
         step_label_path = (*label_path, resolve_step_label(step, step_path))
-        if isinstance(step.action, Graph):
+        if isinstance(step.node, Graph):
             out.extend(
                 collect_leaf_steps(
-                    step.action,
+                    step.node,
                     label_path=step_label_path,
                     parent_step_path=step_path,
                 )

@@ -42,7 +42,7 @@ Existing evaluator-bound `StaticConditions` rules remain available.
 
 The same release adds versioned JSON structural export through `export_graph()`,
 with declaration and compiled views, typed edge provenance, mounted identities,
-interface ports, and explicit static exclusions. GraphExecution prepares one
+interface ports, and explicit static exclusions. Execution prepares one
 successful compilation and reuses it for compile/run/arun; its bindings are frozen.
 Use a new execution for fresh static decisions. See [structural export](./graph_export.md).
 

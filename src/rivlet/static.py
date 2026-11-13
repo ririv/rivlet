@@ -12,12 +12,12 @@ from .selection import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from .model import Graph, GraphWiring, Step
+    from .model import GraphWiring, Step
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class Case:
-    """Bind one complete static boolean condition to a Step or Graph."""
+    """Bind one complete static boolean condition to a mounted Step."""
 
     condition: bool
     step: Step
@@ -25,17 +25,15 @@ class Case:
     def __init__(
         self,
         condition: bool,
-        component: Step | Graph,
+        component: Step,
     ) -> None:
-        from .model import Graph
-
         if not isinstance(condition, bool):
             raise TypeError("Case condition must be a bool")
         object.__setattr__(self, "condition", condition)
         object.__setattr__(
             self,
             "step",
-            component.step() if isinstance(component, Graph) else component,
+            component,
         )
 
 

@@ -33,7 +33,7 @@ macOS arm64（macOS 11 起）与 Windows x86_64（`win_amd64`，MSVC）。同时
 [静态选择](./static_selection.md)。原有绑定 evaluator 的 `StaticConditions` 规则继续保留。
 
 本版同时增加 `export_graph()` 版本化 JSON 结构导出，区分声明和编译视图，保留边类型来源、
-挂载身份、端口端口及静态排除项。GraphExecution 首次成功编译后由 compile/run/arun
+挂载身份、端口端口及静态排除项。Execution 首次成功编译后由 compile/run/arun
 复用，声明与宿主绑定不可替换；需要重新求静态条件时创建新实例。见[结构导出](./graph_export.md)。
 
 本版不包含 JavaScript、Swift、Java 绑定、跨语言 Action 编排或浏览器支持。

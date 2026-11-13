@@ -40,7 +40,7 @@ settings remain unchanged.
 Declaration and compilation were unchanged; their small differences do not
 establish a gain or regression.
 
-GraphExecution.run(ThreadGraphRunOptions(workers=1)) still uses a thread driver, not
+Execution.run(ThreadRunOptions(workers=1)) still uses a thread driver, not
 the serial reference driver. Task submission, synchronization, and batch
 Python/Rust exchange still cost more than an ordinary function call.
 
@@ -66,7 +66,7 @@ after  = [0.546870, 0.525995, 0.520759, 0.520433, 0.515768]
 
 ## Rivetoo logging integration
 
-An additional measurement used the host's real RivetooGraphActionLog with 1,000
+An additional measurement used the host's real RivetooActionLog with 1,000
 actions in one composite and a temporary component log path. Each action checked
 that its log context was bound. The write case appended one line per action and
 verified exactly 1,000 lines afterward.

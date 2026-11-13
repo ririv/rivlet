@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
     from .model import (
         ConditionalEdgePredicate,
-        LeafAction,
+        Leaf,
         Step,
         StepLabelPath,
     )
@@ -107,7 +107,7 @@ class CompiledStep:
     """由 Python 执行器调用的 Python 叶子节点。"""
 
     ref: CompiledStepRef
-    action: LeafAction
+    action: Leaf
     after: tuple[CompiledPrerequisite, ...]
     condition: CompiledRuntimeCondition | None
     owner: CompiledCompositeRef | None
@@ -768,7 +768,7 @@ def _materialize_native_compilation(
             else:
                 compiled_step = CompiledStep(
                     ref=cast("CompiledStepRef", ref),
-                    action=cast("LeafAction", action),
+                    action=cast("Leaf", action),
                     after=after,
                     condition=condition,
                     owner=owner,

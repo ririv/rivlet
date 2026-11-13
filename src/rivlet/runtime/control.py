@@ -7,17 +7,17 @@ from dataclasses import dataclass, field
 type StopHandler = Callable[[], None]
 
 
-class GraphExecutionStopped(RuntimeError):
+class ExecutionStopped(RuntimeError):
     """Graph 执行作用域已经收到停止请求。"""
 
 
 @dataclass(slots=True)
-class GraphExecutionControl:
+class ExecutionControl:
     """协调一组 Graph 执行及其宿主资源的停止状态。
 
-    `GraphExecution` 默认创建独享实例；宿主若把多个顺序 GraphExecution 视为同一次请求，
-    可以显式传入同一实例。执行结果仍分别保存在各 GraphExecution 的
-    `GraphExecutionState` 中，不进入本对象。
+    `Execution` 默认创建独享实例；宿主若把多个顺序 Execution 视为同一次请求，
+    可以显式传入同一实例。执行结果仍分别保存在各 Execution 的
+    `ExecutionState` 中，不进入本对象。
     """
 
     _stop_event: threading.Event = field(
@@ -41,7 +41,7 @@ class GraphExecutionControl:
 
     def require_running(self) -> None:
         if self.stop_requested():
-            raise GraphExecutionStopped("graph execution stop requested")
+            raise ExecutionStopped("graph execution stop requested")
 
     def register_stop_handler(self, handler: StopHandler) -> None:
         with self._handler_lock:

@@ -7,16 +7,16 @@ from threading import Event
 import pytest
 
 from rivlet import (
-    AsyncGraphRunOptions,
+    AsyncRunOptions,
     Edge,
+    Execution,
     Graph,
     GraphError,
-    GraphExecution,
     GraphInterface,
     StaticCondition,
     StaticConditions,
     Step,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
     export_graph,
 )
 
@@ -107,11 +107,9 @@ def test_conditional_named_ports_gate_only_internal_consumers(
         if project
         else (),
     )
-    execution = GraphExecution(graph)
+    execution = Execution(Step(graph))
     execution.run(
-        AsyncGraphRunOptions(concurrency=4)
-        if asynchronous
-        else ThreadGraphRunOptions(workers=4),
+        AsyncRunOptions(concurrency=4) if asynchronous else ThreadRunOptions(workers=4),
         mode=mode,
     )
     assert used_a.is_set() and used_b.is_set()
@@ -162,7 +160,7 @@ def test_port_condition_controls_failure_propagation(enabled, mode):
         ),
     )
     with pytest.raises(RuntimeError, match="provider failed"):
-        GraphExecution(graph).run(mode=mode)
+        Execution(Step(graph)).run(mode=mode)
     assert calls == (["prepare"] if enabled else ["prepare", "use"])
 
 
@@ -191,12 +189,12 @@ def test_static_exclusion_removes_port_connection_and_its_condition():
             },
         ),
     )
-    execution = GraphExecution(graph)
+    execution = Execution(Step(graph))
     execution.run()
     assert calls == ["use"]
     document = export_graph(execution.compile())
     assert not any(edge["kind"] == "port" for edge in document["edges"])
-    assert document["excluded_edges"] == ["graph:root/edge:0"]
+    assert document["excluded_edges"] == ["graph:0/edge:0"]
 
 
 def test_condition_with_all_port_consumers_excluded_is_not_exported_or_evaluated():
@@ -218,10 +216,14 @@ def test_condition_with_all_port_consumers_excluded_is_not_exported_or_evaluated
             },
         ),
     ).step()
-    execution = GraphExecution(
-        Graph(
-            steps=(provider, consumer),
-            edges=(Edge(provider, consumer, ports=("out", "in"), condition=condition),),
+    execution = Execution(
+        Step(
+            Graph(
+                steps=(provider, consumer),
+                edges=(
+                    Edge(provider, consumer, ports=("out", "in"), condition=condition),
+                ),
+            )
         )
     )
     execution.run()
@@ -251,7 +253,7 @@ def test_same_port_graph_can_be_mounted_twice_with_distinct_condition_inputs():
             Edge(provider, consumer, ports=("out", "in"), condition=(condition, probe)),
         ),
     )
-    execution = GraphExecution(Graph(steps=(child.step(), child.step())))
+    execution = Execution(Step(Graph(steps=(child.step(), child.step()))))
     execution.run()
     assert sorted(seen) == [False, True]
     document = export_graph(execution.compile())

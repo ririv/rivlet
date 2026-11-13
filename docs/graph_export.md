@@ -3,7 +3,7 @@
 English | [简体中文](./zh-CN/graph_export.md)
 
 `export_graph()` returns a detached, JSON-only inspection document from the actual
-`Graph` or `GraphCompilation`. It does not parse rendered text, infer relationships
+`Graph`, root `Step`, or `GraphCompilation`. It does not parse rendered text, infer relationships
 from labels, execute actions, or include application state. The public schema is
 [`GraphDocument`](../src/rivlet/structure/schema.py), a discriminated TypedDict union.
 It has no HTTP, frontend, or Pydantic dependency and is not an executable input format.
@@ -12,15 +12,16 @@ It has no HTTP, frontend, or Pydantic dependency and is not an executable input 
 
 ```python
 import json
-from rivlet import Case, GraphExecution, Step, export_graph, static
+from rivlet import Case, Execution, Step, export_graph, static
 
 graph = static.select(cases=(
     Case(True, Step(lambda: "private result", label="keep")),
     Case(False, Step(lambda: None, label="drop")),
-)).graph(label="choose")
+)).graph()
 
-declared = export_graph(graph)  # no selection or static evaluator is run
-execution = GraphExecution(graph)
+root = Step(graph, label="choose")
+declared = export_graph(root)  # no selection or static evaluator is run
+execution = Execution(root)
 prepared = execution.compile()  # static evaluation happens here, once
 compiled = export_graph(prepared)  # no second compilation or evaluation
 assert execution.compile() is prepared
@@ -36,18 +37,18 @@ For this example, selected fields are:
   "declaration": {
     "schema_version": 2,
     "view": "declaration",
-    "nodes": [{"id": "0", "label": "keep"}, {"id": "1", "label": "drop"}],
-    "selections": [{"id": "graph:root/selection:0", "cases": [
-      {"node": "0", "condition": true}, {"node": "1", "condition": false}
+    "nodes": [{"id": "0", "label": "choose"}, {"id": "0.0", "label": "keep"}, {"id": "0.1", "label": "drop"}],
+    "selections": [{"id": "graph:0/selection:0", "cases": [
+      {"node": "0.0", "condition": true}, {"node": "0.1", "condition": false}
     ]}]
   },
   "compiled": {
     "schema_version": 2,
     "view": "compiled",
-    "nodes": [{"id": "0", "label": "keep"}],
+    "nodes": [{"id": "0", "label": "choose"}, {"id": "0.0", "label": "keep"}],
     "edges": [],
     "dependencies": [],
-    "excluded_nodes": ["1"],
+    "excluded_nodes": ["0.1"],
     "excluded_edges": []
   }
 }
@@ -86,7 +87,7 @@ condition tuple at several sites can produce multiple compiled instances.
 - Interfaces retain their port names and exact input/output node references in `ports`.
   Port forwarding appears on the scope that explicitly exposes it.
 
-Graph labels, node labels, and port names are deliberately visible. Hosts must
+Mounted Step labels and port names are deliberately visible. Hosts must
 not put secrets in these display/contract names. Unnamed nodes use their positional
 IDs; the exporter never obtains a label from callable `repr()`.
 
@@ -138,11 +139,11 @@ node ID; do not import arbitrary return values, shared objects, exception messag
 log paths, command lines, environments, or function objects into this document.
 Rust-native subgraphs expose declaration identities, labels and topology, never their process details.
 
-Each GraphExecution binds its declaration and host references immutably. Its first
+Each Execution binds its declaration and host references immutably. Its first
 successful `compile()`/`run()`/`arun()` fixes the root compilation; subsequent calls
 reuse it. Failed compilation commits nothing and can be retried. This is preparation
 reuse, not action/result caching or permission to reuse the single-use execution state.
-Use a new GraphExecution to reevaluate static choices. Standalone `compile_graph()`
+Use a new Execution to reevaluate static choices. Standalone `compile_graph()`
 still produces a fresh compilation and does not prepare another execution.
 
 ## Limits and delivery
@@ -158,7 +159,7 @@ their mount namespace when independently exported child documents are correlated
 
 Exporting a manually assembled GraphCompilation without compiler provenance raises
 GraphError rather than recompiling or guessing missing edge kinds. Use compile_graph
-or GraphExecution.compile to obtain a compiler-produced result.
+or Execution.compile to obtain a compiler-produced result.
 
 This is a new source-level API, absent from PyPI 0.2.0.post1 and from the original
 0.3.0 preparation commit. Integration requires an explicitly validated build containing

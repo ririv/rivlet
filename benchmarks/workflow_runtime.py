@@ -10,11 +10,11 @@ import time
 from dataclasses import dataclass, field
 
 from rivlet import (
-    AsyncGraphRunOptions,
+    AsyncRunOptions,
+    Execution,
     Graph,
-    GraphExecution,
     Step,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
 )
 
 
@@ -75,12 +75,12 @@ def main() -> None:
 
         graph = branch(args.depth)
         options = (
-            AsyncGraphRunOptions(concurrency=args.capacity)
+            AsyncRunOptions(concurrency=args.capacity)
             if args.executor == "async"
-            else ThreadGraphRunOptions(workers=args.capacity)
+            else ThreadRunOptions(workers=args.capacity)
         )
         start = time.perf_counter()
-        GraphExecution(graph).run(options)
+        Execution(Step(graph)).run(options)
         elapsed = time.perf_counter() - start
         if activity.completed != expected:
             raise RuntimeError(

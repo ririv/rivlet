@@ -32,12 +32,13 @@ Python 动作、原生动作、端口边、静态子图和动作返回的动态�
 
 ```python
 from rivlet import (
+    Step,
     ActionFailed,
     BlockedByCondition,
     BlockedByConditionInput,
     BlockedByDependency,
     BlockedByParent,
-    GraphExecution,
+    Execution,
     StepExecutionEvent,
     SubgraphFailed,
 )
@@ -62,7 +63,7 @@ class Events:
                 print(event.step_path, event.state)
 
 
-GraphExecution(graph, events=Events()).run()
+Execution(Step(graph), events=Events()).run()
 ```
 
 ## 直接原因
@@ -86,7 +87,7 @@ GraphExecution(graph, events=Events()).run()
 事件描述已经提交的运行状态。同一次执行的回调同步、串行，但线程不固定，不保证
 总在协调线程调用。回调应短小；需要固定持久化线程或 UI 线程时，宿主显式入队，
 执行结束后显式排空队列，库不隐式创建事件线程。回调错误仍抛出
-`GraphEventDeliveryError` 并停止执行。
+`EventDeliveryError` 并停止执行。
 
 未订阅时不创建公开事件或事件标签索引。这次没有增加序号、时间戳、全局运行 ID、
 持久化、重试或检查点恢复。构图／编译错误不属于步骤运行事件，包括执行前的静态

@@ -7,10 +7,10 @@ from typing import TYPE_CHECKING
 
 from .._native import NativeGraph
 from ..errors import GraphError
-from .action import LeafAction
 from .condition import _normalize_condition, _RuntimeCondition
 from .graph import Graph
 from .identity import StepId, StepPath
+from .leaf import Leaf
 from .wiring import (
     GraphWiring,
     StepWiring,
@@ -24,8 +24,8 @@ if TYPE_CHECKING:
     from . import (
         ConditionInput,
         GraphWiringOperand,
-        StepAction,
-        StepActionInput,
+        Node,
+        NodeInput,
         StepPrerequisite,
     )
 
@@ -54,9 +54,11 @@ type StepLabelPath = tuple[str, ...]
 
 @dataclass(eq=False, frozen=True, slots=True, init=False)
 class Step:
+    """One declared node with identity, presentation and activation metadata."""
+
     id: StepId
     label: str | None
-    action: StepAction
+    node: Node
     # `condition` 控制的是 step 本身是否参与这次图执行，而不是依赖边是否成立。
     # 约定：
     # 运行时求值为 False 时，该 step 进入 Skipped 终态。
@@ -65,7 +67,7 @@ class Step:
 
     def __init__(
         self,
-        action: StepActionInput,
+        node: NodeInput,
         *,
         label: str | None = None,
         condition: ConditionInput | None = None,
@@ -73,19 +75,19 @@ class Step:
         if label == "":
             raise GraphError("step label must not be empty")
 
-        normalized_action: StepAction
-        if isinstance(action, (LeafAction, Graph, NativeGraph)):
-            normalized_action = action
-        elif callable(action):
-            normalized_action = LeafAction(fn=action)
+        normalized_node: Node
+        if isinstance(node, (Leaf, Graph, NativeGraph)):
+            normalized_node = node
+        elif callable(node):
+            normalized_node = Leaf(action=node)
         else:
             raise GraphError(
-                f"step '{label}' has unsupported action type: {type(action)!r}"
+                f"step '{label}' has unsupported node type: {type(node)!r}"
             )
 
         object.__setattr__(self, "id", StepId())
         object.__setattr__(self, "label", label)
-        object.__setattr__(self, "action", normalized_action)
+        object.__setattr__(self, "node", normalized_node)
         object.__setattr__(
             self,
             "condition",
@@ -113,19 +115,17 @@ def resolve_step_label(step: Step, step_path: StepPath) -> str:
     return str(step_path) if step.label is None else step.label
 
 
-def step(action: StepActionInput) -> Step:
+def step(action: NodeInput) -> Step:
     """把 action 声明为可组合 step；可用时以 action 自身名称作为 label。"""
 
     match action:
-        case Graph():
-            label = action.label
-        case LeafAction():
-            label = _callable_step_label(action.fn)
-        case NativeGraph():
-            label = action.label
+        case Graph() | NativeGraph():
+            label = None
+        case Leaf():
+            label = _callable_step_label(action.action)
         case _:
             label = _callable_step_label(action)
-    return Step(label=label, action=action)
+    return Step(label=label, node=action)
 
 
 def _callable_step_label(action: Callable[..., object]) -> str | None:

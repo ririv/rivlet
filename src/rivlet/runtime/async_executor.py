@@ -4,28 +4,28 @@ import asyncio
 import inspect
 from typing import TYPE_CHECKING, cast
 
-from .action_log import NO_GRAPH_ACTION_LOG, GraphActionLog
+from .action_log import NO_ACTION_LOG, ActionLog
 from .batch_driver import run_async_session
 from .python_actions import PythonActionRuntime
-from .state import GraphExecutionState
+from .state import ExecutionState
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
     from pathlib import Path
 
-    from ..model import LeafAction
+    from ..model import Leaf
     from ..observe import GraphObserver
     from ..option import Option
     from ..results import StepRunContext
-    from .control import GraphExecutionControl
+    from .control import ExecutionControl
     from .run import ExecutableGraph
 
 
 async def _invoke_async_step_action(
-    action: LeafAction,
+    action: Leaf,
     run_ctx: StepRunContext,
     step_log_path: Path | None,
-    action_log: GraphActionLog,
+    action_log: ActionLog,
     inputs: tuple[Option[object], ...] = (),
 ) -> object:
     """在 async runtime 中执行 action，同时避免同步函数阻塞事件循环。
@@ -37,7 +37,7 @@ async def _invoke_async_step_action(
     """
 
     async def _invoke() -> object:
-        if inspect.iscoroutinefunction(action.fn):
+        if inspect.iscoroutinefunction(action.action):
             result = action.invoke(run_ctx, inputs)
         else:
             result = await asyncio.to_thread(action.invoke, run_ctx, inputs)
@@ -56,15 +56,15 @@ class AsyncGraphExecutor:
 
     def __init__(
         self,
-        state: GraphExecutionState | None = None,
+        state: ExecutionState | None = None,
         *,
         shared: object | None = None,
-        execution_control: GraphExecutionControl,
+        execution_control: ExecutionControl,
         observer: GraphObserver | None = None,
-        action_log: GraphActionLog = NO_GRAPH_ACTION_LOG,
+        action_log: ActionLog = NO_ACTION_LOG,
         record_composites_as_steps: bool = False,
     ) -> None:
-        self.state = state or GraphExecutionState()
+        self.state = state or ExecutionState()
         self.execution_control = execution_control
         self._runtime = PythonActionRuntime(
             self.state,
@@ -76,14 +76,12 @@ class AsyncGraphExecutor:
             _invoke_async_step_action,
         )
 
-    def execute(
-        self, graph: ExecutableGraph, *, concurrency: int
-    ) -> GraphExecutionState:
+    def execute(self, graph: ExecutableGraph, *, concurrency: int) -> ExecutionState:
         return asyncio.run(self.aexecute(graph, concurrency=concurrency))
 
     async def aexecute(
         self, graph: ExecutableGraph, *, concurrency: int
-    ) -> GraphExecutionState:
+    ) -> ExecutionState:
         """Execute within the caller's running event loop."""
 
         self.execution_control.require_running()

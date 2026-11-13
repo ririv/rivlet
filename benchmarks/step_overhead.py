@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 from rivlet import Graph, Step
 from rivlet.compile import compile_graph
 from rivlet.runtime import (
-    GraphExecutionControl,
+    ExecutionControl,
     ParallelGraphExecutor,
     SerialGraphExecutor,
 )
@@ -31,7 +31,7 @@ def _declare(nodes: int) -> Graph:
 
 
 def _execute_threads(compilation: GraphCompilation, workers: int) -> object:
-    return ParallelGraphExecutor(execution_control=GraphExecutionControl()).execute(
+    return ParallelGraphExecutor(execution_control=ExecutionControl()).execute(
         compilation, workers=workers
     )
 

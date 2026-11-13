@@ -15,10 +15,10 @@ def test_model_and_root_exports_identify_the_same_declarations():
         "Edge",
         "GraphWiring",
         "StepWiring",
-        "LeafAction",
+        "Leaf",
         "ConditionInput",
-        "StepAction",
-        "StepActionInput",
+        "Node",
+        "NodeInput",
     )
     for name in names:
         assert getattr(model, name) is getattr(rivlet, name)
@@ -26,8 +26,8 @@ def test_model_and_root_exports_identify_the_same_declarations():
 
 def test_public_union_aliases_resolve_real_types_at_runtime():
     names = (
-        "StepAction",
-        "StepActionInput",
+        "Node",
+        "NodeInput",
         "ConditionInput",
         "StepPrerequisite",
         "GraphWiringOperand",

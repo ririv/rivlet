@@ -8,20 +8,20 @@ from rivlet import (
     AnyProviderRequirement,
     Edge,
     ExactProviderRequirement,
+    Execution,
     Graph,
     GraphError,
-    GraphExecution,
     GraphInterface,
     GraphMode,
     ProviderSelection,
     Step,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
     resolve_port_requirements,
 )
 
 
 def _input_of(component: Step) -> str:
-    action = component.action
+    action = component.node
     assert isinstance(action, Graph)
     return next(iter(action.interface.inputs))
 
@@ -68,10 +68,10 @@ def test_graph_forwards_complete_or_selected_interface_without_flattening() -> N
     child = (configure >> install).graph(
         interface=GraphInterface(inputs={sdk: configure}, outputs={library: install})
     )
-    forwarded = (child >> finish).graph(interface=child)
+    forwarded = (Step(child) >> finish).graph(interface=child)
     assert forwarded.interface is child.interface
-    assert forwarded.steps[0].action is child
-    custom = (child >> finish).graph(
+    assert forwarded.steps[0].node is child
+    custom = (Step(child) >> finish).graph(
         interface=GraphInterface(inputs=child, outputs={final: finish})
     )
     assert custom.interface.inputs == child.interface.inputs
@@ -80,8 +80,8 @@ def test_graph_forwards_complete_or_selected_interface_without_flattening() -> N
     assert not outputs_only.interface.inputs
     assert outputs_only.interface.outputs == child.interface.outputs
     # 不声明接口时，不自动暴露内部图的端口。
-    assert not (child >> finish).graph().interface.inputs
-    assert not (child >> finish).graph().interface.outputs
+    assert not (Step(child) >> finish).graph().interface.inputs
+    assert not (Step(child) >> finish).graph().interface.outputs
 
 
 @pytest.mark.parametrize("mode", ("compiled", "dynamic"))
@@ -120,9 +120,15 @@ def test_one_input_unlocks_multiple_independent_steps(mode: GraphMode) -> None:
         (provider, consumer),
         (ExactProviderRequirement(consumer=consumer, provider=provider, port=sdk),),
     )
-    GraphExecution(
-        graph=Graph(steps=(provider, consumer), edges=bindings, label="root")
-    ).run(ThreadGraphRunOptions(workers=4), mode=mode)
+    Execution(
+        root=Step(
+            Graph(
+                steps=(provider, consumer),
+                edges=bindings,
+            ),
+            label="root",
+        )
+    ).run(ThreadRunOptions(workers=4), mode=mode)
     assert a_started.is_set() and b_started.is_set()
 
 
@@ -160,7 +166,6 @@ def _component(
             step.wire(after=() if index == 0 else (steps[index - 1],))
             for index, step in enumerate(steps)
         ),
-        label=label,
         interface=GraphInterface(
             inputs=dict(
                 () if port_input is None else ((port_input[0], port_input[1]),)
@@ -213,13 +218,12 @@ def test_port_connection_unlocks_only_the_consumer_input() -> None:
         (AnyProviderRequirement(consumer=consumer, port=_input_of(consumer)),),
     )
     graph = Graph(
-        label="port",
         steps=(provider, consumer),
         edges=bindings,
     )
 
-    GraphExecution(graph=graph).run(
-        ThreadGraphRunOptions(workers=2),
+    Execution(root=Step(graph, label="port")).run(
+        ThreadRunOptions(workers=2),
         mode="compiled",
     )
 
@@ -279,7 +283,7 @@ def test_direct_connections_gate_each_named_port_independently(mode: GraphMode) 
             Edge(source=provider, target=consumer, ports=docs_ready),
         ),
     )
-    GraphExecution(graph).run(ThreadGraphRunOptions(workers=2), mode=mode)
+    Execution(Step(graph)).run(ThreadRunOptions(workers=2), mode=mode)
     assert docs_used.is_set()
 
 
@@ -380,8 +384,14 @@ def test_port_port_can_explicitly_export_descendant_step() -> None:
         ),
     )
 
-    GraphExecution(
-        graph=Graph(steps=(provider, consumer), edges=bindings, label="root"),
+    Execution(
+        root=Step(
+            Graph(
+                steps=(provider, consumer),
+                edges=bindings,
+            ),
+            label="root",
+        ),
     ).run(mode="compiled")
 
 
@@ -453,4 +463,4 @@ def test_port_connection_uses_unified_execution_path() -> None:
         ),
     )
 
-    GraphExecution(graph=graph).run()
+    Execution(root=Step(graph)).run()

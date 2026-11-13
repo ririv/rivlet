@@ -8,9 +8,8 @@ from rivlet import (
     Case,
     Edge,
     Graph,
-    GraphExecution,
     GraphInterface,
-    LeafAction,
+    Leaf,
     StaticCondition,
     StaticConditions,
     Step,
@@ -37,7 +36,7 @@ def test_compiled_export_never_repeats_static_evaluation() -> None:
             conditions={(first, second): StaticCondition(object(), "private")},
         ),
     )
-    compiled = GraphExecution(graph).compile()
+    compiled = compile_graph(graph, root_label="root")
     assert calls == ["evaluated"]
     document = export_graph(compiled)
     assert calls == ["evaluated"]
@@ -53,8 +52,8 @@ def test_pruned_subtree_ids_are_excluded_not_runtime_skipped() -> None:
 
     kept = Step(forbidden, label="kept")
     removed = Graph(steps=(Step(forbidden, label="nested"),))
-    graph = static.select(cases=(Case(True, kept), Case(False, removed))).graph()
-    document = export_graph(GraphExecution(graph).compile())
+    graph = static.select(cases=(Case(True, kept), Case(False, Step(removed)))).graph()
+    document = export_graph(compile_graph(graph, root_label="root"))
     assert document["view"] == "compiled"
     assert [node["id"] for node in document["nodes"]] == ["0"]
     assert document["excluded_nodes"] == ["1", "1.0"]
@@ -70,7 +69,7 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
     shared = forbidden
     # 同一 predicate 可作为不同声明对象，也可复用于同一节点的多个具体位置。
     other = forbidden
-    action = LeafAction(forbidden)
+    action = Leaf(forbidden)
     target = Step(action, condition=(shared, first))
     graph = Graph(
         steps=(first, second, target),
@@ -80,7 +79,7 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
             *Edge.results((second,), target),
         ),
     )
-    document = export_graph(GraphExecution(graph).compile())
+    document = export_graph(compile_graph(graph, root_label="root"))
     assert len(document["conditions"]) == 3
     assert document["nodes"][-1]["condition"] == "condition:0"
     edges = document["edges"]
@@ -128,7 +127,7 @@ def test_lowered_port_dependencies_do_not_wait_for_entire_provider() -> None:
         steps=(provider, consumer),
         edges=(Edge(provider, consumer, ports=ready),),
     )
-    document = export_graph(GraphExecution(graph).compile())
+    document = export_graph(compile_graph(graph, root_label="root"))
     assert {"kind": "required", "source": "0.0", "target": "1.1"} in document[
         "dependencies"
     ]
@@ -160,7 +159,7 @@ def test_mount_identity_matches_compilation_and_events(parent) -> None:
 
 
 def test_empty_compilation_is_exportable() -> None:
-    document = export_graph(GraphExecution(Graph()).compile())
+    document = export_graph(compile_graph(Graph(), root_label="root"))
     assert document["nodes"] == document["edges"] == document["dependencies"] == []
     assert len(document["graphs"]) == 1
 

@@ -9,7 +9,7 @@ from .._native import NativeGraph
 from ..errors import GraphError
 from ..model import (
     Graph,
-    LeafAction,
+    Leaf,
     StepPath,
     _RuntimeCondition,
     resolve_step_label,
@@ -115,9 +115,9 @@ def index_declaration(
         if isinstance(current, Graph):
             scope.ids = step_paths_for_mount(current, parent_step_path=owner)
             scope_label = (
-                (current.display_label if label is None else label)
+                ("<structure>" if label is None else label)
                 if not ancestors
-                else (current.label if current.label is not None else path[-1])
+                else path[-1]
             )
             scope_document: ScopeDocument = {
                 "id": scope.id,
@@ -139,7 +139,7 @@ def index_declaration(
                     if step.condition is None
                     else index.condition_id(key, step.condition)
                 )
-                action = step.action
+                action = step.node
                 node: NodeDocument
                 if isinstance(action, (Graph, NativeGraph)):
                     node = {
@@ -154,7 +154,7 @@ def index_declaration(
                     }
                     document["nodes"].append(node)
                     visit(action, identifier, (*path, step_label), (*ancestors, scope))
-                elif isinstance(action, LeafAction):
+                elif isinstance(action, Leaf):
                     node = {
                         "kind": "step",
                         "step_id": step.id.value,
@@ -191,7 +191,7 @@ def index_declaration(
             document["graphs"].append(
                 {
                     "id": scope.id,
-                    "label": current.label,
+                    "label": path[-1],
                     "label_path": list(path),
                     "owner": None if owner is None else str(owner),
                     "nodes": [str(value) for value in ids],

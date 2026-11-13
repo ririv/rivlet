@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 from .._native import dag_cycle
 from ..errors import GraphError
 from ..topology import Arc
-from .action import LeafAction
 from .edge import Edge, _condition_uses, _ResultConnection, _ResultGroup
 from .graph import Graph
+from .leaf import Leaf
 from .step import Step, StepPath, resolve_step_label
 
 if TYPE_CHECKING:
@@ -56,7 +56,7 @@ def _validated_blocking_arcs(
 
             output_name, input_name = edge.ports
             _require_port_output(edge.source, output_name)
-            consumer_graph = edge.target.action
+            consumer_graph = edge.target.node
             if not isinstance(consumer_graph, Graph):
                 raise GraphError(
                     f"port consumer must be a graph-valued step: {edge.target.label}"
@@ -70,7 +70,7 @@ def _validated_blocking_arcs(
                     f"graph '{graph_label}' port provider component must not "
                     f"have a runtime condition: {edge.source.label}"
                 )
-            provider_graph = edge.source.action
+            provider_graph = edge.source.node
             if isinstance(provider_graph, Graph):
                 output = provider_graph.interface.outputs[output_name]
                 if output.condition is not None:
@@ -115,8 +115,8 @@ def _validate_result_bindings(
         if len(indexes) != groups[target].size:
             raise GraphError("result connection group must be included in full")
     for step in steps:
-        if isinstance(step.action, LeafAction):
-            step.action.validate_inputs(len(slots.get(step, ())))
+        if isinstance(step.node, Leaf):
+            step.node.validate_inputs(len(slots.get(step, ())))
     for _, condition in _condition_uses(steps, edges):
         count = len(condition.inputs)
         try:
@@ -179,8 +179,8 @@ def _validate_port_interface(
     while pending:
         step = pending.pop()
         mount_counts[step] = mount_counts.get(step, 0) + 1
-        if isinstance(step.action, Graph):
-            pending.extend(step.action.steps)
+        if isinstance(step.node, Graph):
+            pending.extend(step.node.steps)
 
     for port, input_steps in interface.inputs.items():
         for step in input_steps:
@@ -231,10 +231,7 @@ def _validated_steps(
 
 def validate_graph(graph: Graph) -> None:
     """Validate one complete declaration without evaluating host callables."""
-    if graph.label == "":
-        raise GraphError("graph label must not be empty")
-
-    graph_label = graph.display_label
+    graph_label = "<structure>"
     _validate_graph_topology(
         steps=graph.steps,
         edges=graph.edges,

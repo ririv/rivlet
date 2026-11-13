@@ -5,44 +5,42 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
 from .errors import GraphError
-from .render.execution import render_graph_execution
+from .render.execution import render_execution
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from .model import Graph, GraphMode
-    from .runtime import GraphExecutionState
+    from .model import GraphMode, Step
+    from .runtime import ExecutionState
 
 
-class GraphExecutionOutput(Protocol):
+class ExecutionOutput(Protocol):
     """消费一次 Graph 执行结果的显式输出端口。"""
 
     def write(
         self,
-        graph: Graph,
-        state: GraphExecutionState,
+        root: Step,
+        state: ExecutionState,
         *,
-        root_label: str,
         mode: GraphMode,
     ) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
-class NoGraphExecutionOutput:
+class NoExecutionOutput:
     """独立运行 Graph 时不产生外部文件的显式缺省输出。"""
 
     def write(
         self,
-        graph: Graph,
-        state: GraphExecutionState,
+        root: Step,
+        state: ExecutionState,
         *,
-        root_label: str,
         mode: GraphMode,
     ) -> None:
-        del graph, state, root_label, mode
+        del root, state, mode
 
 
-NO_GRAPH_EXECUTION_OUTPUT = NoGraphExecutionOutput()
+NO_EXECUTION_OUTPUT = NoExecutionOutput()
 
 
 def _sanitize_root_label(root_label: str) -> str:
@@ -64,20 +62,21 @@ class TreeFileExecutionOutput:
 
     def write(
         self,
-        graph: Graph,
-        state: GraphExecutionState,
+        root: Step,
+        state: ExecutionState,
         *,
-        root_label: str,
         mode: GraphMode,
     ) -> None:
+        from .model import StepPath, resolve_step_label
+
+        root_label = resolve_step_label(root, StepPath((0,)))
         output_path = self.output_dir / (
             f"graph-execution.{_sanitize_root_label(root_label)}.{mode}.tree"
         )
         output_path.write_text(
-            render_graph_execution(
-                graph,
+            render_execution(
+                root,
                 state,
-                root_label=root_label,
                 mode=mode,
             )
             + "\n",

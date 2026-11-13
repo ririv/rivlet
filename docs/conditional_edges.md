@@ -184,7 +184,7 @@ graph = Graph.from_wiring((
 ))
 ```
 
-The node condition reads permission, the edge condition reads environment_check, and the action reads design. False permission skips implementation; a false edge condition only stops waiting for prepare, without skipping implementation or cancelling prepare. No extra LeafAction wrapper is needed for inline lambdas.
+The node condition reads permission, the edge condition reads environment_check, and the action reads design. False permission skips implementation; a false edge condition only stops waiting for prepare, without skipping implementation or cancelling prepare. No extra Leaf wrapper is needed for inline lambdas.
 
 Each use has its own evaluation instance, even when its callable or tuple is
 reused. Separate tuples can bind the same predicate to different sources.

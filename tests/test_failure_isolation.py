@@ -7,24 +7,23 @@ import sys
 import pytest
 
 from rivlet import (
-    AsyncGraphRunOptions,
+    AsyncRunOptions,
     ConditionalPrerequisite,
     Edge,
     ExactProviderRequirement,
+    Execution,
+    ExecutionControl,
+    ExecutionState,
+    ExecutionStopped,
     Graph,
-    GraphExecution,
-    GraphExecutionControl,
-    GraphExecutionState,
-    GraphExecutionStopped,
     GraphInterface,
     GraphNodeFailure,
     SerialGraphExecutor,
     Step,
     StepPath,
-    ThreadGraphRunOptions,
-    compile_graph,
-    render_graph_execution,
-    render_live_graph_execution,
+    ThreadRunOptions,
+    render_execution,
+    render_live_execution,
     resolve_port_requirements,
 )
 from rivlet._native import _native_process_graph
@@ -32,16 +31,16 @@ from rivlet._native import _native_process_graph
 
 @pytest.fixture(params=["serial", "thread", "async"])
 def execute(request):
-    def run(graph: Graph, state: GraphExecutionState) -> None:
+    def run(graph: Graph, state: ExecutionState) -> None:
         if request.param == "serial":
-            SerialGraphExecutor(state).execute(compile_graph(graph, root_label="root"))
+            SerialGraphExecutor(state).execute(Execution(Step(graph)).compile())
         else:
             options = (
-                ThreadGraphRunOptions(workers=1)
+                ThreadRunOptions(workers=1)
                 if request.param == "thread"
-                else AsyncGraphRunOptions(concurrency=1)
+                else AsyncRunOptions(concurrency=1)
             )
-            GraphExecution(graph=graph, execution_state=state).run(options)
+            Execution(root=Step(graph), execution_state=state).run(options)
 
     return run
 
@@ -64,19 +63,36 @@ def test_failure_blocks_only_downstream_and_renders_terminal_states(execute):
             later.wire(after=(good,)),
         )
     )
-    state = GraphExecutionState()
+    state = ExecutionState()
     with pytest.raises(RuntimeError, match="action failed"):
         execute(graph, state)
     assert calls == ["good", "later"]
     assert state.node_failures == {
         StepPath((0,)): GraphNodeFailure.FAILED,
-        StepPath((1,)): GraphNodeFailure.BLOCKED,
+        StepPath(
+            (
+                0,
+                0,
+            )
+        ): GraphNodeFailure.FAILED,
+        StepPath(
+            (
+                0,
+                1,
+            )
+        ): GraphNodeFailure.BLOCKED,
     }
     assert state.skipped_steps == set()
-    rendered = render_graph_execution(graph, state, root_label="root")
+    rendered = render_execution(
+        Step(graph, label="root"),
+        state,
+    )
     assert "failed [failed]" in rendered
     assert "blocked [blocked]" in rendered
-    assert "remaining=0" in render_live_graph_execution(graph, state, root_label="root")
+    assert "remaining=0" in render_live_execution(
+        Step(graph, label="root"),
+        state,
+    )
 
 
 def test_multiple_independent_errors_are_reported_together(execute):
@@ -85,7 +101,7 @@ def test_multiple_independent_errors_are_reported_together(execute):
 
     graph = Graph(steps=(Step(fail, label="first"), Step(other, label="second")))
     with pytest.raises(ExceptionGroup) as caught:
-        execute(graph, GraphExecutionState())
+        execute(graph, ExecutionState())
     assert {str(error) for error in caught.value.exceptions} == {
         "action failed",
         "other failed",
@@ -108,14 +124,25 @@ def test_condition_exception_blocks_all_users_without_stopping_other_work(execut
             Step(lambda: calls.append("good")),
         )
     )
-    state = GraphExecutionState()
+    state = ExecutionState()
     with pytest.raises(ExceptionGroup) as caught:
         execute(graph, state)
     assert len(caught.value.exceptions) == 2
     assert calls == ["condition", "condition", "good"]
     assert state.node_failures == {
-        StepPath((0,)): GraphNodeFailure.BLOCKED,
-        StepPath((1,)): GraphNodeFailure.BLOCKED,
+        StepPath((0,)): GraphNodeFailure.FAILED,
+        StepPath(
+            (
+                0,
+                0,
+            )
+        ): GraphNodeFailure.BLOCKED,
+        StepPath(
+            (
+                0,
+                1,
+            )
+        ): GraphNodeFailure.BLOCKED,
     }
 
 
@@ -140,11 +167,21 @@ def test_condition_does_not_read_failed_action_result(execute):
         ),
         edges=(*Edge.results((producer,), consumer_134),),
     )
-    state = GraphExecutionState()
+    state = ExecutionState()
     with pytest.raises(RuntimeError, match="action failed"):
         execute(graph, state)
     assert calls == ["good"]
-    assert state.node_failures[StepPath((1,))] is GraphNodeFailure.BLOCKED
+    assert (
+        state.node_failures[
+            StepPath(
+                (
+                    0,
+                    1,
+                )
+            )
+        ]
+        is GraphNodeFailure.BLOCKED
+    )
 
 
 def test_inactive_conditional_edge_does_not_propagate_failure(execute):
@@ -164,7 +201,7 @@ def test_inactive_conditional_edge_does_not_propagate_failure(execute):
         )
     )
     with pytest.raises(RuntimeError, match="action failed"):
-        execute(graph, GraphExecutionState())
+        execute(graph, ExecutionState())
     assert calls == ["consumer"]
 
 
@@ -191,13 +228,31 @@ def test_port_success_survives_failure_in_another_subgraph_branch(mode):
         steps=(provider, consumer, whole),
         edges=(*bindings, Edge(source=provider, target=whole)),
     )
-    plan = GraphExecution(graph=graph)
+    plan = Execution(root=Step(graph))
     with pytest.raises(RuntimeError, match="action failed"):
-        plan.run(ThreadGraphRunOptions(workers=1), mode=mode)
+        plan.run(ThreadRunOptions(workers=1), mode=mode)
     assert calls == ["ready", "consume"]
-    assert plan.execution_state.node_failures[StepPath((0,))] is GraphNodeFailure.FAILED
     assert (
-        plan.execution_state.node_failures[StepPath((2,))] is GraphNodeFailure.BLOCKED
+        plan.execution_state.node_failures[
+            StepPath(
+                (
+                    0,
+                    0,
+                )
+            )
+        ]
+        is GraphNodeFailure.FAILED
+    )
+    assert (
+        plan.execution_state.node_failures[
+            StepPath(
+                (
+                    0,
+                    2,
+                )
+            )
+        ]
+        is GraphNodeFailure.BLOCKED
     )
 
 
@@ -208,13 +263,13 @@ def test_blocked_composite_marks_descendants_without_entering_them(execute):
         steps=(Graph(steps=(Step(lambda: calls.append("wrong")),)).step(),)
     ).step()
     graph = Graph.from_wiring((producer.wire(), inner.wire(after=(producer,))))
-    state = GraphExecutionState()
+    state = ExecutionState()
     with pytest.raises(RuntimeError, match="action failed"):
         execute(graph, state)
     assert calls == []
-    assert state.entered_composites == set()
+    assert state.entered_composites == {StepPath((0,))}
     assert all(
-        state.node_failures[StepPath(path)] is GraphNodeFailure.BLOCKED
+        state.node_failures[StepPath((0, *path))] is GraphNodeFailure.BLOCKED
         for path in [(1,), (1, 0), (1, 0, 0)]
     )
 
@@ -244,12 +299,20 @@ def test_failed_port_blocks_input_but_not_consumer_preparation(execute):
             ),
         ),
     )
-    state = GraphExecutionState()
+    state = ExecutionState()
     with pytest.raises(RuntimeError, match="action failed"):
         execute(graph, state)
     assert calls == ["prepare"]
-    assert state.node_failures[StepPath((1, 1))] is GraphNodeFailure.BLOCKED
-    assert StepPath((1,)) not in state.completed_composites
+    assert state.node_failures[StepPath((0, 1, 1))] is GraphNodeFailure.BLOCKED
+    assert (
+        StepPath(
+            (
+                0,
+                1,
+            )
+        )
+        not in state.completed_composites
+    )
 
 
 def test_dynamic_returned_graph_failure_is_local_to_its_parent_action(execute):
@@ -264,13 +327,12 @@ def test_dynamic_returned_graph_failure_is_local_to_its_parent_action(execute):
         )
     )
     with pytest.raises(RuntimeError, match="action failed"):
-        execute(graph, GraphExecutionState())
+        execute(graph, ExecutionState())
     assert calls == ["inner", "outer"]
 
 
 def test_native_failure_preserves_successes_in_same_completion_batch(execute, tmp_path):
     native = _native_process_graph(
-        "native",
         [
             (
                 "fail",
@@ -292,22 +354,22 @@ def test_native_failure_preserves_successes_in_same_completion_batch(execute, tm
     calls = []
     graph = Graph(steps=(Step(native), Step(lambda: calls.append("python"))))
     with pytest.raises(RuntimeError, match=r"exited with status .*7"):
-        execute(graph, GraphExecutionState())
+        execute(graph, ExecutionState())
     assert (tmp_path / "success").is_file()
     assert calls == ["python"]
 
 
 @pytest.mark.parametrize(
-    "options", [ThreadGraphRunOptions(workers=1), AsyncGraphRunOptions(concurrency=1)]
+    "options", [ThreadRunOptions(workers=1), AsyncRunOptions(concurrency=1)]
 )
 def test_explicit_stop_still_prevents_unrelated_pending_actions(options):
     calls = []
-    control = GraphExecutionControl()
+    control = ExecutionControl()
     graph = Graph(
         steps=(Step(control.request_stop), Step(lambda: calls.append("wrong")))
     )
-    plan = GraphExecution(graph=graph, execution_control=control)
-    with pytest.raises(GraphExecutionStopped):
+    plan = Execution(root=Step(graph), execution_control=control)
+    with pytest.raises(ExecutionStopped):
         plan.run(options)
     assert calls == []
     assert control.stop_requested()
@@ -316,7 +378,7 @@ def test_explicit_stop_still_prevents_unrelated_pending_actions(options):
 def test_cancellation_from_condition_waits_for_started_async_action():
     started = asyncio.Event()
     completed = []
-    control = GraphExecutionControl()
+    control = ExecutionControl()
 
     async def survive():
         started.set()
@@ -345,20 +407,19 @@ def test_cancellation_from_condition_waits_for_started_async_action():
         ),
         edges=(*Edge.results((ready,), consumer_337),),
     )
-    plan = GraphExecution(graph=graph, execution_control=control)
-    with pytest.raises(GraphExecutionStopped):
-        plan.run(AsyncGraphRunOptions(concurrency=2))
+    plan = Execution(root=Step(graph), execution_control=control)
+    with pytest.raises(ExecutionStopped):
+        plan.run(AsyncRunOptions(concurrency=2))
     assert completed == ["survived"]
 
 
 @pytest.mark.parametrize(
-    "options", [ThreadGraphRunOptions(workers=3), AsyncGraphRunOptions(concurrency=3)]
+    "options", [ThreadRunOptions(workers=3), AsyncRunOptions(concurrency=3)]
 )
 def test_parallel_native_errors_are_collected_without_losing_completions(
     options, tmp_path
 ):
     native = _native_process_graph(
-        "native",
         [
             (
                 "fail-a",
@@ -384,7 +445,14 @@ def test_parallel_native_errors_are_collected_without_losing_completions(
         ],
         [],
     )
-    plan = GraphExecution(graph=Graph(steps=(Step(native),), label="root"))
+    plan = Execution(
+        root=Step(
+            Graph(
+                steps=(Step(native),),
+            ),
+            label="root",
+        )
+    )
     with pytest.raises(ExceptionGroup) as caught:
         plan.run(options)
     assert len(caught.value.exceptions) == 2

@@ -3,8 +3,8 @@ from pathlib import Path
 import pytest
 
 from rivlet import (
+    Execution,
     Graph,
-    GraphExecution,
     GraphRenderOptions,
     Step,
     TreeFileExecutionOutput,
@@ -14,14 +14,15 @@ from rivlet import (
 
 @pytest.mark.parametrize(
     ("label", "display", "filename"),
-    [("pipeline", "pipeline", "pipeline"), (None, "<unlabeled>", "unlabeled")],
+    [("pipeline", "pipeline", "pipeline"), (None, "0", "0")],
 )
 def test_graph_name_is_shared_by_compilation_rendering_and_output(
     tmp_path: Path, label: str | None, display: str, filename: str
 ) -> None:
-    graph = Graph(label=label, steps=(Step(lambda: None, label="run"),))
-    plan = GraphExecution(
-        graph=graph, execution_output=TreeFileExecutionOutput(tmp_path)
+    graph = Graph(steps=(Step(lambda: None, label="run"),))
+    plan = Execution(
+        root=Step(graph, label=label),
+        execution_output=TreeFileExecutionOutput(tmp_path),
     )
 
     assert plan.compile().label == display

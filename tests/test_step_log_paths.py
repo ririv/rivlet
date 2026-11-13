@@ -8,14 +8,14 @@ from pathlib import Path
 import pytest
 
 from rivlet import (
-    AsyncGraphRunOptions,
+    AsyncRunOptions,
+    Execution,
+    ExecutionState,
     Graph,
-    GraphExecution,
-    GraphExecutionState,
     GraphMode,
     Step,
     StepPath,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
 )
 
 
@@ -38,12 +38,12 @@ class _RecordingLog:
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 @pytest.mark.parametrize(
-    "options", [ThreadGraphRunOptions(workers=2), AsyncGraphRunOptions(concurrency=2)]
+    "options", [ThreadRunOptions(workers=2), AsyncRunOptions(concurrency=2)]
 )
 def test_leaf_uses_constructor_log_path_snapshot(
     tmp_path: Path,
     mode: GraphMode,
-    options: ThreadGraphRunOptions | AsyncGraphRunOptions,
+    options: ThreadRunOptions | AsyncRunOptions,
 ) -> None:
     observed: list[Path | None] = []
     log = _RecordingLog()
@@ -54,8 +54,8 @@ def test_leaf_uses_constructor_log_path_snapshot(
     step = Step(action, label="leaf")
     path = tmp_path / "leaf.log"
     bindings = {step: path}
-    execution = GraphExecution(
-        graph=Graph(steps=(step,)), step_log_paths=bindings, action_log=log
+    execution = Execution(
+        root=Step(Graph(steps=(step,))), step_log_paths=bindings, action_log=log
     )
     bindings[step] = tmp_path / "changed.log"
 
@@ -67,7 +67,7 @@ def test_leaf_uses_constructor_log_path_snapshot(
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 @pytest.mark.parametrize(
-    "options", [ThreadGraphRunOptions(workers=2), AsyncGraphRunOptions(concurrency=2)]
+    "options", [ThreadRunOptions(workers=2), AsyncRunOptions(concurrency=2)]
 )
 def test_parallel_actions_keep_their_own_log_scope(tmp_path, mode, options):
     log = _RecordingLog()
@@ -82,8 +82,8 @@ def test_parallel_actions_keep_their_own_log_scope(tmp_path, mode, options):
     first = Step(lambda: record("first"))
     second = Step(lambda: record("second"))
     first_log, second_log = tmp_path / "first.log", tmp_path / "second.log"
-    GraphExecution(
-        Graph(steps=(first, second)),
+    Execution(
+        Step(Graph(steps=(first, second))),
         action_log=log,
         step_log_paths={first: first_log, second: second_log},
     ).run(options, mode=mode)
@@ -96,7 +96,7 @@ def test_parallel_actions_keep_their_own_log_scope(tmp_path, mode, options):
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 @pytest.mark.parametrize(
-    "options", [ThreadGraphRunOptions(workers=2), AsyncGraphRunOptions(concurrency=2)]
+    "options", [ThreadRunOptions(workers=2), AsyncRunOptions(concurrency=2)]
 )
 @pytest.mark.parametrize("asynchronous", [False, True])
 def test_failed_action_appends_exception_to_its_bound_log(
@@ -115,8 +115,8 @@ def test_failed_action_appends_exception_to_its_bound_log(
 
     step = Step(fail_async if asynchronous else fail)
     with pytest.raises(RuntimeError, match="action failed"):
-        GraphExecution(
-            Graph(steps=(step,)), action_log=log, step_log_paths={step: path}
+        Execution(
+            Step(Graph(steps=(step,))), action_log=log, step_log_paths={step: path}
         ).run(options, mode=mode)
 
     assert len(log.appended) == 1
@@ -131,19 +131,20 @@ def test_constructor_resolves_all_bindings_in_one_traversal(
     first = Step(lambda: None)
     second = Step(lambda: None)
     traversals: list[Graph] = []
-    original = GraphExecution._index_mounted_step_paths
+    original = Execution._index_mounted_step_paths
 
-    def index(execution: GraphExecution) -> dict[Step, tuple[StepPath, ...]]:
-        traversals.append(execution.graph)
+    def index(execution: Execution) -> dict[Step, tuple[StepPath, ...]]:
+        assert isinstance(execution.root.node, Graph)
+        traversals.append(execution.root.node)
         return original(execution)
 
-    monkeypatch.setattr(GraphExecution, "_index_mounted_step_paths", index)
+    monkeypatch.setattr(Execution, "_index_mounted_step_paths", index)
     graph = Graph(steps=(first, second))
-    GraphExecution(graph=graph)
+    Execution(root=Step(graph))
     assert traversals == []
 
-    GraphExecution(
-        graph=graph,
+    Execution(
+        root=Step(graph),
         step_log_paths={first: tmp_path / "first.log", second: tmp_path / "second.log"},
     )
     assert traversals == [graph]
@@ -152,11 +153,11 @@ def test_constructor_resolves_all_bindings_in_one_traversal(
 def test_unmounted_binding_does_not_partially_configure_state(tmp_path: Path) -> None:
     mounted = Step(lambda: None)
     outside = Step(lambda: None)
-    state = GraphExecutionState()
+    state = ExecutionState()
 
     with pytest.raises(RuntimeError, match="is not mounted"):
-        GraphExecution(
-            graph=Graph(steps=(mounted,)),
+        Execution(
+            root=Step(Graph(steps=(mounted,))),
             execution_state=state,
             step_log_paths={
                 mounted: tmp_path / "first.log",
@@ -164,7 +165,17 @@ def test_unmounted_binding_does_not_partially_configure_state(tmp_path: Path) ->
             },
         )
 
-    assert state.get_step_log_path(StepPath((0,))) is None
+    assert (
+        state.get_step_log_path(
+            StepPath(
+                (
+                    0,
+                    0,
+                )
+            )
+        )
+        is None
+    )
 
 
 def test_repeated_step_requires_an_unambiguous_binding(tmp_path: Path) -> None:
@@ -173,7 +184,7 @@ def test_repeated_step_requires_an_unambiguous_binding(tmp_path: Path) -> None:
     second = Graph(steps=(shared,)).step()
 
     with pytest.raises(RuntimeError, match="mounted more than once"):
-        GraphExecution(
-            graph=Graph(steps=(first, second)),
+        Execution(
+            root=Step(Graph(steps=(first, second))),
             step_log_paths={shared: tmp_path / "ambiguous.log"},
         )

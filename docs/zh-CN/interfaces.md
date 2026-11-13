@@ -37,7 +37,7 @@ port_123 = "123"
 a_graph = (
     a_1 >> a_2 >> a_3 >> a_4 >> a_5
 ).graph(
-    label="A",
+
     interface=GraphInterface(
         outputs={port_123: a_3},
     ),
@@ -46,7 +46,7 @@ a_graph = (
 b_graph = (
     b_a >> b_b >> b_c >> b_d >> b_e
 ).graph(
-    label="B",
+
     interface=GraphInterface(inputs={port_123: b_b}),
 )
 
@@ -63,7 +63,7 @@ Step。后者用于给现有子图外包一层前置或后处理流程，同时�
 
 ```python
 wrapped = (
-    prepare >> child_graph >> normalize
+    prepare >> Step(child_graph) >> normalize
 ).graph(
     interface=GraphInterface(
         inputs=child_graph,
@@ -92,10 +92,10 @@ graph = prepared_wiring.graph(
 
 ```python
 # 整体转发，保留子图边界，不复制 Step。
-outer = (prepare >> child_graph).graph(interface=child_graph)
+outer = (prepare >> Step(child_graph)).graph(interface=child_graph)
 
 # 分方向转发；输出以最终收尾步骤为准，不公开 child 原来的输出。
-outer = (child_graph >> normalize).graph(
+outer = (Step(child_graph) >> normalize).graph(
     interface=GraphInterface(
         inputs=child_graph,
         outputs={installed_runtime: normalize},
@@ -234,7 +234,7 @@ bindings = resolve_port_requirements(
 )
 
 graph = Graph(
-    label="root",
+
     steps=(a, b, c),
     edges=bindings,
 )
@@ -329,7 +329,7 @@ B：
 ### 等待整个子图与等待端口出口不同
 
 ```python
-graph = (a_graph >> b_graph).graph()
+graph = (Step(a_graph) >> Step(b_graph)).graph()
 ```
 
 这里要求整个 A 成功结束后才进入 B，不是只等待 A 的某个端口出口：
@@ -361,8 +361,8 @@ A 和 B 的子图边界仍然保留；不会为了接线而展开声明图，也
 因此以下两种写法使用同一份 binding lowering：
 
 ```python
-GraphExecution(graph=graph).run(mode="compiled")
-GraphExecution(graph=graph).run(mode="dynamic")
+Execution(root=Step(graph)).run(mode="compiled")
+Execution(root=Step(graph)).run(mode="dynamic")
 ```
 
 ## 当前语言边界

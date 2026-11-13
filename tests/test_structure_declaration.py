@@ -7,7 +7,7 @@ from rivlet import (
     Edge,
     Graph,
     GraphInterface,
-    LeafAction,
+    Leaf,
     StaticCondition,
     StaticConditions,
     Step,
@@ -51,7 +51,7 @@ def test_export_preserves_order_result_and_conditional_edges() -> None:
     def edge_condition(flag):
         return flag.unwrap()
 
-    action = LeafAction(lambda _ctx, value: value.unwrap())
+    action = Leaf(lambda _ctx, value: value.unwrap())
     consumer = Step(action, label="consumer", condition=(node_condition, gate))
     graph = Graph(
         steps=(data, gate, prerequisite, consumer),
@@ -78,7 +78,7 @@ def test_export_preserves_order_result_and_conditional_edges() -> None:
 
 def test_same_subgraph_mounts_have_distinct_ids_and_label_paths() -> None:
     leaf = Step(lambda: None, label="same")
-    child = Graph(label="reusable", steps=(leaf,))
+    child = Graph(steps=(leaf,))
     graph = Graph(steps=(child.step(label="left"), child.step(label="right")))
     first = export_graph(graph)
     second = export_graph(graph)

@@ -24,11 +24,6 @@ impl NativeGraph {
 
 #[pymethods]
 impl NativeGraph {
-    #[getter]
-    fn label(&self) -> &str {
-        self.graph.label()
-    }
-
     fn step_ids(&self) -> Vec<u64> {
         self.graph
             .steps()
@@ -60,7 +55,6 @@ impl NativeGraph {
 /// re-exported by the public Python package.
 #[pyfunction(name = "_native_process_graph")]
 pub(crate) fn native_process_graph(
-    label: String,
     processes: Vec<ProcessDeclaration>,
     arcs: Vec<(usize, usize)>,
 ) -> PyResult<NativeGraph> {
@@ -82,7 +76,7 @@ pub(crate) fn native_process_graph(
     let arcs = arcs
         .into_iter()
         .map(|(source, target)| GraphArc::new(NodeId::new(source), NodeId::new(target)));
-    CoreNativeGraph::new(label, steps, arcs)
+    CoreNativeGraph::new(steps, arcs)
         .map(|graph| NativeGraph { graph })
         .map_err(|error| PyValueError::new_err(error.to_string()))
 }

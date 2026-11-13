@@ -38,20 +38,20 @@ Windows x64 的源码构建与安装后验收见
 ## 组合步骤与可复用子图
 
 ```python
-from rivlet import Graph, GraphExecution, Step, ThreadGraphRunOptions
+from rivlet import Graph, Execution, Step, ThreadRunOptions
 
 
 def checks() -> Graph:
     validate = Step(lambda: print("validate"), label="validate")
     test = Step(lambda: print("test"), label="test")
-    return (validate | test).graph(label="checks")
+    return (validate | test).graph()
 
 
 prepare = Step(lambda: print("prepare"), label="prepare")
 finish = Step(lambda: print("finish"), label="finish")
 
-graph = (prepare >> checks() >> finish).graph(label="example")
-GraphExecution(graph=graph).run(ThreadGraphRunOptions(workers=2))
+graph = (prepare >> Step(checks(), label="checks") >> finish).graph()
+Execution(root=Step(graph, label="example")).run(ThreadRunOptions(workers=2))
 ```
 
 `prepare` 完成后，`checks` 子图中的 `validate` 和 `test` 可以并发执行。
@@ -61,7 +61,9 @@ GraphExecution(graph=graph).run(ThreadGraphRunOptions(workers=2))
 `>>` 等待左侧整个步骤或子图完成；`|` 不在分支之间添加依赖。实际并发度由执行选项
 控制，不是写了 `|` 就一定并行。
 
-声明与运行分开：`Graph` 描述工作流，`GraphExecution(graph)` 持有一次执行。
+声明与运行分开：`Graph` 只描述结构；`Step` 持有身份、标签、运行时条件及节点内容。
+`Execution(root_step)` 持有一次执行，根 Step 的条件与生命周期也真实参与执行。
+根可以包含 Graph，也可以只是一个 Leaf；子图通过 `Step(child_graph, label="child")` 显式挂载。
 同一声明再次运行时，新建一个执行对象即可。也可以不用 DSL，直接声明相同接线，见
 [核心模型](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/core_model.md)。
 
@@ -75,13 +77,12 @@ GraphExecution(graph=graph).run(ThreadGraphRunOptions(workers=2))
 
 ```python
 from rivlet import (
-    str,
     Edge,
     GraphInterface,
     Graph,
-    GraphExecution,
+    Execution,
     Step,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
 )
 
 data_ready = "validated-data"
@@ -90,7 +91,7 @@ fetch = Step(lambda: print("fetch data"), label="fetch")
 validate = Step(lambda: print("validate data"), label="validate")
 archive = Step(lambda: print("archive data"), label="archive")
 producer_graph = (fetch >> validate >> archive).graph(
-    label="producer",
+
     interface=GraphInterface(outputs={data_ready: validate}),
 )
 
@@ -98,20 +99,20 @@ prepare = Step(lambda: print("prepare consumer"), label="prepare")
 process = Step(lambda: print("process data"), label="process")
 report = Step(lambda: print("report results"), label="report")
 consumer_graph = (prepare >> process >> report).graph(
-    label="consumer",
+
     interface=GraphInterface(inputs={data_ready: process}),
 )
 
-producer = producer_graph.step()
-consumer = consumer_graph.step()
+producer = producer_graph.step(label="producer")
+consumer = consumer_graph.step(label="consumer")
 graph = Graph(
-    label="pipeline",
+
     steps=(producer, consumer),
     edges=(
         Edge(source=producer, target=consumer, ports=data_ready),
     ),
 )
-GraphExecution(graph).run(ThreadGraphRunOptions(workers=3))
+Execution(Step(graph, label="pipeline")).run(ThreadRunOptions(workers=3))
 ```
 
 ```text
@@ -138,8 +139,8 @@ consumer: prepare → process [input] → report
 
 ```python
 setup = Step(lambda: print("set up producer"), label="setup")
-wrapped = (setup >> producer_graph).graph(
-    label="wrapped producer",
+wrapped = (setup >> Step(producer_graph, label="producer")).graph(
+
     interface=producer_graph,
 )
 ```
@@ -159,11 +160,11 @@ wrapped = (setup >> producer_graph).graph(
 
 ```python
 from rivlet import (
-    GraphExecution,
+    Execution,
     StaticCondition,
     StaticConditions,
     Step,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
 )
 
 extra_checks = StaticCondition(payload=False, description="extra checks enabled")
@@ -176,8 +177,8 @@ finish = Step(lambda: print("finish static workflow"), label="finish")
 
 graph = (
     prepare >> (verify | static.when(extra_checks, extra)) >> finish
-).graph(label="static conditions")
-GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
+).graph()
+Execution(Step(graph, label="static conditions")).run(ThreadRunOptions(workers=2))
 ```
 
 `payload=False` 时，编译会移除 `extra`；改为 `True`，它就会与 `verify` 一起参与执行。
@@ -189,7 +190,7 @@ payload 及其求值方式由应用定义，Rivlet 不内置特定的 feature �
 ### 静态选择：保留候选，编译时恰好选择一个
 
 ```python
-from rivlet import Case, GraphExecution, Step, static
+from rivlet import Case, Execution, Step, static
 
 platform = "android"
 version = 3
@@ -209,11 +210,11 @@ graph = (
         ),
     )
     >> finish
-).graph(label="static selection")
-GraphExecution(graph).run()
+).graph()
+Execution(Step(graph, label="static selection")).run()
 ```
 
-`Case(condition, component)` 包含完整布尔条件和一个 Step 或 Graph。声明展示保留
+`Case(condition, component)` 包含完整布尔条件和一个 Step；子图先通过 `Step(graph)` 显式挂载。声明展示保留
 全部候选，编译时要求恰好一个条件为真，这里得到 `prepare → modern → finish`。
 零个或多个成立都报错，不按顺序选第一个。此处 `static` 是模块命名空间，不需要
 evaluator。Python 构图时已计算布尔条件，编译时检查选择。子图、边界与直接声明见
@@ -222,7 +223,7 @@ evaluator。Python 构图时已计算布尔条件，编译时检查选择。子�
 ### 把结果传给动作
 
 ```python
-from rivlet import Edge, Graph, GraphExecution, Option, Step, StepRunContext
+from rivlet import Edge, Graph, Execution, Option, Step, StepRunContext
 
 prepare = Step(lambda: print("prepare"))
 plan = Step(lambda: "implementation plan")
@@ -239,7 +240,7 @@ graph = Graph.from_wiring((
     review.wire(),
     work.wire(after=(prepare,)).results(plan, review),
 ))
-GraphExecution(graph).run()
+Execution(Step(graph)).run()
 ```
 
 `.results(plan, review)` 同时声明等待关系和结果参数顺序；`after` 增加纯执行前置。
@@ -250,7 +251,7 @@ GraphExecution(graph).run()
 ### 运行时条件：根据步骤结果决定是否执行
 
 ```python
-from rivlet import Graph, GraphExecution, Option, Step
+from rivlet import Graph, Execution, Option, Step
 
 
 def should_process(result: Option[object]) -> bool:
@@ -269,9 +270,9 @@ graph = Graph.from_wiring(
         process.wire(),
         done.wire(after=(process,)),
     ),
-    label="runtime conditions",
+
 )
-GraphExecution(graph).run()
+Execution(Step(graph, label="runtime conditions")).run()
 ```
 
 `condition=(should_process, probe)` 声明结果依赖，并把结果作为 `Option` 传给判断函数，
@@ -290,9 +291,9 @@ action 则得到 `Some(None)`。来源可能被跳过时，先用 `is_some()` �
 from rivlet import (
     ConditionalPrerequisite,
     Graph,
-    GraphExecution,
+    Execution,
     Step,
-    ThreadGraphRunOptions,
+    ThreadRunOptions,
 )
 
 decision = Step(lambda: False, label="wait for checks")
@@ -312,9 +313,9 @@ graph = Graph.from_wiring(
             ),
         ),
     ),
-    label="conditional dependency",
+
 )
-GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
+Execution(Step(graph, label="conditional dependency")).run(ThreadRunOptions(workers=2))
 ```
 
 `publish` 会等待 `decision`。它返回 `True` 时，`publish` 还要等待 `checks`；
@@ -326,10 +327,10 @@ GraphExecution(graph).run(ThreadGraphRunOptions(workers=2))
 
 ```python
 import json
-from rivlet import Graph, GraphExecution, Step, export_graph
+from rivlet import Graph, Execution, Step, export_graph
 
 graph = (Step(lambda: None, label="prepare") >> Step(lambda: None, label="finish")).graph()
-execution = GraphExecution(graph)
+execution = Execution(Step(graph))
 declaration = export_graph(graph)
 compilation = execution.compile()
 compiled = export_graph(compilation)

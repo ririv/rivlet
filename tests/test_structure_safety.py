@@ -3,10 +3,10 @@ from __future__ import annotations
 import json
 
 from rivlet import (
+    Execution,
+    ExecutionState,
     Graph,
-    GraphExecution,
-    GraphExecutionState,
-    GraphResultStore,
+    ResultStore,
     Step,
     export_graph,
 )
@@ -18,7 +18,6 @@ def test_native_subgraph_exports_all_nodes_and_edges_without_process_details(
 ) -> None:
     marker = tmp_path / "must-not-exist"
     native = _native_process_graph(
-        "native",
         [
             (
                 "compile",
@@ -32,7 +31,9 @@ def test_native_subgraph_exports_all_nodes_and_edges_without_process_details(
         [(0, 1)],
     )
     graph = Graph(steps=(Step(native, label="native mount"),))
-    for subject in (graph, GraphExecution(graph).compile()):
+    from rivlet import compile_graph
+
+    for subject in (graph, compile_graph(graph, root_label="native")):
         document = export_graph(subject)
         assert [node["id"] for node in document["nodes"]] == ["0", "0.0", "0.1"]
         assert [node["label"] for node in document["nodes"]] == [
@@ -66,12 +67,12 @@ def test_export_does_not_include_results_shared_state_or_callable_representation
     secret = Secret()
     step = Step(lambda: secret, label="public label")
     graph = Graph(steps=(step,))
-    execution = GraphExecution(
-        graph,
+    execution = Execution(
+        Step(graph),
         shared=secret,
-        execution_state=GraphExecutionState(results=GraphResultStore()),
+        execution_state=ExecutionState(results=ResultStore()),
     )
-    before = export_graph(graph)
+    before = export_graph(execution.root)
     execution.run()
     assert execution.require_result(step).unwrap() is secret
     after = export_graph(execution.compile())
@@ -84,7 +85,9 @@ def test_unused_invalid_selection_under_pruned_parent_is_never_evaluated() -> No
     from rivlet import Case, static
 
     unused = static.select(cases=()).graph()
-    graph = static.select(cases=(Case(False, unused), Case(True, Graph()))).graph()
-    document = export_graph(GraphExecution(graph).compile())
-    assert document["excluded_nodes"] == ["0"]
-    assert [node["id"] for node in document["nodes"]] == ["1"]
+    graph = static.select(
+        cases=(Case(False, Step(unused)), Case(True, Step(Graph())))
+    ).graph()
+    document = export_graph(Execution(Step(graph)).compile())
+    assert document["excluded_nodes"] == ["0.0"]
+    assert [node["id"] for node in document["nodes"]] == ["0", "0.1"]

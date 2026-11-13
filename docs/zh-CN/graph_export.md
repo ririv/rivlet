@@ -2,7 +2,7 @@
 
 [English](../graph_export.md) | 简体中文
 
-`export_graph()` 直接读取实际的 `Graph` 或 `GraphCompilation`，返回独立的纯 JSON 数据。
+`export_graph()` 直接读取实际的 `Graph`、根 `Step` 或 `GraphCompilation`，返回独立的纯 JSON 数据。
 它不反向解析 Mermaid 或文本、不根据标签猜依赖，也不执行 Action。公开 schema 是
 [`GraphDocument`](../../src/rivlet/structure/schema.py)：按 `view` 区分的 TypedDict 联合类型，
 没有 HTTP、前端样式或 Pydantic 依赖，不是另一套可执行图模型或反序列化执行入口。
@@ -11,15 +11,16 @@
 
 ```python
 import json
-from rivlet import Case, GraphExecution, Step, export_graph, static
+from rivlet import Case, Execution, Step, export_graph, static
 
 graph = static.select(cases=(
     Case(True, Step(lambda: "private result", label="keep")),
     Case(False, Step(lambda: None, label="drop")),
-)).graph(label="choose")
+)).graph()
 
-declared = export_graph(graph)  # 不选择分支，不调用静态求值器
-execution = GraphExecution(graph)
+root = Step(graph, label="choose")
+declared = export_graph(root)  # 不选择分支，不调用静态求值器
+execution = Execution(root)
 prepared = execution.compile()  # 在这里求静态条件，成功后固定本次结构
 compiled = export_graph(prepared)  # 不重新编译、不重复求值
 assert execution.compile() is prepared
@@ -36,18 +37,18 @@ assert execution.compilation is prepared
   "declaration": {
     "schema_version": 2,
     "view": "declaration",
-    "nodes": [{"id": "0", "label": "keep"}, {"id": "1", "label": "drop"}],
-    "selections": [{"id": "graph:root/selection:0", "cases": [
-      {"node": "0", "condition": true}, {"node": "1", "condition": false}
+    "nodes": [{"id": "0", "label": "choose"}, {"id": "0.0", "label": "keep"}, {"id": "0.1", "label": "drop"}],
+    "selections": [{"id": "graph:0/selection:0", "cases": [
+      {"node": "0.0", "condition": true}, {"node": "0.1", "condition": false}
     ]}]
   },
   "compiled": {
     "schema_version": 2,
     "view": "compiled",
-    "nodes": [{"id": "0", "label": "keep"}],
+    "nodes": [{"id": "0", "label": "choose"}, {"id": "0.0", "label": "keep"}],
     "edges": [],
     "dependencies": [],
-    "excluded_nodes": ["1"],
+    "excluded_nodes": ["0.1"],
     "excluded_edges": []
   }
 }
@@ -121,10 +122,10 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 异常正文、日志路径、命令行、环境变量或函数对象。Rust 原生子图也只暴露标签和拓扑，
 不暴露进程执行详情。
 
-`GraphExecution` 的声明与宿主引用绑定后不可替换。首次成功的 `compile()`、`run()` 或
+`Execution` 的声明与宿主引用绑定后不可替换。首次成功的 `compile()`、`run()` 或
 `arun()` 固定根编译结果，后续复用；编译异常不提交半成品，可以重试。这只是本次准备结果
 复用，不是 Action／业务结果缓存，也不让单次执行状态变成可重复运行的状态。重新求静态条件
-需要新建 GraphExecution。独立工具 `compile_graph()` 仍每次独立编译，不会准备另一个 execution。
+需要新建 Execution。独立工具 `compile_graph()` 仍每次独立编译，不会准备另一个 execution。
 
 ## 范围与交付
 
@@ -135,7 +136,7 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 子文档在关联时，作用域与边 ID 也保留挂载命名空间，不只节点 ID 带前缀。
 
 手工拼装而没有编译来源的 GraphCompilation 会明确拒绝导出，不重新编译或猜边类型。
-请通过 compile_graph 或 GraphExecution.compile 获取编译器产物。
+请通过 compile_graph 或 Execution.compile 获取编译器产物。
 
 这是新源码 API，PyPI 的 0.2.0.post1 和原始 0.3.0 准备提交都不包含它。消费方必须显式使用
 经过验收、包含本次改动的构建，安装升级属于另外一次部署操作。导出 JSON 不意味着增加 JS
