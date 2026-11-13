@@ -8,6 +8,7 @@ from rivlet import (
     Graph,
     GraphInterface,
     Leaf,
+    Results,
     StaticCondition,
     StaticConditions,
     Step,
@@ -134,7 +135,7 @@ def test_ports_and_binding_refer_to_exact_descendants() -> None:
 def test_documents_are_detached_and_from_wiring_keeps_real_edges() -> None:
     first = Step(lambda: "value", label="first")
     second = Step(lambda _ctx, value: value.unwrap(), label="second")
-    graph = Graph.from_wiring((StepWiring(first), second.wire().results(first)))
+    graph = Graph.from_wiring((StepWiring(first), second.wire(after=(Results(first),))))
     document = export_graph(graph)
     assert document["edges"][0]["kind"] == "result"
     document["nodes"][0]["label_path"].append("local mutation")

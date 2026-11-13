@@ -255,7 +255,7 @@ inside an already declared graph.
 Without result inputs, Leaf calls `fn()` or `fn(ctx)`. If both forms
 are valid, the zero-argument form wins, preserving default-value closures.
 
-With `wire().results(producer, ...)`, the call is always
+With `wire(after=(Results(producer, ...),))`, the call is always
 `fn(ctx, first_result, ...)`. Each result is an `Option[object]`; graph
 construction validates the complete signature. An annotation never selects a
 different calling convention.
@@ -265,12 +265,15 @@ def compile_action(ctx: StepRunContext, source: Option[object]) -> None:
     ctx.control.require_running()
     compile_source(source.unwrap())
 
+
 prepare = Step(prepare_source)
 compile_step = Step(compile_action)
-graph = Graph.from_wiring((
-    prepare.wire(),
-    compile_step.wire().results(prepare),
-))
+graph = Graph.from_wiring(
+    (
+        prepare.wire(),
+        compile_step.wire(after=(Results(prepare),)),
+    )
+)
 ```
 
 The `step(node)` helper derives labels from named functions, not from Graph structure.
@@ -284,8 +287,11 @@ A leaf action may return a Graph after inspecting runtime results:
 def select_graph(ctx: StepRunContext, selected: Option[object]) -> Graph:
     return graph_for(selected.unwrap())
 
+
 selection = Step(select_graph)
-graph = Graph.from_wiring((select_strategy.wire(), selection.wire().results(select_strategy)))
+graph = Graph.from_wiring(
+    (select_strategy.wire(), selection.wire(after=(Results(select_strategy),)))
+)
 ```
 
 The returned graph is compiled into a nested session managed by the same execution
@@ -313,7 +319,7 @@ condition=(lambda result: not bool(result.unwrap()), cache_probe)
 `condition` accepts a zero-argument predicate or a flat `(predicate, source, ...)`
 tuple. Each source is a local Step whose Option result becomes one argument.
 These references participate in cycle detection, scheduling and wiring boundaries.
-Action parameters remain bound separately through `wire().results(...)`.
+Action parameters remain bound separately through `Results(...)` in `wire(after=...)`.
 
 ## Execution
 
@@ -377,13 +383,17 @@ share identities and declaration-scope mappings, so result lookup is consistent.
 
 ## Results and runtime context
 
-`wire(after=(prepare,)).results(producer)` separates ordering-only prerequisites
-from final-result bindings. Both are explicit graph relations. An input already
-includes its waiting requirement; do not repeat it in after.
+`wire(after=(prepare, Results(plan, review)))` declares both kinds of prerequisite
+in one place: a plain Step only orders execution; Results also binds its producers'
+results to action arguments. Do not repeat result producers as plain prerequisites.
 
-`StepWiring.results(first, second)` returns new wiring without mutating the Step
-or the original wiring. Repeated calls append sources in order. `Graph.from_wiring()`
-normalizes this declaration into the same Edge objects as the direct form:
+`Results(first, second)` is an immutable, reusable declaration containing Step
+references, not actual values or another edge type. It requires at least one source.
+Multiple Results groups in one `after` are concatenated in occurrence order into
+one action-result group. A plain Step between groups consumes no argument position.
+Neither changes node or edge condition inputs.
+`Graph.from_wiring()` normalizes this declaration into the same Edge objects as
+the direct form:
 
 ```python
 graph = Graph(

@@ -17,6 +17,7 @@ from rivlet import (
     GraphCompilation,
     GraphError,
     Leaf,
+    Results,
     ResultStore,
     StaticCondition,
     StaticConditionEvaluator,
@@ -198,7 +199,7 @@ def test_graph_rejects_runtime_condition_read_cycle() -> None:
     with pytest.raises(GraphError, match="dependency cycle"):
         Graph.from_wiring(
             wiring=(
-                prepare.wire().results(build),
+                prepare.wire(after=(Results(build),)),
                 build.wire(after=(prepare,)),
             ),
         )
@@ -553,7 +554,7 @@ def test_render_execution_overlays_runtime_status() -> None:
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
-            build.wire(after=()).results(probe),
+            build.wire(after=(Results(probe),)),
         ),
     )
     state = ExecutionState(results=ResultStore())
@@ -590,7 +591,7 @@ def test_render_live_execution_hides_not_reached_steps() -> None:
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
-            build.wire(after=()).results(probe),
+            build.wire(after=(Results(probe),)),
             package.wire(after=(build,)),
         ),
     )
@@ -676,8 +677,9 @@ def test_compile_graph_preserves_runtime_condition_edge() -> None:
                     ConditionalPrerequisite(
                         step=configure, condition=(condition, probe)
                     ),
+                    Results(probe),
                 )
-            ).results(probe),
+            ),
         ),
     )
 
@@ -787,8 +789,9 @@ def test_compile_graph_preserves_conditional_dependency_without_gate_step() -> N
                             )
                         ),
                     ),
+                    Results(probe),
                 )
-            ).results(probe),
+            ),
         ),
     )
 
@@ -867,8 +870,9 @@ def test_execution_compile_supports_static_and_runtime_conditions() -> None:
                         ),
                     ),
                     android_shim,
+                    Results(probe),
                 )
-            ).results(probe),
+            ),
         ),
         static=StaticConditions(
             evaluator=_ConditionEvaluator(active=frozenset({"android"})),
@@ -943,8 +947,9 @@ def test_render_graph_compiled_shows_conditional_dependency() -> None:
                             )
                         ),
                     ),
+                    Results(probe),
                 )
-            ).results(probe),
+            ),
         ),
     )
 
@@ -990,7 +995,7 @@ def test_compile_graph_preserves_runtime_when_on_leaf_step() -> None:
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
-            write_cache.wire().results(probe),
+            write_cache.wire(after=(Results(probe),)),
         ),
     )
 
@@ -1122,7 +1127,7 @@ def _make_value_graph() -> Graph:
     stage = Step(
         label="stage",
         node=Graph.from_wiring(
-            wiring=(configure.wire(), build.wire().results(configure)),
+            wiring=(configure.wire(), build.wire(after=(Results(configure),))),
         ),
     )
     package = Step(label="package", node=Leaf(action=lambda: "packaged"))

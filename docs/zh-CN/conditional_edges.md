@@ -134,7 +134,7 @@ predicate 按扁平元组中来源 Step 的顺序接收各个 `Option[object]`�
 ## inputs 与 after
 
 条件在使用位置直接声明自己的输入。action 参数仍通过
-`wire().results(...)` 绑定，after 只表达执行顺序。
+`wire(after=...)` 中的 `Results(...)` 绑定，普通 Step 前置只表达执行顺序。
 节点条件和每条条件边可以读取不同来源，不再通过 receiver 查找条件对象。
 
 ```python
@@ -157,13 +157,20 @@ implementation = Step(
         permission,
     ),
 )
-graph = Graph.from_wiring((
-    permission.wire(),
-    design.wire(),
-    environment_check.wire(),
-    prepare.wire(),
-    implementation.wire(after=(prepare_dependency,)).results(design),
-))
+graph = Graph.from_wiring(
+    (
+        permission.wire(),
+        design.wire(),
+        environment_check.wire(),
+        prepare.wire(),
+        implementation.wire(
+            after=(
+                prepare_dependency,
+                Results(design),
+            )
+        ),
+    )
+)
 ```
 
 节点条件读取 permission，条件边读取 environment_check，action 读取 design。节点条件为假时跳过 implementation；条件边为假仅取消等待 prepare，不跳过 implementation，也不取消 prepare。匿名函数不需要额外手动包装成 Leaf。

@@ -16,6 +16,7 @@ from rivlet import (
     Graph,
     GraphInterface,
     Option,
+    Results,
     ResultStore,
     Step,
     StepExecutionEvent,
@@ -136,7 +137,7 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
     graph = Graph.from_wiring(
         (
             prepared.wire(),
-            Step(expand, label="expand").wire().results(prepared),
+            Step(expand, label="expand").wire(after=(Results(prepared),)),
         )
     )
     Execution(Step(graph), execution_state=ExecutionState(results=ResultStore())).run(

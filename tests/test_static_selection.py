@@ -16,6 +16,7 @@ from rivlet import (
     GraphMode,
     MultipleStaticBranchesSelectedError,
     NoStaticBranchSelectedError,
+    Results,
     StaticCondition,
     StaticConditions,
     StaticSelection,
@@ -199,7 +200,7 @@ def test_runtime_condition_and_result_binding_remain_independent() -> None:
     )
     choice = static.select(cases=(Case(True, selected),))
     graph = Graph.from_wiring(
-        (source.wire(), selected.wire().results(source)),
+        (source.wire(), selected.wire(after=(Results(source),))),
         static_selections=choice.static_selections,
     )
     Execution(Step(graph)).run()
@@ -215,7 +216,7 @@ def test_result_input_from_unselected_case_is_rejected() -> None:
         (
             selected.wire(),
             unselected.wire(),
-            consume.wire().results(unselected),
+            consume.wire(after=(Results(unselected),)),
         ),
         static_selections=choice.static_selections,
     )

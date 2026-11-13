@@ -27,6 +27,7 @@ from rivlet import (
     GraphObservationMessages,
     Leaf,
     Option,
+    Results,
     ResultStore,
     SerialGraphExecutor,
     StaticCondition,
@@ -532,7 +533,7 @@ def test_execution_run_records_sync_step_results() -> None:
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
-            build.wire().results(prepare),
+            build.wire(after=(Results(prepare),)),
         ),
     )
 
@@ -923,7 +924,7 @@ def test_dynamic_subgraph_captures_explicit_result_input() -> None:
     root = Graph.from_wiring(
         wiring=(
             prepare.wire(),
-            stage.wire().results(prepare),
+            stage.wire(after=(Results(prepare),)),
         ),
     )
 
@@ -964,8 +965,9 @@ def test_runtime_condition_true_waits_for_source_step(mode: GraphMode) -> None:
                             )
                         ),
                     ),
+                    Results(probe),
                 )
-            ).results(probe),
+            ),
         ),
     )
 
@@ -1025,7 +1027,13 @@ def test_runtime_step_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
             probe.wire(),
             first.wire(),
             second.wire(),
-            target.wire(after=(first, second)).results(probe),
+            target.wire(
+                after=(
+                    first,
+                    second,
+                    Results(probe),
+                )
+            ),
         ),
     )
 
@@ -1065,8 +1073,9 @@ def test_runtime_edge_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
                         step=source,
                         condition=(_edge_condition_848 := (_condition, probe)),
                     ),
+                    Results(probe),
                 )
-            ).results(probe),
+            ),
         ),
     )
 
@@ -1137,8 +1146,9 @@ def test_runtime_condition_false_does_not_require_source_result(
                             )
                         ),
                     ),
+                    Results(probe),
                 )
-            ).results(probe),
+            ),
         ),
     )
 
@@ -1192,8 +1202,9 @@ def test_runtime_condition_false_does_not_wait_for_source(mode: GraphMode) -> No
                             )
                         ),
                     ),
+                    Results(probe),
                 )
-            ).results(probe),
+            ),
         ),
     )
 
@@ -1513,7 +1524,7 @@ def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
-            stage.wire().results(prepare),
+            stage.wire(after=(Results(prepare),)),
         ),
     )
 
@@ -1583,8 +1594,9 @@ def test_async_runtime_condition_false_does_not_wait_for_source(
                             )
                         ),
                     ),
+                    Results(probe),
                 )
-            ).results(probe),
+            ),
         ),
     )
 
@@ -1725,7 +1737,7 @@ def test_run_freezes_static_conditions_before_execution(mode: GraphMode) -> None
         wiring=(
             prepare.wire(),
             android_shim.wire(),
-            archive.wire().results(prepare, android_shim),
+            archive.wire(after=(Results(prepare, android_shim),)),
         ),
         static=StaticConditions(
             evaluator=_ConditionEvaluator(active=frozenset({"android"})),
@@ -1768,7 +1780,7 @@ def test_step_when_false_skips_step_and_allows_downstream_continue(
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
-            optional.wire(after=()).results(probe),
+            optional.wire(after=(Results(probe),)),
             package.wire(after=(optional,)),
         ),
     )
@@ -1997,7 +2009,7 @@ def test_execution_run_logs_step_skip_by_condition(
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
-            build.wire(after=()).results(probe),
+            build.wire(after=(Results(probe),)),
         ),
     )
 
@@ -2023,7 +2035,7 @@ def test_execution_run_writes_execution_render_to_run_log_dir(
     graph = Graph.from_wiring(
         wiring=(
             probe.wire(),
-            build.wire(after=()).results(probe),
+            build.wire(after=(Results(probe),)),
         ),
     )
 

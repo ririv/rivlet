@@ -28,10 +28,12 @@ build = Step(
     lambda ctx, result: build_source(),
     condition=(lambda result: result.unwrap() == 42, probe),
 )
-graph = Graph.from_wiring((
-    probe.wire(),
-    build.wire().results(probe),
-))
+graph = Graph.from_wiring(
+    (
+        probe.wire(),
+        build.wire(after=(Results(probe),)),
+    )
+)
 ```
 
 Use `condition=lambda: True` without result inputs. Subgraph mounts use the same
@@ -134,7 +136,7 @@ still retain their dependency boundary.
 
 ## Inputs versus action prerequisites
 
-`Step.wire().results(...)` binds action arguments only. Conditions declare their own
+`Results(...)` in `Step.wire(after=...)` binds action arguments only. Conditions declare their own
 sources in `(predicate, source_step, ...)`. A node condition waits only for its
 sources; after it enables the node, action inputs and `after` constrain execution.
 Both kinds of inputs must reference Steps in the current graph and participate
@@ -154,7 +156,13 @@ graph = Graph.from_wiring(
         probe.wire(),
         prepare_a.wire(),
         prepare_b.wire(),
-        heavy_build.wire(after=(prepare_a, prepare_b)).results(probe),
+        heavy_build.wire(
+            after=(
+                prepare_a,
+                prepare_b,
+                Results(probe),
+            )
+        ),
     )
 )
 ```
@@ -183,18 +191,22 @@ The flat condition tuple declares dependencies and positional predicate argument
 count_step = Step(lambda: 42)
 approval_step = Step(lambda: True)
 
+
 def should_run(count: Option[object], approval: Option[object]) -> bool:
     return count.unwrap() == 42 and approval.unwrap_or(False) is True
+
 
 consumer = Step(
     lambda ctx, count, approval: print(count.unwrap(), approval.unwrap()),
     condition=(should_run, count_step, approval_step),
 )
-graph = Graph.from_wiring((
-    count_step.wire(),
-    approval_step.wire(),
-    consumer.wire().results(count_step, approval_step),
-))
+graph = Graph.from_wiring(
+    (
+        count_step.wire(),
+        approval_step.wire(),
+        consumer.wire(after=(Results(count_step, approval_step),)),
+    )
+)
 ```
 
 When both Steps execute successfully, the predicate receives `Some(42)` and

@@ -152,7 +152,7 @@ the consumer component's parent graph. Unrelated consumer preparation can run ea
 Static edge rules can also remove the connection during compilation.
 
 Ports still express readiness, not result transport. Graph-local `Edge.results()` and
-`wire().results(...)` bind `Option` arguments; there are no `.input()`/`.output()` or
+`Results(...)` in `wire(after=...)` bind `Option` arguments; there are no `.input()`/`.output()` or
 `.argument()` endpoint helpers in this API.
 
 ## Two requirement forms

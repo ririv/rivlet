@@ -15,6 +15,7 @@ from rivlet import (
     GraphError,
     Nothing,
     Option,
+    Results,
     SerialGraphExecutor,
     Some,
     Step,
@@ -85,14 +86,24 @@ def test_inputs_distinguish_skipped_from_none_in_declared_order(
         (
             consumer.wire(
                 after=(
-                    ConditionalPrerequisite(
-                        prerequisite,
-                        condition=(predicate, skipped, returned_none, returned_false),
+                    *(
+                        (
+                            ConditionalPrerequisite(
+                                prerequisite,
+                                condition=(
+                                    predicate,
+                                    skipped,
+                                    returned_none,
+                                    returned_false,
+                                ),
+                            ),
+                        )
+                        if edge
+                        else ()
                     ),
+                    Results(skipped, returned_none, returned_false),
                 )
-                if edge
-                else ()
-            ).results(skipped, returned_none, returned_false),
+            ),
             prerequisite.wire(),
             returned_false.wire(),
             returned_none.wire(),
@@ -127,7 +138,7 @@ def test_repeated_nested_graph_mounts_supply_their_own_results(
     )
     child = Graph.from_wiring(
         (
-            consumer.wire().results(probe),
+            consumer.wire(after=(Results(probe),)),
             probe.wire(),
         )
     )
@@ -153,7 +164,7 @@ def test_repeated_input_preserves_arguments_without_rewrapping() -> None:
         Step(
             Graph.from_wiring(
                 (
-                    consumer.wire().results(probe, probe),
+                    consumer.wire(after=(Results(probe, probe),)),
                     probe.wire(),
                 )
             )
@@ -200,7 +211,7 @@ def test_actions_and_conditions_share_explicit_result_bindings(
     execute(
         Graph.from_wiring(
             (
-                consumer.wire().results(source, skipped),
+                consumer.wire(after=(Results(source, skipped),)),
                 skipped.wire(),
                 source.wire(),
             )
@@ -223,7 +234,7 @@ def test_action_only_inputs_enable_recording_and_bind_each_mount(
     child = Graph.from_wiring(
         (
             producer.wire(),
-            Step(consume).wire().results(producer),
+            Step(consume).wire(after=(Results(producer),)),
         )
     )
     execute(Graph(steps=(child.step(), child.step())), backend)
@@ -235,7 +246,7 @@ def test_result_binding_validates_callable_boundary_before_execution() -> None:
     source = Step(lambda: 42)
     consumer = Step(lambda _ctx, _first, _second: None)
     with pytest.raises(GraphError, match="signature"):
-        Graph.from_wiring((source.wire(), consumer.wire().results(source)))
+        Graph.from_wiring((source.wire(), consumer.wire(after=(Results(source),))))
 
 
 @pytest.mark.parametrize("backend", ["serial", "thread", "async"])
@@ -265,8 +276,9 @@ def test_each_receiver_binds_its_own_results_on_each_mount(backend: Backend) -> 
             consumer.wire(
                 after=(
                     ConditionalPrerequisite(prepare, condition=(edge_condition, check)),
+                    Results(design),
                 )
-            ).results(design),
+            ),
         )
     )
     execute(Graph(steps=(child.step(), child.step())), backend)
@@ -314,8 +326,9 @@ def test_false_node_condition_does_not_wait_for_other_receiver_inputs() -> None:
                     ConditionalPrerequisite(
                         prepare, condition=(edge_condition, edge_input)
                     ),
+                    Results(action_input),
                 )
-            ).results(action_input),
+            ),
         )
     )
     Execution(Step(graph)).run(AsyncRunOptions(concurrency=4))
@@ -352,15 +365,16 @@ def test_one_condition_object_can_bind_two_conditional_edges(backend: Backend) -
     assert seen == ["ran"]
 
 
-def test_result_wiring_is_immutable_and_chained_sources_keep_order() -> None:
+def test_results_groups_are_reusable_and_combine_in_declaration_order() -> None:
     first = Step(lambda: 1)
     second = Step(lambda: 2)
     seen: list[tuple[object, object]] = []
     consumer = Step(lambda _ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
-    original = consumer.wire(after=(first,))
-    partial = original.results(first)
-    complete = partial.results(second)
-    assert original is not partial and partial is not complete
+    shared = Results(first)
+    partial = consumer.wire(after=(shared,))
+    complete = consumer.wire(after=(shared, first, Results(second)))
+    assert shared.sources == (first,)
+    assert partial.after == (shared,)
     with pytest.raises(GraphError, match="signature"):
         Graph.from_wiring((first.wire(), second.wire(), partial))
     execute(Graph.from_wiring((first.wire(), second.wire(), complete)), "serial")

@@ -251,28 +251,39 @@ for subgraphs, boundaries, and direct declarations.
 ### Passing results to an action
 
 ```python
-from rivlet import Edge, Graph, Execution, Option, Step, StepRunContext
+from rivlet import Edge, Execution, Graph, Option, Results, Step, StepRunContext
 
 prepare = Step(lambda: print("prepare"))
 plan = Step(lambda: "implementation plan")
 review = Step(lambda: True)
 
-def implement(ctx: StepRunContext, plan: Option[object], review: Option[object]) -> None:
+
+def implement(
+    ctx: StepRunContext, plan: Option[object], review: Option[object]
+) -> None:
     ctx.control.require_running()
     print(plan.unwrap(), review.unwrap())
 
+
 work = Step(implement)
-graph = Graph.from_wiring((
-    prepare.wire(),
-    plan.wire(),
-    review.wire(),
-    work.wire(after=(prepare,)).results(plan, review),
-))
+graph = Graph.from_wiring(
+    (
+        prepare.wire(),
+        plan.wire(),
+        review.wire(),
+        work.wire(
+            after=(
+                prepare,
+                Results(plan, review),
+            )
+        ),
+    )
+)
 Execution(Step(graph)).run()
 ```
 
-`.results(plan, review)` both waits for the producers and passes their results in
-that order; `after` adds an ordering-only prerequisite. For direct construction,
+`after` lists both kinds of prerequisite: a plain Step only waits for completion;
+`Results(plan, review)` also passes their results in that order. For direct construction,
 the equivalent edges are `Edge(prepare, work)` and `*Edge.results((plan, review), work)`.
 Skipped producers supply `Nothing()`; a successful `None` is `Some(None)`.
 Failed producers block the consumer. Result connections are currently graph-local;

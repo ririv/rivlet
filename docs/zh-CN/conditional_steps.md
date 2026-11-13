@@ -26,10 +26,12 @@ build = Step(
     lambda ctx, result: build_source(),
     condition=(lambda result: result.unwrap() == 42, probe),
 )
-graph = Graph.from_wiring((
-    probe.wire(),
-    build.wire().results(probe),
-))
+graph = Graph.from_wiring(
+    (
+        probe.wire(),
+        build.wire(after=(Results(probe),)),
+    )
+)
 ```
 
 无输入时直接写 `condition=lambda: True`；子图挂载同样通过
@@ -118,7 +120,7 @@ observation 与 condition。激活后才释放直接子节点；空 composite �
 
 ## inputs 与执行前置
 
-`Step.wire().results(...)` 只绑定 action 参数。条件在 `(predicate, source_step, ...)`
+`Step.wire(after=...)` 中的 `Results(...)` 只绑定 action 参数。条件在 `(predicate, source_step, ...)`
 中声明自己的来源。节点条件只等待自己的输入；节点启用后，action 才等待自己的输入
 以及 after 指定的前置步骤。两类输入均引用当前图的 Step，参与 DAG 校验和接线边界计算。
 
@@ -136,7 +138,13 @@ graph = Graph.from_wiring(
         probe.wire(),
         prepare_a.wire(),
         prepare_b.wire(),
-        heavy_build.wire(after=(prepare_a, prepare_b)).results(probe),
+        heavy_build.wire(
+            after=(
+                prepare_a,
+                prepare_b,
+                Results(probe),
+            )
+        ),
     )
 )
 ```
@@ -158,18 +166,22 @@ probe 成功后即可求值，无需等待 prepare_a / prepare_b。条件为假�
 count_step = Step(lambda: 42)
 approval_step = Step(lambda: True)
 
+
 def should_run(count: Option[object], approval: Option[object]) -> bool:
     return count.unwrap() == 42 and approval.unwrap_or(False) is True
+
 
 consumer = Step(
     lambda ctx, count, approval: print(count.unwrap(), approval.unwrap()),
     condition=(should_run, count_step, approval_step),
 )
-graph = Graph.from_wiring((
-    count_step.wire(),
-    approval_step.wire(),
-    consumer.wire().results(count_step, approval_step),
-))
+graph = Graph.from_wiring(
+    (
+        count_step.wire(),
+        approval_step.wire(),
+        consumer.wire(after=(Results(count_step, approval_step),)),
+    )
+)
 ```
 
 两个步骤成功执行后，条件函数分别收到 `Some(42)` 和 `Some(True)`。

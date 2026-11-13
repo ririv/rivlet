@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from ..errors import GraphError
@@ -23,26 +23,26 @@ if TYPE_CHECKING:
     from .step import Step
 
 
+@dataclass(frozen=True, slots=True, init=False)
+class Results:
+    """Declare a nonempty ordered group of action-result prerequisites."""
+
+    sources: tuple[Step, *tuple[Step, ...]]
+
+    def __init__(self, source: Step, *sources: Step) -> None:
+        object.__setattr__(self, "sources", (source, *sources))
+
+
 @dataclass(frozen=True, slots=True)
 class StepWiring:
     """把 step 接入当前图时的接线输入。
 
-    `after` 与 `.results()` 只属于这次图声明；`Graph` 构造时会把它一次解析为
+    `after` 中的普通前置与 Results 只属于这次图声明；`Graph` 构造时会把它一次解析为
     引用真实 `Step` 对象的边，运行期不保留该包装器。
     """
 
     step: Step
-    after: tuple[StepPrerequisite, ...] = ()
-    _result_sources: tuple[Step, ...] = field(default=(), init=False, repr=False)
-
-    def results(self, source: Step, *sources: Step) -> StepWiring:
-        """Append action result sources without mutating this wiring or its step."""
-
-        wiring = StepWiring(self.step, self.after)
-        object.__setattr__(
-            wiring, "_result_sources", (*self._result_sources, source, *sources)
-        )
-        return wiring
+    after: tuple[StepPrerequisite | Results, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -192,15 +192,18 @@ def _graph_wiring_from_step_wirings(
     declared_edges: list[GraphEdge] = []
     for item in wiring:
         target = item.step
-        if item._result_sources:
-            declared_edges.extend(Edge.results(item._result_sources, target))
+        result_sources: list[Step] = []
+        execution_edges: list[GraphEdge] = []
         for prerequisite in item.after:
+            if isinstance(prerequisite, Results):
+                result_sources.extend(prerequisite.sources)
+                continue
             source = prerequisite_step(prerequisite)
             if source not in known_steps:
                 raise GraphError(
                     f"graph '{graph_label}' step '{target.label}' has prerequisite outside this graph: {source.label}"
                 )
-            declared_edges.append(
+            execution_edges.append(
                 Edge(
                     source=source,
                     target=target,
@@ -209,4 +212,9 @@ def _graph_wiring_from_step_wirings(
                     else None,
                 )
             )
+        # 当前接线的时间/临时空间为 O(P + R)：P 是 after 条目数，R 是结果来源总数。
+        # 按出现顺序把所有结果来源组合成一个完整参数组。
+        if result_sources:
+            declared_edges.extend(Edge.results(tuple(result_sources), target))
+        declared_edges.extend(execution_edges)
     return GraphWiring(steps=steps, edges=tuple(declared_edges))

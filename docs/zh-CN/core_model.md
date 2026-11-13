@@ -290,7 +290,7 @@ selected_graph = select_one(
 没有结果输入时，调用 `fn()` 或 `fn(ctx)`。两种形式都有效时固定使用零参，
 保留 `lambda value=value: ...` 这种闭包默认值。
 
-通过 `wire().results(producer, ...)` 接入结果后，固定调用
+通过 `wire(after=(Results(producer, ...),))` 接入结果后，固定调用
 `fn(ctx, first_result, ...)`。每个结果是 `Option[object]`，构图时校验完整签名，
 不根据参数名或类型标注猜测调用方式。
 
@@ -299,12 +299,15 @@ def compile_action(ctx: StepRunContext, source: Option[object]) -> None:
     ctx.control.require_running()
     compile_source(source.unwrap())
 
+
 prepare = Step(prepare_source)
 compile_step = Step(compile_action)
-graph = Graph.from_wiring((
-    prepare.wire(),
-    compile_step.wire().results(prepare),
-))
+graph = Graph.from_wiring(
+    (
+        prepare.wire(),
+        compile_step.wire(after=(Results(prepare),)),
+    )
+)
 ```
 
 `step(action)` 从具名函数或 Graph 名称推导 label，不绑定业务参数，
@@ -319,8 +322,11 @@ Leaf 可以在运行时返回 Graph。runtime 会把返回值作为当前 Step �
 def select_graph(ctx: StepRunContext, selected: Option[object]) -> Graph:
     return graph_for(selected.unwrap())
 
+
 selection = Step(select_graph)
-graph = Graph.from_wiring((select_strategy.wire(), selection.wire().results(select_strategy)))
+graph = Graph.from_wiring(
+    (select_strategy.wire(), selection.wire(after=(Results(select_strategy),)))
+)
 ```
 
 这个端口用于先读取运行时结果，再选择下一层结构。父 Step 等待子图整体完成后才完成；
@@ -353,7 +359,7 @@ condition=(lambda result: not bool(result.unwrap()), cache_probe)
 ```
 
 这些引用参与调度、环检测和接线边界计算，不再产生重复的 action 结果边。
-action 参数仍通过 `wire().results(...)` 独立声明。
+action 参数仍通过 `wire(after=...)` 中的 `Results(...)` 独立声明。
 
 ## `Execution`
 
@@ -449,10 +455,14 @@ Rust 编译路径会把声明期已知子图转换为统一执行结构：
 
 ## 结果与运行上下文
 
-`wire(after=(prepare,)).results(producer)` 区分纯执行前置和最终结果绑定。
-两者都在图的接线处声明；inputs 已包含等待关系，不必再把同一来源写进 after。
+`wire(after=(prepare, Results(plan, review)))` 把两类前置统一放在一处：
+普通 Step 只等待完成，Results 还把生产者的结果按顺序传给 action。
+两者都在图的接线处声明；Results 已包含等待关系，不必再把同一来源作为普通 Step 重复声明。
 
-`StepWiring.results(first, second)` 返回新接线，不修改 Step 或原接线；连续调用按顺序追加来源。
+`Results(first, second)` 是不可变、可复用的来源声明，只保存 Step 引用，
+不保存实际结果，也不是另一种边；构造时至少需要一个来源。
+同一 `after` 中的多组 Results 按出现顺序组合成一个完整结果参数组，
+中间的普通 Step 不占用结果参数位置；它们不改变节点或边条件各自的输入。
 `Graph.from_wiring()` 将它归一化为 Edge，与直接构造完全相同：
 
 ```python

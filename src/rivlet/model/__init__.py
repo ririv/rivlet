@@ -28,6 +28,7 @@ from .step import (
 )
 from .wiring import (
     GraphWiring,
+    Results,
     StepWiring,
 )
 
@@ -62,6 +63,7 @@ __all__ = [
     "resolve_step_label",
     "step",
     "StepWiring",
+    "Results",
     "Edge",
     "GraphEdge",
     "GraphWiring",

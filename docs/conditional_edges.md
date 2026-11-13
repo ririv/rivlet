@@ -152,7 +152,7 @@ callable at several sites does not deduplicate those evaluations.
 ## Inputs and ordering prerequisites
 
 Conditions bind their inputs at the point of use. Action arguments remain in
-`wire().results(...)`; `after` declares execution ordering. Node conditions
+`Results(...)` inside `wire(after=...)`; plain Steps declare execution ordering. Node conditions
 and individual edge conditions may read different sources without receiver lookup.
 
 ```python
@@ -175,13 +175,20 @@ implementation = Step(
         permission,
     ),
 )
-graph = Graph.from_wiring((
-    permission.wire(),
-    design.wire(),
-    environment_check.wire(),
-    prepare.wire(),
-    implementation.wire(after=(prepare_dependency,)).results(design),
-))
+graph = Graph.from_wiring(
+    (
+        permission.wire(),
+        design.wire(),
+        environment_check.wire(),
+        prepare.wire(),
+        implementation.wire(
+            after=(
+                prepare_dependency,
+                Results(design),
+            )
+        ),
+    )
+)
 ```
 
 The node condition reads permission, the edge condition reads environment_check, and the action reads design. False permission skips implementation; a false edge condition only stops waiting for prepare, without skipping implementation or cancelling prepare. No extra Leaf wrapper is needed for inline lambdas.

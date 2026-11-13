@@ -157,7 +157,7 @@ Edge(source=a, target=b, ports=("sdk-ready", "toolchain-ready"), condition=neede
 与端口无关的消费者准备步骤可以提前执行。
 静态边规则也可以在编译期移除整条端口连接。
 
-端口仍只表达就绪关系，不传递结果。图内使用 `Edge.results()` 或 `wire().results(...)` 绑定 action 的 `Option` 参数；
+端口仍只表达就绪关系，不传递结果。图内使用 `Edge.results()` 或 `wire(after=...)` 中的 `Results(...)` 绑定 action 的 `Option` 参数；
 这次没有引入 `.input()`／`.output()` 或 `.argument()` 端点 API。
 
 ## 两种需求

@@ -13,6 +13,7 @@ from .identity import StepId, StepPath
 from .leaf import Leaf
 from .wiring import (
     GraphWiring,
+    Results,
     StepWiring,
     _parallel_wiring,
     _sequence_wiring,
@@ -96,7 +97,7 @@ class Step:
 
     def wire(
         self,
-        after: tuple[StepPrerequisite, ...] = (),
+        after: tuple[StepPrerequisite | Results, ...] = (),
     ) -> StepWiring:
         """为当前 step 创建一份新的图接线，不修改 step 本身。"""
 

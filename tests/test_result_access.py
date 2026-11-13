@@ -9,6 +9,7 @@ from rivlet import (
     GraphObservationEvent,
     GraphObservationMessages,
     Option,
+    Results,
     ResultStore,
     ResultView,
     Step,
@@ -78,7 +79,7 @@ def test_actions_receive_bound_results_and_observers_receive_read_only_view() ->
     execution = Execution(
         root=Step(
             Graph.from_wiring(
-                (prepare.wire(), finish.wire().results(prepare)),
+                (prepare.wire(), finish.wire(after=(Results(prepare),))),
                 observation=GraphObservationMessages(after_success="done"),
             )
         ),
