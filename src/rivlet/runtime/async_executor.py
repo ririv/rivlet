@@ -11,6 +11,7 @@ from .state import GraphExecutionState
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
+    from pathlib import Path
 
     from ..model import LeafAction
     from ..observe import GraphObserver
@@ -23,6 +24,7 @@ if TYPE_CHECKING:
 async def _invoke_async_step_action(
     action: LeafAction,
     run_ctx: StepRunContext,
+    step_log_path: Path | None,
     action_log: GraphActionLog,
     inputs: tuple[Option[object], ...] = (),
 ) -> object:
@@ -43,9 +45,9 @@ async def _invoke_async_step_action(
             return await cast("Awaitable[object]", result)
         return result
 
-    if run_ctx.step_log_path is None:
+    if step_log_path is None:
         return await _invoke()
-    with action_log.scope(run_ctx.step_log_path):
+    with action_log.scope(step_log_path):
         return await _invoke()
 
 

@@ -1,3 +1,8 @@
+import asyncio
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 
 import pytest
@@ -10,9 +15,25 @@ from rivlet import (
     GraphMode,
     Step,
     StepPath,
-    StepRunContext,
     ThreadGraphRunOptions,
 )
+
+
+class _RecordingLog:
+    def __init__(self) -> None:
+        self.path: ContextVar[Path | None] = ContextVar("test_log_path", default=None)
+        self.appended: list[tuple[Path, str]] = []
+
+    @contextmanager
+    def scope(self, path: Path) -> Iterator[None]:
+        token = self.path.set(path)
+        try:
+            yield
+        finally:
+            self.path.reset(token)
+
+    def append(self, path: Path, text: str) -> None:
+        self.appended.append((path, text))
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -25,19 +46,83 @@ def test_leaf_uses_constructor_log_path_snapshot(
     options: ThreadGraphRunOptions | AsyncGraphRunOptions,
 ) -> None:
     observed: list[Path | None] = []
+    log = _RecordingLog()
 
-    def action(ctx: StepRunContext) -> None:
-        observed.append(ctx.step_log_path)
+    def action() -> None:
+        observed.append(log.path.get())
 
     step = Step(action, label="leaf")
     path = tmp_path / "leaf.log"
     bindings = {step: path}
-    execution = GraphExecution(graph=Graph(steps=(step,)), step_log_paths=bindings)
+    execution = GraphExecution(
+        graph=Graph(steps=(step,)), step_log_paths=bindings, action_log=log
+    )
     bindings[step] = tmp_path / "changed.log"
 
     execution.run(options, mode=mode)
 
     assert observed == [path]
+    assert log.path.get() is None
+
+
+@pytest.mark.parametrize("mode", ["dynamic", "compiled"])
+@pytest.mark.parametrize(
+    "options", [ThreadGraphRunOptions(workers=2), AsyncGraphRunOptions(concurrency=2)]
+)
+def test_parallel_actions_keep_their_own_log_scope(tmp_path, mode, options):
+    log = _RecordingLog()
+    barrier = threading.Barrier(2)
+    observed: list[tuple[str, Path | None, Path | None]] = []
+
+    def record(name: str) -> None:
+        before = log.path.get()
+        barrier.wait(timeout=5)
+        observed.append((name, before, log.path.get()))
+
+    first = Step(lambda: record("first"))
+    second = Step(lambda: record("second"))
+    first_log, second_log = tmp_path / "first.log", tmp_path / "second.log"
+    GraphExecution(
+        Graph(steps=(first, second)),
+        action_log=log,
+        step_log_paths={first: first_log, second: second_log},
+    ).run(options, mode=mode)
+    assert set(observed) == {
+        ("first", first_log, first_log),
+        ("second", second_log, second_log),
+    }
+    assert log.path.get() is None
+
+
+@pytest.mark.parametrize("mode", ["dynamic", "compiled"])
+@pytest.mark.parametrize(
+    "options", [ThreadGraphRunOptions(workers=2), AsyncGraphRunOptions(concurrency=2)]
+)
+@pytest.mark.parametrize("asynchronous", [False, True])
+def test_failed_action_appends_exception_to_its_bound_log(
+    tmp_path, mode, options, asynchronous
+):
+    log = _RecordingLog()
+    path = tmp_path / "failure.log"
+
+    def fail() -> None:
+        assert log.path.get() == path
+        raise RuntimeError("action failed")
+
+    async def fail_async() -> None:
+        await asyncio.sleep(0)
+        fail()
+
+    step = Step(fail_async if asynchronous else fail)
+    with pytest.raises(RuntimeError, match="action failed"):
+        GraphExecution(
+            Graph(steps=(step,)), action_log=log, step_log_paths={step: path}
+        ).run(options, mode=mode)
+
+    assert len(log.appended) == 1
+    assert log.appended[0][0] == path
+    assert "RuntimeError: action failed" in log.appended[0][1]
+    assert log.path.get() is None
 
 
 def test_constructor_resolves_all_bindings_in_one_traversal(

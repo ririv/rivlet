@@ -454,7 +454,7 @@ Some(None) 表示正常执行并返回 None。生产者失败会阻断消费者�
 快照复制当时的记录，但值本身不深拷贝、不冻结。发布后的值应视为不可变；
 需要共同修改的数据使用显式共享状态。
 
-StepRunContext 只提供 step_id、step_path、step_log_path、
+StepRunContext 只提供 step_id、step_path、
 control 和 shared(Type)。不再提供结果查询、结果视图或作用域索引绕行入口。
 StepReadContext 与祖先结果引用已移除；执行外部的
 GraphExecution.require_result 仍可用于查看结果。
@@ -493,6 +493,10 @@ async def task(ctx: StepRunContext) -> None:
 ```python
 execution = GraphExecution(graph=graph, step_log_paths={step: log_path})
 ```
+
+日志路径属于执行设施，不属于 action 的输入；StepRunContext 不再公开 step_log_path。
+执行器解析当前步骤的直接绑定或继承路径，再在内部传给日志作用域、异常记录与动态子图。
+实际日志路由仍由宿主的 GraphActionLog 适配器负责，绑定与继承规则不变。
 
 构造器对完整图一次性解析全部 Step 引用并保存路径快照；每个引用必须对应唯一的挂载
 位置，不再提供构造后的绑定 API。V 个挂载步骤、K 个绑定的处理时间和空间均为

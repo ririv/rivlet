@@ -88,7 +88,6 @@ class CompiledGraphRun:
 
     def make_run_context(
         self,
-        state: GraphExecutionState,
         runtime_step: RuntimeStep,
         *,
         shared: object | None = None,
@@ -96,14 +95,12 @@ class CompiledGraphRun:
     ) -> StepRunContext:
         step = runtime_step.step
         context = step.context
-        step_log_path = self.step_log_path_for(state, step)
         return StepRunContext(
             step_id=context.step_id,
             step_path=step.path,
             control=StepControl(
                 _execution_control=execution_control,
             ),
-            step_log_path=step_log_path,
             _shared=shared,
         )
 

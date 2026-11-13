@@ -10,6 +10,8 @@ from .python_actions import PythonActionRuntime
 from .state import GraphExecutionState
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from ..model import LeafAction
     from ..observe import GraphObserver
     from ..option import Option
@@ -21,6 +23,7 @@ if TYPE_CHECKING:
 def _invoke_thread_action(
     action: LeafAction,
     ctx: StepRunContext,
+    step_log_path: Path | None,
     action_log: GraphActionLog,
     inputs: tuple[Option[object], ...] = (),
 ) -> object:
@@ -28,7 +31,7 @@ def _invoke_thread_action(
     original_name = thread.name
     thread.name = step_thread_name(ctx.step_path.labels)
     try:
-        return invoke_sync_action(action, ctx, action_log, inputs)
+        return invoke_sync_action(action, ctx, step_log_path, action_log, inputs)
     finally:
         thread.name = original_name
 

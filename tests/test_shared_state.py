@@ -80,7 +80,6 @@ def test_shared_type_check_is_an_explicit_boundary() -> None:
         step_id=StepId(),
         step_path=StepPath((0,)),
         control=StepControl(),
-        step_log_path=None,
         _shared=Progress(),
     )
     assert_type(context.shared(Progress), Progress)
@@ -93,7 +92,6 @@ def test_missing_shared_state_is_not_created_implicitly() -> None:
         step_id=StepId(),
         step_path=StepPath((0,)),
         control=StepControl(),
-        step_log_path=None,
     )
     with pytest.raises(RuntimeError, match="no shared state was provided"):
         context.shared(Progress)

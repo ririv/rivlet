@@ -9,7 +9,6 @@ from .runtime.control import GraphExecutionControl
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-    from pathlib import Path
 
     from .model import Step, StepId, StepPath
 
@@ -105,7 +104,6 @@ class StepRunContext:
     step_id: StepId
     step_path: StepPath
     control: StepControl
-    step_log_path: Path | None
     _shared: object | None = field(default=None, repr=False, kw_only=True)
 
     def shared[T](self, expected: type[T]) -> T:

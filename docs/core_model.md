@@ -377,7 +377,7 @@ not record. Snapshots copy the records. Values themselves are not deep-copied or
 frozen. Treat published values as immutable; use explicit shared state for
 intentional mutation.
 
-StepRunContext exposes step_id, step_path, step_log_path,
+StepRunContext exposes step_id, step_path,
 control and shared(Type). It has no result lookup methods, result view or
 scope-index escape hatch. StepReadContext and ancestor result references are
 removed. External result inspection through GraphExecution.require_result remains.
@@ -422,6 +422,11 @@ Bind logs when constructing the execution:
 ```python
 execution = GraphExecution(graph=graph, step_log_paths={step: log_path})
 ```
+
+Log paths remain execution infrastructure, not action inputs. StepRunContext does
+not expose step_log_path. The executor resolves a step's bound or inherited path
+and passes it internally to log scopes, exception recording, and dynamic subgraphs.
+The host's GraphActionLog adapter still owns the actual log routing.
 
 The constructor resolves all Step references against the complete graph in one
 batch and snapshots the paths. A reference must identify exactly one mounted
