@@ -212,7 +212,7 @@ def test_native_output_can_feed_python_result_without_inventing_native_values(
     )
     execute(execution, backend)
     assert seen == [None]
-    with pytest.raises(GraphError, match="Rust actions do not accept Python result"):
+    with pytest.raises(GraphError, match="native action expects 0 result inputs"):
         receiver = Graph(
             processes(
                 tmp_path,

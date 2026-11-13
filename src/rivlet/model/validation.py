@@ -20,18 +20,34 @@ if TYPE_CHECKING:
     from .edge import _ResultGroup
 
 
-def _input_nodes(endpoint: InputEndpoint, *, result: bool = False) -> tuple[Node, ...]:
+def _input_nodes(endpoint: InputEndpoint) -> tuple[Node, ...]:
     if isinstance(endpoint, InputPort):
         if not isinstance(endpoint.graph.structure, GraphStructure):
-            if result:
-                raise GraphError("Rust actions do not accept Python result arguments")
             return ()
         return tuple(
             node
             for target in _declared_interface(endpoint.graph).inputs[endpoint.name]
-            for node in _input_nodes(target, result=result)
+            for node in _input_nodes(target)
         )
     return (endpoint,)
+
+
+def _validate_result_target(endpoint: InputEndpoint, count: int) -> None:
+    if isinstance(endpoint, InputPort):
+        body = endpoint.graph.structure
+        if isinstance(body, GraphStructure):
+            for target in body.interface.inputs[endpoint.name]:
+                _validate_result_target(target, count)
+        else:
+            for arity in body.input_arities(endpoint.name):
+                if arity != count:
+                    raise GraphError(
+                        f"native action expects {arity} result inputs, received {count}"
+                    )
+    elif isinstance(endpoint, Leaf):
+        endpoint.validate_inputs(count)
+    else:
+        raise GraphError("result target must have a callable action")
 
 
 def _validate_result_bindings(graph: GraphStructure) -> None:
@@ -53,10 +69,7 @@ def _validate_result_bindings(graph: GraphStructure) -> None:
     for target, indexes in slots.items():
         if len(indexes) != groups[target].size:
             raise GraphError("result connection group must be included in full")
-        for node in _input_nodes(target, result=True):
-            if not isinstance(node, Leaf):
-                raise GraphError("result target must have a callable action")
-            node.validate_inputs(len(indexes))
+        _validate_result_target(target, len(indexes))
     exposed = {
         node
         for targets in graph.interface.inputs.values()

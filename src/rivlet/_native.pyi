@@ -1,4 +1,20 @@
+from enum import Enum
 from typing import Literal, Protocol
+
+class _ResultFixtureKind(Enum):
+    I64 = 0
+    U64 = 1
+    Bool = 2
+    F64 = 3
+    String = 4
+    Bytes = 5
+    Unit = 6
+    Custom = 7
+    Opaque = 8
+
+def _native_result_fixture(
+    kind: _ResultFixtureKind,
+) -> tuple[NativeGraphStructure, NativeGraphStructure]: ...
 
 type NativeExecutionEvent = (
     tuple[Literal[0], int, bool]
@@ -10,7 +26,13 @@ type NativeExecutionEvent = (
 
 class NativeGraphStructure:
     def nodes(self) -> list[tuple[int, str, NativeGraphStructure | None]]: ...
-    def edges(self) -> list[tuple[int, int] | tuple[int, int, str, str]]: ...
+    def edges(
+        self,
+    ) -> list[
+        tuple[int, int]
+        | tuple[int, int, str, str]
+        | tuple[int, int, int, str | None, str | None]
+    ]: ...
     def node_ids(self) -> list[int]: ...
     def input_ports(self) -> list[str]: ...
     def output_ports(self) -> list[str]: ...
@@ -18,9 +40,14 @@ class NativeGraphStructure:
     def has_output_port(self, name: str) -> bool: ...
     def input_paths(self, name: str) -> list[list[int]]: ...
     def output_path(self, name: str) -> list[int]: ...
+    def input_arities(self, name: str) -> list[int]: ...
 
 class NativeActionBindings:
     def __init__(self, node_count: int) -> None: ...
+    def python_sources(self) -> list[int]: ...
+
+class _NativeResult:
+    def to_python(self) -> object: ...
 
 class ExperimentalCallbackHost(Protocol):
     def skipped_nodes(self) -> list[int]: ...
@@ -93,7 +120,11 @@ def _native_process_graph(
 ) -> NativeGraphStructure: ...
 def _native_compose_graph(
     components: list[tuple[str, NativeGraphStructure]],
-    edges: list[tuple[int, int] | tuple[int, int, str, str]],
+    edges: list[
+        tuple[int, int]
+        | tuple[int, int, str, str]
+        | tuple[list[tuple[int, str]], tuple[int, str]]
+    ],
     inputs: list[tuple[str, list[tuple[int, str]]]],
     outputs: list[tuple[str, int, str]],
 ) -> NativeGraphStructure: ...
@@ -127,6 +158,7 @@ class NativeCompiledExecutionGraph:
         native_actions: NativeActionBindings,
         native_contexts: list[tuple[int, str | None]],
         workers: int,
+        retain_results: bool = ...,
     ) -> NativeMixedExecutionSession: ...
 
 class NativeExecutionBatch:
@@ -159,6 +191,7 @@ class NativeMixedExecutionBatch:
         bool,
         int,
         list[tuple[int, str]],
+        list[tuple[int, _NativeResult]],
     ]: ...
 
 class NativeMixedExecutionSession:
@@ -169,5 +202,6 @@ class NativeMixedExecutionSession:
         conditions: list[tuple[int, bool | None]],
         skipped: list[int],
         available: int,
+        values: list[tuple[int, object]] = ...,
     ) -> NativeMixedExecutionBatch: ...
     def wait_native(self) -> None: ...

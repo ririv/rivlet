@@ -7,11 +7,14 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from .._native import (
         NativeActionBindings,
         NativeCompiledExecutionGraph,
         NativeExecutionEvent,
         NativeMixedExecutionSession,
+        _NativeResult,
     )
     from ..model import NodePath
 
@@ -32,7 +35,15 @@ class BatchExecutionHost(Protocol):
         self, node: int, child: BatchExecutionHost, error: Exception
     ) -> None: ...
     def raise_failures(self) -> None: ...
-    def apply_events(self, events: list[NativeExecutionEvent]) -> None: ...
+    def apply_events(
+        self,
+        events: list[NativeExecutionEvent],
+        native_results: Sequence[tuple[int, _NativeResult]] = (),
+    ) -> None: ...
+    def native_values(
+        self, completed: list[tuple[int, bool]]
+    ) -> list[tuple[int, object]]: ...
+    def retains_native_results(self) -> bool: ...
     def run_leaf(self, node: int) -> LeafInvocation: ...
     def stop_requested(self) -> bool: ...
     def request_stop(self) -> None: ...
@@ -117,6 +128,7 @@ class SessionTree:
                 definition.native_actions,
                 definition.native_contexts,
                 self.capacity,
+                retain_results=definition.host.retains_native_results(),
             ),
             owner,
         )
@@ -183,15 +195,25 @@ class SessionTree:
                 run.phase = SessionPhase.RUNNING
             else:
                 batch = run.native.advance(
-                    run.completed, [], source.host.skipped_nodes(), available
+                    run.completed,
+                    [],
+                    source.host.skipped_nodes(),
+                    available,
+                    values=source.host.native_values(run.completed),
                 )
                 run.completed = []
             issued = 0
             while True:
-                actions, conditions, events, finished, native_running, failures = (
-                    batch.parts()
-                )
-                source.host.apply_events(events)
+                (
+                    actions,
+                    conditions,
+                    events,
+                    finished,
+                    native_running,
+                    failures,
+                    results,
+                ) = batch.parts()
+                source.host.apply_events(events, results)
                 for node, message in failures:
                     source.host.record_failure(node, RuntimeError(message))
                 work.extend(PythonWork(run, node) for node in actions)

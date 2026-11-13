@@ -314,6 +314,26 @@ def index_declaration(
                         "consumer_nodes": index.input_port_nodes(consumer, input_name),
                         "condition": None,
                     }
+                elif len(native_edge) == 5:
+                    _, _, argument, output_name, input_name = native_edge
+                    item = {
+                        "kind": "result",
+                        "id": edge_id(owner, i),
+                        "graph": scope.id,
+                        "source": str(ids[source]),
+                        "target": str(ids[target]),
+                        "argument_index": argument,
+                    }
+                    if output_name is not None:
+                        item["source_port"] = output_name
+                        item["provider_node"] = index.output_port_node(
+                            index.scopes[scope_id(ids[source])], output_name
+                        )
+                    if input_name is not None:
+                        item["target_port"] = input_name
+                        item["consumer_nodes"] = index.input_port_nodes(
+                            index.scopes[scope_id(ids[target])], input_name
+                        )
                 document["edges"].append(item)
 
     visit(graph, parent, label_path, ())

@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
-use action::NativeActionHandle;
+use action::{NativeActionHandle, NativeValueType};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::{
@@ -10,8 +10,9 @@ use rivlet::{
 };
 
 use crate::NativeCompiledExecutionGraph;
-use crate::mixed_execution::NativeActionBindings;
+use crate::mixed_execution::{NativeActionBindings, NativeActionDeclaration};
 use crate::native_graph::NativeGraphStructure;
+use crate::result_values::ValueCodecs;
 
 type ExportOrigins = (
     Vec<usize>,
@@ -71,7 +72,7 @@ struct NodeRecord {
 
 enum NodeContent {
     Python(Py<PyAny>),
-    Native(NativeActionHandle),
+    Native(NativeActionHandle, Arc<ValueCodecs>),
     Composite(usize),
 }
 
@@ -79,7 +80,7 @@ impl NodeRecord {
     fn child_graph(&self) -> Option<usize> {
         match self.content {
             NodeContent::Composite(child) => Some(child),
-            NodeContent::Python(_) | NodeContent::Native(_) => None,
+            NodeContent::Python(_) | NodeContent::Native(_, _) => None,
         }
     }
 }
@@ -143,10 +144,14 @@ impl<'py> Collector<'py> {
             if node.child_graph().is_none()
                 && matches!(self.node_activation(index), NodeActivation::Active { .. })
             {
-                if let NodeContent::Python(action) = &node.content {
-                    action
-                        .bind(self.py)
-                        .call_method1("validate_inputs", (node.inputs.len(),))?;
+                match &node.content {
+                    NodeContent::Python(action) => {
+                        action
+                            .bind(self.py)
+                            .call_method1("validate_inputs", (node.inputs.len(),))?;
+                    }
+                    NodeContent::Native(action, _) => self.validate_native_inputs(node, action)?,
+                    NodeContent::Composite(_) => unreachable!(),
                 }
             }
         }
@@ -173,15 +178,41 @@ impl<'py> Collector<'py> {
             .iter()
             .map(|condition| condition.index())
             .collect();
+        let compact: HashMap<_, _> = compilation
+            .declaration_nodes()
+            .iter()
+            .enumerate()
+            .map(|(index, node)| (node.index(), index))
+            .collect();
+        let mut python_sources = HashSet::new();
         let native_actions = NativeActionBindings::new(
             compilation
                 .declaration_nodes()
                 .iter()
-                .map(|node| match &self.nodes[node.index()].content {
-                    NodeContent::Python(_) | NodeContent::Composite(_) => None,
-                    NodeContent::Native(action) => Some(action.clone()),
+                .map(|node| {
+                    let record = &self.nodes[node.index()];
+                    match &record.content {
+                        NodeContent::Python(_) | NodeContent::Composite(_) => None,
+                        NodeContent::Native(action, codecs) => {
+                            for source in &record.inputs {
+                                if matches!(self.nodes[*source].content, NodeContent::Python(_)) {
+                                    python_sources.insert(compact[source]);
+                                }
+                            }
+                            Some(NativeActionDeclaration {
+                                action: action.clone(),
+                                codecs: Arc::clone(codecs),
+                                inputs: record
+                                    .inputs
+                                    .iter()
+                                    .map(|source| compact[source])
+                                    .collect(),
+                            })
+                        }
+                    }
                 })
                 .collect(),
+            python_sources.into_iter().collect(),
         );
         let graph = NativeCompiledExecutionGraph {
             graph: Arc::new(compilation.into_graph()),
@@ -197,6 +228,37 @@ impl<'py> Collector<'py> {
             disabled_edges: self.disabled_edges,
             id_prefix: id_prefix.to_vec(),
         })
+    }
+
+    fn validate_native_inputs(
+        &self,
+        node: &NodeRecord,
+        action: &NativeActionHandle,
+    ) -> PyResult<()> {
+        if action.input_types().len() != node.inputs.len() {
+            return Err(PyValueError::new_err(format!(
+                "native action expects {} result inputs, received {}",
+                action.input_types().len(),
+                node.inputs.len()
+            )));
+        }
+        for (source, expected) in node.inputs.iter().zip(action.input_types()) {
+            let actual = match &self.nodes[*source].content {
+                NodeContent::Native(source, _) => Some(source.output_type()),
+                NodeContent::Composite(_) => Some(NativeValueType::of::<()>()),
+                NodeContent::Python(_) => None,
+            };
+            if let Some(actual) = actual {
+                if actual != *expected {
+                    return Err(PyValueError::new_err(format!(
+                        "native result type mismatch: expected {}, received {}",
+                        expected.name(),
+                        actual.name()
+                    )));
+                }
+            }
+        }
+        Ok(())
     }
 
     fn collect_graph(
@@ -387,13 +449,20 @@ impl<'py> Collector<'py> {
         // V/E/P/R/L 为挂载、边、端口名、展开端点与路径总长，K 为单层端口数：
         // O(V+E+P*log(K+1)+R+L) 整批导入侧表，复用投影与 Rust action handles；
         // Graph 直接登记为 Composite，不制造空 action 或 Python 回调。
-        self.collect_native_scopes(&projection, label_path, owner, first_node)?;
+        self.collect_native_scopes(
+            &projection,
+            native_graph.codecs(),
+            label_path,
+            owner,
+            first_node,
+        )?;
         for node in projection.nodes() {
             let graph = first_graph + node.graph().index();
             let (content, kind) = match node.kind() {
-                graph::ProjectedKind::Leaf(action) => {
-                    (NodeContent::Native(action.clone()), DeclaredNodeKind::Leaf)
-                }
+                graph::ProjectedKind::Leaf(action) => (
+                    NodeContent::Native(action.clone(), Arc::clone(native_graph.codecs())),
+                    DeclaredNodeKind::Leaf,
+                ),
                 graph::ProjectedKind::Graph(child) => {
                     let child = first_graph + child.index();
                     (
@@ -413,7 +482,11 @@ impl<'py> Collector<'py> {
                 graph,
                 node_path: path,
                 label: node.label().to_owned(),
-                inputs: Vec::new(),
+                inputs: node
+                    .inputs()
+                    .iter()
+                    .map(|id| first_node + id.index())
+                    .collect(),
             });
             let activation = if parent_active {
                 NodeActivation::Active {
@@ -450,6 +523,7 @@ impl<'py> Collector<'py> {
     fn collect_native_scopes(
         &mut self,
         projection: &Arc<graph::Projection>,
+        codecs: &Arc<ValueCodecs>,
         label_path: &[String],
         owner: usize,
         first_node: usize,
@@ -476,7 +550,11 @@ impl<'py> Collector<'py> {
             self.graphs.push(GraphRecord {
                 source_graph: Py::new(
                     self.py,
-                    NativeGraphStructure::view(Arc::clone(projection), GraphId::new(index)),
+                    NativeGraphStructure::view(
+                        Arc::clone(projection),
+                        GraphId::new(index),
+                        Arc::clone(codecs),
+                    ),
                 )?
                 .into_any(),
                 label,
@@ -808,7 +886,7 @@ impl<'py> Collector<'py> {
                 if matches!(self.node_activation(target), NodeActivation::Inactive) {
                     continue;
                 }
-                if !matches!(self.nodes[target].content, NodeContent::Python(_)) {
+                if matches!(self.nodes[target].content, NodeContent::Composite(_)) {
                     return Err(PyValueError::new_err(
                         "result target must have a callable action",
                     ));
@@ -1056,7 +1134,7 @@ impl NativeDeclarationCompilation {
         self.active_nodes()
             .map(|node| match &node.content {
                 NodeContent::Python(action) => Some(action.clone_ref(py)),
-                NodeContent::Native(_) | NodeContent::Composite(_) => None,
+                NodeContent::Native(_, _) | NodeContent::Composite(_) => None,
             })
             .collect()
     }

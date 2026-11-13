@@ -5,6 +5,8 @@ mod events;
 mod experiment;
 mod mixed_execution;
 mod native_graph;
+mod result_fixture;
+mod result_values;
 
 use events::{EncodedEvent, encode_event};
 use pyo3::exceptions::PyValueError;
@@ -351,12 +353,14 @@ impl NativeCompiledExecutionGraph {
         })
     }
 
+    #[pyo3(signature = (initially_skipped, native_actions, native_contexts, workers, retain_results=false))]
     fn mixed_session(
         &self,
         initially_skipped: Vec<usize>,
         native_actions: &mixed_execution::NativeActionBindings,
         native_contexts: Vec<(usize, Option<String>)>,
         workers: usize,
+        retain_results: bool,
     ) -> PyResult<mixed_execution::NativeMixedExecutionSession> {
         let bindings = mixed_execution::NativeMixedExecutionSession::bindings(
             self.graph.nodes().len(),
@@ -368,7 +372,12 @@ impl NativeCompiledExecutionGraph {
             initially_skipped.into_iter().map(NodeId::new),
         )
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
-        mixed_execution::NativeMixedExecutionSession::new(session, bindings, workers)
+        mixed_execution::NativeMixedExecutionSession::new(
+            session,
+            bindings,
+            workers,
+            retain_results,
+        )
     }
 }
 
@@ -398,6 +407,12 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<NativeExecutionBatch>()?;
     module.add_class::<NativeExecutionSession>()?;
     module.add_class::<mixed_execution::NativeActionBindings>()?;
+    module.add_class::<result_values::NativeResult>()?;
+    module.add_class::<result_fixture::ResultFixtureKind>()?;
+    module.add_function(wrap_pyfunction!(
+        result_fixture::native_result_fixture,
+        module
+    )?)?;
     module.add_class::<mixed_execution::NativeMixedExecutionBatch>()?;
     module.add_class::<mixed_execution::NativeMixedExecutionSession>()?;
     module.add_class::<native_graph::NativeGraphStructure>()?;

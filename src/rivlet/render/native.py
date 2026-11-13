@@ -22,6 +22,8 @@ def append_native_tree(
         text = nodes[source][1]
         if len(edge) == 4:
             text += f" ({edge[2]} -> {edge[3]})"
+        elif len(edge) == 5:
+            text += f" (action input: {edge[2]})"
         incoming.setdefault(target, []).append(text)
     for index, (_, label, child) in enumerate(nodes):
         last = index == len(nodes) - 1
@@ -60,6 +62,8 @@ def append_native_mermaid(
         if len(edge) == 4:
             label = edge[2] if edge[2] == edge[3] else f"{edge[2]} -> {edge[3]}"
             link = f' -->|"{escape_label(label)}"| '
+        elif len(edge) == 5:
+            link = f' -->|"action input {edge[2]}"| '
         lines.append(
             f"{indent}    {node_id(owner.child(source))}{link}{node_id(owner.child(target))}"
         )

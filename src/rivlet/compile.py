@@ -132,6 +132,7 @@ class CompiledNativeLeaf:
     condition: CompiledRuntimeCondition | None
     owner: CompiledCompositeRef | None
     context: CompiledNodeContext
+    inputs: tuple[CompiledNodeRef, ...] = ()
 
     @property
     def path(self) -> NodePath:
@@ -764,6 +765,10 @@ def _materialize_native_compilation(
                     condition=condition,
                     owner=owner,
                     context=context,
+                    inputs=tuple(
+                        refs_by_declaration[node]
+                        for node in node_inputs[compiled_index]
+                    ),
                 )
             else:
                 compiled_step = CompiledPythonLeaf(

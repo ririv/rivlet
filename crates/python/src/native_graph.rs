@@ -8,6 +8,8 @@ use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::GraphId;
 
+use crate::result_values::ValueCodecs;
+
 type ProcessDeclaration = (String, String, Vec<String>, String, HashMap<String, String>);
 type NodeMetadata = (u64, String, Option<NativeGraphStructure>);
 type InputDeclaration = (String, Vec<(usize, String)>);
@@ -17,6 +19,7 @@ type OutputDeclaration = (String, usize, String);
 pub(crate) enum EdgeDeclaration {
     Completion((usize, usize)),
     Ports((usize, usize, String, String)),
+    Results((Vec<(usize, String)>, (usize, String))),
 }
 
 fn invalid(error: impl std::fmt::Display) -> PyErr {
@@ -29,18 +32,30 @@ fn invalid(error: impl std::fmt::Display) -> PyErr {
 pub(crate) struct NativeGraphStructure {
     projection: Arc<Projection>,
     scope: GraphId,
+    codecs: Arc<ValueCodecs>,
 }
 
 impl NativeGraphStructure {
     fn new(structure: GraphStructure) -> PyResult<Self> {
+        Self::with_codecs(structure, Arc::new(ValueCodecs::default()))
+    }
+
+    pub(crate) fn with_codecs(
+        structure: GraphStructure,
+        codecs: Arc<ValueCodecs>,
+    ) -> PyResult<Self> {
         Ok(Self {
             projection: Arc::new(Projection::from_structure(Arc::new(structure)).map_err(invalid)?),
             scope: GraphId::new(0),
+            codecs,
         })
     }
 
     pub(crate) fn graph(&self) -> &Arc<GraphStructure> {
         self.projection.scopes()[self.scope.index()].structure()
+    }
+    pub(crate) fn codecs(&self) -> &Arc<ValueCodecs> {
+        &self.codecs
     }
 
     pub(crate) fn projection(&self) -> PyResult<Arc<Projection>> {
@@ -54,8 +69,16 @@ impl NativeGraphStructure {
         }
     }
 
-    pub(crate) fn view(projection: Arc<Projection>, scope: GraphId) -> Self {
-        Self { projection, scope }
+    pub(crate) fn view(
+        projection: Arc<Projection>,
+        scope: GraphId,
+        codecs: Arc<ValueCodecs>,
+    ) -> Self {
+        Self {
+            projection,
+            scope,
+            codecs,
+        }
     }
 
     fn relative_path(&self, node: rivlet::NodeId) -> Vec<usize> {
@@ -87,9 +110,11 @@ impl NativeGraphStructure {
                 let node = &self.projection.nodes()[id.index()];
                 let child = match node.kind() {
                     graph::ProjectedKind::Leaf(_) => None,
-                    graph::ProjectedKind::Graph(scope) => {
-                        Some(Self::view(Arc::clone(&self.projection), *scope))
-                    }
+                    graph::ProjectedKind::Graph(scope) => Some(Self::view(
+                        Arc::clone(&self.projection),
+                        *scope,
+                        Arc::clone(&self.codecs),
+                    )),
                 };
                 (node.identity().value(), node.label().to_owned(), child)
             })
@@ -104,26 +129,56 @@ impl NativeGraphStructure {
             .enumerate()
             .map(|(index, node)| (node.id(), index))
             .collect();
-        self.graph()
-            .edges()
-            .iter()
-            .map(|edge| {
-                let source = indexes[&edge.source()];
-                let target = indexes[&edge.target()];
-                match edge {
-                    Edge::Completion { .. } => {
-                        Ok((source, target).into_pyobject(py)?.into_any().unbind())
-                    }
-                    Edge::Ports {
-                        source: output,
-                        target: input,
-                    } => Ok((source, target, output.name(), input.name())
+        let mut edges = Vec::new();
+        for edge in self.graph().edges() {
+            let target = indexes[&edge.target()];
+            match edge {
+                Edge::Completion { source, .. } => {
+                    edges.push(
+                        (indexes[source], target)
+                            .into_pyobject(py)?
+                            .into_any()
+                            .unbind(),
+                    );
+                }
+                Edge::Ports {
+                    source: output,
+                    target: input,
+                } => edges.push(
+                    (
+                        indexes[&output.owner()],
+                        target,
+                        output.name(),
+                        input.name(),
+                    )
                         .into_pyobject(py)?
                         .into_any()
-                        .unbind()),
+                        .unbind(),
+                ),
+                Edge::Results {
+                    sources,
+                    target: receiver,
+                } => {
+                    let input = match receiver {
+                        graph::ResultTarget::Leaf(_) => None,
+                        graph::ResultTarget::Port(port) => Some(port.name()),
+                    };
+                    for (index, source) in sources.iter().enumerate() {
+                        let (owner, output) = match source {
+                            graph::OutputEndpoint::Node(id) => (*id, None),
+                            graph::OutputEndpoint::Port(port) => (port.owner(), Some(port.name())),
+                        };
+                        edges.push(
+                            (indexes[&owner], target, index, output, input)
+                                .into_pyobject(py)?
+                                .into_any()
+                                .unbind(),
+                        );
+                    }
                 }
-            })
-            .collect()
+            }
+        }
+        Ok(edges)
     }
 
     fn input_ports(&self) -> Vec<String> {
@@ -151,6 +206,22 @@ impl NativeGraphStructure {
             .get(name)
             .map(|node| self.relative_path(*node))
             .ok_or_else(|| invalid(format!("unknown output port: {name}")))
+    }
+
+    fn input_arities(&self, name: &str) -> PyResult<Vec<usize>> {
+        let nodes = self.projection.scopes()[self.scope.index()]
+            .inputs()
+            .get(name)
+            .ok_or_else(|| invalid(format!("unknown input port: {name}")))?;
+        nodes
+            .iter()
+            .map(|id| match self.projection.nodes()[id.index()].kind() {
+                graph::ProjectedKind::Leaf(action) => Ok(action.input_types().len()),
+                graph::ProjectedKind::Graph(_) => {
+                    Err(invalid("result target must be a native leaf"))
+                }
+            })
+            .collect()
     }
 }
 
@@ -211,6 +282,10 @@ pub(crate) fn native_compose_graph(
     inputs: Vec<InputDeclaration>,
     outputs: Vec<OutputDeclaration>,
 ) -> PyResult<NativeGraphStructure> {
+    let mut codecs = ValueCodecs::default();
+    for (_, body) in &components {
+        codecs.combine(body.codecs())?;
+    }
     let nodes = components
         .into_iter()
         .map(|(label, body)| Graph::new(label, Arc::clone(body.graph())).map_err(invalid))
@@ -236,6 +311,20 @@ pub(crate) fn native_compose_graph(
                     .input(&input)
                     .map_err(invalid)?,
             )),
+            EdgeDeclaration::Results((sources, (target, input))) => {
+                let sources = sources
+                    .into_iter()
+                    .map(|(index, port)| require(index)?.interface().output(&port).map_err(invalid))
+                    .collect::<PyResult<Vec<_>>>()?;
+                Edge::results(
+                    sources,
+                    require(target)?
+                        .interface()
+                        .input(&input)
+                        .map_err(invalid)?,
+                )
+                .map_err(invalid)
+            }
         })
         .collect::<PyResult<Vec<_>>>()?;
     let mut interface = GraphInterface::default();
@@ -254,8 +343,9 @@ pub(crate) fn native_compose_graph(
             )
             .map_err(invalid)?;
     }
-    NativeGraphStructure::new(
+    NativeGraphStructure::with_codecs(
         GraphStructure::with_interface(nodes.into_iter().map(NodeKind::from), edges, interface)
             .map_err(invalid)?,
+        Arc::new(codecs),
     )
 }

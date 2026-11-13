@@ -35,6 +35,7 @@ def _frame(definition: SessionDefinition, owner: RootSession | _Child) -> _Frame
         definition.native_actions,
         definition.native_contexts,
         1,
+        retain_results=definition.host.retains_native_results(),
     )
     return _Frame(definition, native, native.start(1), owner)
 
@@ -48,10 +49,10 @@ def run_serial_definition(root: SessionDefinition) -> None:
             frame = stack[-1]
             host = frame.definition.host
             host.require_running()
-            actions, conditions, events, finished, native_running, failures = (
+            actions, conditions, events, finished, native_running, failures, results = (
                 frame.batch.parts()
             )
-            host.apply_events(events)
+            host.apply_events(events, results)
             for node, message in failures:
                 host.record_failure(node, RuntimeError(message))
             if conditions:
@@ -88,6 +89,9 @@ def run_serial_definition(root: SessionDefinition) -> None:
                             [],
                             parent.definition.host.skipped_nodes(),
                             1,
+                            values=parent.definition.host.native_values(
+                                [(node, success)]
+                            ),
                         )
                 continue
             if not actions:
@@ -118,7 +122,11 @@ def run_serial_definition(root: SessionDefinition) -> None:
             else:
                 success = True
             frame.batch = frame.native.advance(
-                [(node, success)], [], host.skipped_nodes(), 1
+                [(node, success)],
+                [],
+                host.skipped_nodes(),
+                1,
+                values=host.native_values([(node, success)]),
             )
     except BaseException:
         root.host.request_stop()

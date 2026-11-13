@@ -26,9 +26,9 @@ from ..option import Nothing
 from .control import ExecutionStopped
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
-    from .._native import NativeExecutionEvent
+    from .._native import NativeExecutionEvent, _NativeResult
     from ..model import NodePath
     from ..observe import GraphObserver
     from .control import ExecutionControl
@@ -53,11 +53,18 @@ class CompiledExecutionHost:
     ) -> None:
         self.compilation = compilation
         self.state = state
+        self._native_import_sources = frozenset(
+            compilation._native_actions.python_sources()
+        )
         # inputs 是显式的数据依赖；执行生产者前即开启记录，无需调用方另配 store。
         # 最多检查 C 个条件和 V 个步骤，O(C + V) 时间、O(1) 额外空间。
-        if any(condition.inputs for condition in compilation._native_conditions) or any(
-            isinstance(step, CompiledPythonLeaf) and step.inputs
-            for step in compilation.steps
+        if (
+            self._native_import_sources
+            or any(condition.inputs for condition in compilation._native_conditions)
+            or any(
+                isinstance(step, CompiledPythonLeaf) and step.inputs
+                for step in compilation.steps
+            )
         ):
             state._enable_results()
         self.observer = observer
@@ -137,7 +144,30 @@ class CompiledExecutionHost:
         if self._failures:
             raise ExceptionGroup("GraphStructure execution failed", self._failures)
 
-    def apply_events(self, events: list[NativeExecutionEvent]) -> None:
+    def native_values(
+        self, completed: list[tuple[int, bool]]
+    ) -> list[tuple[int, object]]:
+        if not self._native_import_sources:
+            return []
+        results = self.state.results
+        if results is None:
+            raise GraphError("native inputs require an enabled result store")
+        return [
+            (node, results.require(self.compilation._native_node(node).path).value)
+            for node, success in completed
+            if success and node in self._native_import_sources
+        ]
+
+    def retains_native_results(self) -> bool:
+        return self.state.results is not None
+
+    def apply_events(
+        self,
+        events: list[NativeExecutionEvent],
+        native_results: Sequence[tuple[int, _NativeResult]] = (),
+    ) -> None:
+        for node, value in native_results:
+            self.state.record_result(self._require_native_step(node).path, value)
         for event in events:
             match event:
                 case (0, node, value):
@@ -156,7 +186,6 @@ class CompiledExecutionHost:
                     self.state.record_step(step.path, step.path.labels)
                 case (6, node):
                     step = self._require_native_step(node)
-                    self.state.record_result(step.path, None)
                     self.state.complete_step(step.path)
                 case (7, node):
                     node_path = self._failure_step(node)
