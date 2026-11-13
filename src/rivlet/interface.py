@@ -102,18 +102,34 @@ class _Inputs(Mapping[str, InputPort]):
         self._graph = graph
 
     def __getitem__(self, key: str) -> InputPort:
-        self._graph_interface.inputs[key]
+        from ._native import NativeGraphStructure
+
+        body = self._graph.structure
+        exists = (
+            body.has_input_port(key)
+            if isinstance(body, NativeGraphStructure)
+            else key in body.interface.inputs
+        )
+        if not exists:
+            raise KeyError(key)
         return InputPort(self._graph, key)
 
     @property
-    def _graph_interface(self) -> GraphInterface:
-        return _declared_interface(self._graph)
+    def _names(self) -> Mapping[str, tuple[InputEndpoint, ...]] | list[str]:
+        from ._native import NativeGraphStructure
+
+        body = self._graph.structure
+        return (
+            body.input_ports()
+            if isinstance(body, NativeGraphStructure)
+            else body.interface.inputs
+        )
 
     def __len__(self) -> int:
-        return len(self._graph_interface.inputs)
+        return len(self._names)
 
     def __iter__(self) -> Iterator[str]:
-        return iter(self._graph_interface.inputs)
+        return iter(self._names)
 
 
 class _Outputs(Mapping[str, OutputPort]):
@@ -121,14 +137,34 @@ class _Outputs(Mapping[str, OutputPort]):
         self._graph = graph
 
     def __getitem__(self, key: str) -> OutputPort:
-        _declared_interface(self._graph).outputs[key]
+        from ._native import NativeGraphStructure
+
+        body = self._graph.structure
+        exists = (
+            body.has_output_port(key)
+            if isinstance(body, NativeGraphStructure)
+            else key in body.interface.outputs
+        )
+        if not exists:
+            raise KeyError(key)
         return OutputPort(self._graph, key)
 
+    @property
+    def _names(self) -> Mapping[str, OutputEndpoint] | list[str]:
+        from ._native import NativeGraphStructure
+
+        body = self._graph.structure
+        return (
+            body.output_ports()
+            if isinstance(body, NativeGraphStructure)
+            else body.interface.outputs
+        )
+
     def __len__(self) -> int:
-        return len(_declared_interface(self._graph).outputs)
+        return len(self._names)
 
     def __iter__(self) -> Iterator[str]:
-        return iter(_declared_interface(self._graph).outputs)
+        return iter(self._names)
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,11 +185,9 @@ class GraphInterfaceView:
 def _declared_interface(graph: Graph) -> GraphInterface:
     from .model.graph_structure import GraphStructure
 
-    return (
-        graph.structure.interface
-        if isinstance(graph.structure, GraphStructure)
-        else GraphInterface()
-    )
+    if not isinstance(graph.structure, GraphStructure):
+        raise GraphError("opaque Rust interfaces do not expose Python node objects")
+    return graph.structure.interface
 
 
 @dataclass(frozen=True, slots=True)

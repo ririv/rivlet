@@ -20,12 +20,16 @@ if TYPE_CHECKING:
     from .edge import _ResultGroup
 
 
-def _input_nodes(endpoint: InputEndpoint) -> tuple[Node, ...]:
+def _input_nodes(endpoint: InputEndpoint, *, result: bool = False) -> tuple[Node, ...]:
     if isinstance(endpoint, InputPort):
+        if not isinstance(endpoint.graph.structure, GraphStructure):
+            if result:
+                raise GraphError("Rust actions do not accept Python result arguments")
+            return ()
         return tuple(
             node
             for target in _declared_interface(endpoint.graph).inputs[endpoint.name]
-            for node in _input_nodes(target)
+            for node in _input_nodes(target, result=result)
         )
     return (endpoint,)
 
@@ -49,7 +53,7 @@ def _validate_result_bindings(graph: GraphStructure) -> None:
     for target, indexes in slots.items():
         if len(indexes) != groups[target].size:
             raise GraphError("result connection group must be included in full")
-        for node in _input_nodes(target):
+        for node in _input_nodes(target, result=True):
             if not isinstance(node, Leaf):
                 raise GraphError("result target must have a callable action")
             node.validate_inputs(len(indexes))
@@ -104,9 +108,12 @@ def _validate_graph_topology(graph: GraphStructure) -> None:
                     "port provider component must not have a runtime condition"
                 )
             assert isinstance(edge.source, Graph)
-            output = _declared_interface(edge.source).outputs[output_name]
-            if not isinstance(output, OutputPort) and output.condition is not None:
-                raise GraphError("port output node must not have a runtime condition")
+            if isinstance(edge.source.structure, GraphStructure):
+                output = _declared_interface(edge.source).outputs[output_name]
+                if not isinstance(output, OutputPort) and output.condition is not None:
+                    raise GraphError(
+                        "port output node must not have a runtime condition"
+                    )
             continue
         if isinstance(edge.result_source, OutputPort) or isinstance(
             edge.result_target, InputPort

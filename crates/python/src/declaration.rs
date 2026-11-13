@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 
 use action::NativeActionHandle;
@@ -48,22 +48,40 @@ struct GraphRecord {
     local_node_order: Vec<usize>,
     descendant_nodes: HashMap<usize, Vec<usize>>,
     port_scopes: Vec<usize>,
+    ports: PortDefinitions,
+}
+
+enum PortDefinitions {
+    Python,
+    Rust {
+        inputs: BTreeMap<String, Vec<usize>>,
+        outputs: BTreeMap<String, usize>,
+    },
 }
 
 struct NodeRecord {
     identity: u64,
     source_node: Option<Py<PyAny>>,
-    action: NodeAction,
+    content: NodeContent,
     graph: usize,
-    child_graph: Option<usize>,
     node_path: Vec<usize>,
     label: String,
     inputs: Vec<usize>,
 }
 
-enum NodeAction {
+enum NodeContent {
     Python(Py<PyAny>),
     Native(NativeActionHandle),
+    Composite(usize),
+}
+
+impl NodeRecord {
+    fn child_graph(&self) -> Option<usize> {
+        match self.content {
+            NodeContent::Composite(child) => Some(child),
+            NodeContent::Python(_) | NodeContent::Native(_) => None,
+        }
+    }
 }
 
 struct ConditionRecord {
@@ -122,10 +140,10 @@ impl<'py> Collector<'py> {
         // 所有公开入口完成外层接线后，再按实际参数组校验每个活跃叶子。
         // 时间 O(V + R)，不根据函数名或参数名推断绑定。
         for (index, node) in self.nodes.iter().enumerate() {
-            if node.child_graph.is_none()
+            if node.child_graph().is_none()
                 && matches!(self.node_activation(index), NodeActivation::Active { .. })
             {
-                if let NodeAction::Python(action) = &node.action {
+                if let NodeContent::Python(action) = &node.content {
                     action
                         .bind(self.py)
                         .call_method1("validate_inputs", (node.inputs.len(),))?;
@@ -159,9 +177,9 @@ impl<'py> Collector<'py> {
             compilation
                 .declaration_nodes()
                 .iter()
-                .map(|node| match &self.nodes[node.index()].action {
-                    NodeAction::Python(_) => None,
-                    NodeAction::Native(action) => Some(action.clone()),
+                .map(|node| match &self.nodes[node.index()].content {
+                    NodeContent::Python(_) | NodeContent::Composite(_) => None,
+                    NodeContent::Native(action) => Some(action.clone()),
                 })
                 .collect(),
         );
@@ -208,6 +226,7 @@ impl<'py> Collector<'py> {
             local_node_order: Vec::new(),
             descendant_nodes: HashMap::new(),
             port_scopes,
+            ports: PortDefinitions::Python,
         });
 
         let steps = source_graph.getattr("nodes")?;
@@ -255,9 +274,8 @@ impl<'py> Collector<'py> {
             self.nodes.push(NodeRecord {
                 source_node: Some(step.clone().unbind()),
                 identity: step.getattr("id")?.getattr("value")?.extract()?,
-                action: NodeAction::Python(action.clone().unbind()),
+                content: NodeContent::Python(action.clone().unbind()),
                 graph: graph_index,
-                child_graph: None,
                 node_path: node_path.clone(),
                 label: step_label.clone(),
                 inputs: Vec::new(),
@@ -323,13 +341,12 @@ impl<'py> Collector<'py> {
             let structure = action.getattr("structure")?;
             if let Ok(native_graph) = structure.extract::<PyRef<'_, NativeGraphStructure>>() {
                 Some(self.collect_native_graph(
-                    &structure,
-                    native_graph.graph(),
-                    child_label_path,
+                    &native_graph,
+                    &child_label_path,
                     node_index,
                     node_path,
                     active,
-                ))
+                )?)
             } else {
                 Some(self.collect_graph(
                     &structure,
@@ -346,7 +363,7 @@ impl<'py> Collector<'py> {
         let Some(child_graph) = child_graph else {
             return Ok(());
         };
-        self.nodes[node_index].child_graph = Some(child_graph);
+        self.nodes[node_index].content = NodeContent::Composite(child_graph);
         self.replace_node_kind(
             node_index,
             DeclaredNodeKind::Composite {
@@ -358,43 +375,55 @@ impl<'py> Collector<'py> {
 
     fn collect_native_graph(
         &mut self,
-        source_graph: &Bound<'py, PyAny>,
-        native_graph: &graph::GraphStructure,
-        label_path: Vec<String>,
+        native_graph: &NativeGraphStructure,
+        label_path: &[String],
         owner: usize,
         id_prefix: &[usize],
         parent_active: bool,
-    ) -> usize {
-        let graph_index = self.graphs.len();
-        self.graphs.push(GraphRecord {
-            source_graph: source_graph.clone().unbind(),
-            label: self.nodes[owner].label.clone(),
-            label_path,
-            owner: Some(owner),
-            local_nodes: HashMap::new(),
-            local_node_order: Vec::with_capacity(native_graph.leaves().len()),
-            descendant_nodes: HashMap::new(),
-            port_scopes: Vec::new(),
-        });
+    ) -> PyResult<usize> {
+        let projection = native_graph.projection()?;
+        let first_graph = self.graphs.len();
         let first_node = self.nodes.len();
-        for (local_index, native_step) in native_graph.leaves().iter().enumerate() {
-            let node_index = self.nodes.len();
-            let mut node_path = id_prefix.to_owned();
-            node_path.push(local_index);
-            self.graphs[graph_index].local_node_order.push(node_index);
+        // V/E/P/R/L 为挂载、边、端口名、展开端点与路径总长，K 为单层端口数：
+        // O(V+E+P*log(K+1)+R+L) 整批导入侧表，复用投影与 Rust action handles；
+        // Graph 直接登记为 Composite，不制造空 action 或 Python 回调。
+        self.collect_native_scopes(&projection, label_path, owner, first_node)?;
+        for node in projection.nodes() {
+            let graph = first_graph + node.graph().index();
+            let (content, kind) = match node.kind() {
+                graph::ProjectedKind::Leaf(action) => {
+                    (NodeContent::Native(action.clone()), DeclaredNodeKind::Leaf)
+                }
+                graph::ProjectedKind::Graph(child) => {
+                    let child = first_graph + child.index();
+                    (
+                        NodeContent::Composite(child),
+                        DeclaredNodeKind::Composite {
+                            child_graph: GraphId::new(child),
+                        },
+                    )
+                }
+            };
+            let mut path = id_prefix.to_vec();
+            path.extend(node.path());
             self.nodes.push(NodeRecord {
+                identity: node.identity().value(),
                 source_node: None,
-                identity: native_step.id().value(),
-                action: NodeAction::Native(native_step.action().clone()),
-                graph: graph_index,
-                child_graph: None,
-                node_path,
-                label: native_step.label().to_owned(),
+                content,
+                graph,
+                node_path: path,
+                label: node.label().to_owned(),
                 inputs: Vec::new(),
             });
             let activation = if parent_active {
                 NodeActivation::Active {
-                    prerequisites: Vec::new(),
+                    prerequisites: node
+                        .prerequisites()
+                        .iter()
+                        .map(|id| {
+                            DeclarationPrerequisite::Required(NodeId::new(first_node + id.index()))
+                        })
+                        .collect(),
                     condition: None,
                 }
             } else {
@@ -402,20 +431,85 @@ impl<'py> Collector<'py> {
             };
             self.activations.push(activation.clone());
             self.declaration_nodes.push(DeclarationNode::new(
-                GraphId::new(graph_index),
-                DeclaredNodeKind::Leaf,
+                GraphId::new(graph),
+                kind,
                 activation,
             ));
         }
         if parent_active {
-            for arc in native_graph.arcs() {
-                self.push_node_prerequisite(
-                    first_node + arc.target.index(),
-                    DeclarationPrerequisite::Required(NodeId::new(first_node + arc.source.index())),
-                );
+            for port in projection.port_connections() {
+                self.port_connections.push(PortConnection::new(
+                    NodeId::new(first_node + port.source().index()),
+                    NodeId::new(first_node + port.target().index()),
+                ));
             }
         }
-        graph_index
+        Ok(first_graph)
+    }
+
+    fn collect_native_scopes(
+        &mut self,
+        projection: &Arc<graph::Projection>,
+        label_path: &[String],
+        owner: usize,
+        first_node: usize,
+    ) -> PyResult<()> {
+        for (index, scope) in projection.scopes().iter().enumerate() {
+            let scope_owner = scope
+                .owner()
+                .map_or(owner, |node| first_node + node.index());
+            let (label, path) = if let Some(local_owner) = scope.owner() {
+                let node = &projection.nodes()[local_owner.index()];
+                let mut path = label_path.to_vec();
+                let mut ancestors = Vec::new();
+                let mut current = Some(local_owner);
+                while let Some(id) = current {
+                    let ancestor = &projection.nodes()[id.index()];
+                    ancestors.push(ancestor.label().to_owned());
+                    current = projection.scopes()[ancestor.graph().index()].owner();
+                }
+                path.extend(ancestors.into_iter().rev());
+                (node.label().to_owned(), path)
+            } else {
+                (self.nodes[owner].label.clone(), label_path.to_vec())
+            };
+            self.graphs.push(GraphRecord {
+                source_graph: Py::new(
+                    self.py,
+                    NativeGraphStructure::view(Arc::clone(projection), GraphId::new(index)),
+                )?
+                .into_any(),
+                label,
+                label_path: path,
+                owner: Some(scope_owner),
+                local_nodes: HashMap::new(),
+                local_node_order: scope
+                    .nodes()
+                    .iter()
+                    .map(|id| first_node + id.index())
+                    .collect(),
+                descendant_nodes: HashMap::new(),
+                port_scopes: Vec::new(),
+                ports: PortDefinitions::Rust {
+                    inputs: scope
+                        .inputs()
+                        .iter()
+                        .map(|(name, nodes)| {
+                            (
+                                name.clone(),
+                                nodes.iter().map(|id| first_node + id.index()).collect(),
+                            )
+                        })
+                        .collect(),
+                    outputs: scope
+                        .outputs()
+                        .iter()
+                        .map(|(name, id)| (name.clone(), first_node + id.index()))
+                        .collect(),
+                },
+            });
+        }
+        Ok(())
     }
 
     fn static_node_active(
@@ -515,19 +609,10 @@ impl<'py> Collector<'py> {
         let provider_component = self.require_local_node(graph_index, &edge.getattr("source")?)?;
         let consumer_component = self.require_local_node(graph_index, &edge.getattr("target")?)?;
         let ports = edge.getattr("ports")?;
-        let provider_graph = self.require_child_graph(provider_component)?;
-        let consumer_graph = self.require_child_graph(consumer_component)?;
-        let provider_port = require_interface_port(
-            self.graphs[provider_graph].source_graph.bind(self.py),
-            "outputs",
-            &ports.get_item(0)?,
-        )?;
-        let consumer_port = require_interface_port(
-            self.graphs[consumer_graph].source_graph.bind(self.py),
-            "inputs",
-            &ports.get_item(1)?,
-        )?;
-        let provider = self.resolve_output_definition(provider_component, &provider_port)?;
+        let provider = self
+            .resolve_named_output(provider_component, &ports.get_item(0)?.extract::<String>()?)?;
+        let consumers = self
+            .resolve_named_inputs(consumer_component, &ports.get_item(1)?.extract::<String>()?)?;
         let declared_condition = edge.getattr("condition")?;
         let condition = if declared_condition.is_none() {
             None
@@ -539,31 +624,57 @@ impl<'py> Collector<'py> {
             )?)
         };
         // 一个公开输入可以约束多个内部步骤；不插入额外的运行时等待节点。
-        for step in consumer_port.try_iter()? {
-            for consumer in self.resolve_input_definition(consumer_component, &step?)? {
-                let source = NodeId::new(provider);
-                let target = NodeId::new(consumer);
-                self.port_connections.push(match condition {
-                    None => PortConnection::new(source, target),
-                    Some(condition) => PortConnection::conditional(source, target, condition),
-                });
-            }
+        for consumer in consumers {
+            let source = NodeId::new(provider);
+            let target = NodeId::new(consumer);
+            self.port_connections.push(match condition {
+                None => PortConnection::new(source, target),
+                Some(condition) => PortConnection::conditional(source, target, condition),
+            });
         }
         Ok(())
     }
 
-    fn graph_port(
-        &self,
-        component: usize,
-        direction: &str,
-        name: &Bound<'py, PyAny>,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    fn resolve_named_output(&self, component: usize, name: &str) -> PyResult<usize> {
         let graph = self.require_child_graph(component)?;
-        require_interface_port(
-            self.graphs[graph].source_graph.bind(self.py),
-            direction,
-            name,
-        )
+        match &self.graphs[graph].ports {
+            PortDefinitions::Rust { outputs, .. } => outputs
+                .get(name)
+                .copied()
+                .ok_or_else(|| PyValueError::new_err(format!("unknown output port: {name}"))),
+            PortDefinitions::Python => {
+                let name = name.into_pyobject(self.py)?;
+                let definition = require_interface_port(
+                    self.graphs[graph].source_graph.bind(self.py),
+                    "outputs",
+                    name.as_any(),
+                )?;
+                self.resolve_output_definition(component, &definition)
+            }
+        }
+    }
+
+    fn resolve_named_inputs(&self, component: usize, name: &str) -> PyResult<Vec<usize>> {
+        let graph = self.require_child_graph(component)?;
+        match &self.graphs[graph].ports {
+            PortDefinitions::Rust { inputs, .. } => inputs
+                .get(name)
+                .cloned()
+                .ok_or_else(|| PyValueError::new_err(format!("unknown input port: {name}"))),
+            PortDefinitions::Python => {
+                let name = name.into_pyobject(self.py)?;
+                let definitions = require_interface_port(
+                    self.graphs[graph].source_graph.bind(self.py),
+                    "inputs",
+                    name.as_any(),
+                )?;
+                let mut nodes = Vec::new();
+                for definition in definitions.try_iter()? {
+                    nodes.extend(self.resolve_input_definition(component, &definition?)?);
+                }
+                Ok(nodes)
+            }
+        }
     }
 
     fn resolve_output_definition(
@@ -573,8 +684,7 @@ impl<'py> Collector<'py> {
     ) -> PyResult<usize> {
         if value.is_instance(&self.types.output_port)? {
             let child = self.require_descendant_node(owner, &value.getattr("graph")?)?;
-            let definition = self.graph_port(child, "outputs", &value.getattr("name")?)?;
-            self.resolve_output_definition(child, &definition)
+            self.resolve_named_output(child, &value.getattr("name")?.extract::<String>()?)
         } else {
             self.require_descendant_node(owner, value)
         }
@@ -587,12 +697,7 @@ impl<'py> Collector<'py> {
     ) -> PyResult<Vec<usize>> {
         if value.is_instance(&self.types.input_port)? {
             let child = self.require_descendant_node(owner, &value.getattr("graph")?)?;
-            let definitions = self.graph_port(child, "inputs", &value.getattr("name")?)?;
-            let mut nodes = Vec::new();
-            for definition in definitions.try_iter()? {
-                nodes.extend(self.resolve_input_definition(child, &definition?)?);
-            }
-            Ok(nodes)
+            self.resolve_named_inputs(child, &value.getattr("name")?.extract::<String>()?)
         } else {
             Ok(vec![self.require_descendant_node(owner, value)?])
         }
@@ -601,8 +706,7 @@ impl<'py> Collector<'py> {
     fn resolve_result_source(&self, scope: usize, value: &Bound<'py, PyAny>) -> PyResult<usize> {
         if value.is_instance(&self.types.output_port)? {
             let owner = self.require_local_node(scope, &value.getattr("graph")?)?;
-            let definition = self.graph_port(owner, "outputs", &value.getattr("name")?)?;
-            self.resolve_output_definition(owner, &definition)
+            self.resolve_named_output(owner, &value.getattr("name")?.extract::<String>()?)
         } else {
             self.require_local_node(scope, value)
         }
@@ -615,12 +719,7 @@ impl<'py> Collector<'py> {
     ) -> PyResult<Vec<usize>> {
         if value.is_instance(&self.types.input_port)? {
             let owner = self.require_local_node(scope, &value.getattr("graph")?)?;
-            let definitions = self.graph_port(owner, "inputs", &value.getattr("name")?)?;
-            let mut targets = Vec::new();
-            for definition in definitions.try_iter()? {
-                targets.extend(self.resolve_input_definition(owner, &definition?)?);
-            }
-            Ok(targets)
+            self.resolve_named_inputs(owner, &value.getattr("name")?.extract::<String>()?)
         } else {
             Ok(vec![self.require_local_node(scope, value)?])
         }
@@ -709,7 +808,7 @@ impl<'py> Collector<'py> {
                 if matches!(self.node_activation(target), NodeActivation::Inactive) {
                     continue;
                 }
-                if self.nodes[target].child_graph.is_some() {
+                if !matches!(self.nodes[target].content, NodeContent::Python(_)) {
                     return Err(PyValueError::new_err(
                         "result target must have a callable action",
                     ));
@@ -755,7 +854,7 @@ impl<'py> Collector<'py> {
 
     fn require_child_graph(&self, node: usize) -> PyResult<usize> {
         self.nodes[node]
-            .child_graph
+            .child_graph()
             .ok_or_else(|| PyValueError::new_err("port component must contain a graph"))
     }
 
@@ -831,7 +930,7 @@ impl<'py> Collector<'py> {
 
     fn node_kind(&self, node: usize) -> DeclaredNodeKind {
         self.nodes[node]
-            .child_graph
+            .child_graph()
             .map_or(DeclaredNodeKind::Leaf, |child_graph| {
                 DeclaredNodeKind::Composite {
                     child_graph: GraphId::new(child_graph),
@@ -944,7 +1043,7 @@ impl NativeDeclarationCompilation {
     }
 
     fn node_child_graphs(&self) -> Vec<Option<usize>> {
-        self.active_nodes().map(|node| node.child_graph).collect()
+        self.active_nodes().map(NodeRecord::child_graph).collect()
     }
 
     fn source_steps(&self, py: Python<'_>) -> Vec<Option<Py<PyAny>>> {
@@ -955,9 +1054,9 @@ impl NativeDeclarationCompilation {
 
     fn actions(&self, py: Python<'_>) -> Vec<Option<Py<PyAny>>> {
         self.active_nodes()
-            .map(|node| match &node.action {
-                NodeAction::Python(action) => Some(action.clone_ref(py)),
-                NodeAction::Native(_) => None,
+            .map(|node| match &node.content {
+                NodeContent::Python(action) => Some(action.clone_ref(py)),
+                NodeContent::Native(_) | NodeContent::Composite(_) => None,
             })
             .collect()
     }

@@ -389,6 +389,10 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         native_graph::native_process_graph,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(
+        native_graph::native_compose_graph,
+        module
+    )?)?;
     module.add_class::<NativeCompiledExecutionGraph>()?;
     module.add_class::<declaration::NativeDeclarationCompilation>()?;
     module.add_class::<NativeExecutionBatch>()?;

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .._native import NativeGraphStructure
 from ..compile import GraphCompilation, compiled_prerequisite_node
 from ..errors import GraphError
 from ..model import (
@@ -28,6 +29,7 @@ from .formatting import (
     render_step_path,
     result_edge_label,
 )
+from .native import append_native_mermaid
 
 
 def render_graph_mermaid(
@@ -127,18 +129,27 @@ def append_graph_mermaid(
         node_id = mermaid_step_node_id(graph_path, step_label, index)
         node_ids[step] = node_id
         action = step.structure if isinstance(step, GraphNode) else step
-        if isinstance(action, GraphStructure):
+        if isinstance(action, (GraphStructure, NativeGraphStructure)):
             lines.append(
                 f'{indent}    {node_id}["{escape_label(step_label + selection_suffix)}"]'
             )
-            append_graph_mermaid(
-                lines,
-                action,
-                graph_label=step_label,
-                graph_path=(*graph_path, step_label),
-                parent_node_path=node_path,
-                indent=indent + "    ",
-            )
+            if isinstance(action, NativeGraphStructure):
+                append_native_mermaid(
+                    lines,
+                    action,
+                    label=step_label,
+                    owner=node_path,
+                    indent=indent + "    ",
+                )
+            else:
+                append_graph_mermaid(
+                    lines,
+                    action,
+                    graph_label=step_label,
+                    graph_path=(*graph_path, step_label),
+                    parent_node_path=node_path,
+                    indent=indent + "    ",
+                )
         else:
             lines.append(
                 f'{indent}    {node_id}["{escape_label(render_step_label(step, node_path=node_path) + selection_suffix)}"]'

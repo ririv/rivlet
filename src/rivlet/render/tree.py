@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from .._native import NativeGraphStructure
 from ..compile import GraphCompilation
 from ..errors import GraphError
 from ..model import (
@@ -26,6 +27,7 @@ from .formatting import (
     render_step_label,
     render_step_path,
 )
+from .native import append_native_tree
 
 
 def render_graph(
@@ -120,12 +122,15 @@ def append_tree_step(
     child_prefix = prefix + ("   " if is_last else "│  ")
     action = step.structure if isinstance(step, GraphNode) else step
     step_label = resolve_node_label(step, node_path)
-    if isinstance(action, GraphStructure):
+    if isinstance(action, (GraphStructure, NativeGraphStructure)):
         lines.append(
             f"{prefix}{branch}{step_label} [graph]{render_static_suffix(graph, step)}{render_condition_suffix(step)}"
             f"{render_graph_after_suffix(graph, step, step_paths=step_paths)}"
             f"{render_graph_port_suffix(graph, step)}"
         )
+        if isinstance(action, NativeGraphStructure):
+            append_native_tree(lines, action, prefix=child_prefix)
+            return
         child_step_paths = node_paths_for_mount(action, parent_node_path=node_path)
         for index, child_step in enumerate(action.nodes):
             append_tree_step(
