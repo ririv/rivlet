@@ -38,6 +38,7 @@
 - [执行语义](./execution.md)
 - [失败事件与直接原因](./failure_events.md)
 - [Python 图与 Rust 原生图](./native-graphs.md)
+- [原生结果值与跨语言转换](./native-results.md)
 - [条件边](./conditional_edges.md)
 - [条件 Node](./conditional_steps.md)
 - [端口依赖与子图端口](./interfaces.md)

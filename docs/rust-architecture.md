@@ -9,7 +9,8 @@ integration.
 
 ## Crate boundaries
 
-- `crates/action` defines NativeAction, stable errors, and process actions without
+- `crates/action` defines typed NativeAction inputs/outputs, Rust-owned values,
+  stable errors, and process actions without
   Python callbacks. It does not depend on PyO3, Tokio, or Graph core.
 - `crates/graph` exposes actual Rust Leaf/Graph nodes, the common Node trait,
   reusable GraphStructure, typed interfaces/edges, and GraphError.
@@ -94,6 +95,9 @@ batches when state changes:
 - Native action handles remain in Rust after graph registration.
 - Python completions, predicate results, and explicit skips return in batches.
 - Native completions are collected in batches and advance the same session.
+- Rust results are stored before advancing completion. Native consumers share
+  those values directly; language converters and lazy Python views belong to the
+  Python adapter, not core. See [native result values](./native-results.md).
 - There is no timer-based polling loop; idle drivers wait for actual work completion.
 
 Known subgraphs compile as composites and leaves without losing their boundaries.
@@ -139,7 +143,7 @@ are separate implementations; see [topology complexity](./topology_complexity.md
 
 ## Python boundary
 
-str resolution validates Python port ownership, encodes components,
+Port resolution validates Python port ownership, encodes components,
 ports, requirements, and selections as integers, and calls Rust once.
 Provider indexing, uniqueness, explicit selection, and duplicate/mixed requirement
 validation have no second Python solver.
@@ -151,8 +155,9 @@ Python retains host-facing objects:
 - Compilation side tables for actions, predicates, observations, paths, and scopes.
 - Execution state snapshots, explicit skips, and results.
 
-Native actions form a separate branch owned by NativeGraphStructure. Successful native
-results are currently None, not arbitrary Python objects.
+Native actions form a separate branch owned by NativeGraphStructure. Their typed
+results stay native on Rust edges. Only the Python adapter converts values when
+crossing the language boundary; process-action unit maps to Python None.
 
 Readiness, scheduling states, condition blocking, hierarchy lifecycle, execution
 DAG validation, provider resolution, and binding lowering have one Rust

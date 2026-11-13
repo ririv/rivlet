@@ -39,6 +39,7 @@ domain workflows are connected explicitly, not read from implicit global facilit
 - [Topology complexity and implementation costs](./topology_complexity.md)
 - [Execution semantics](./execution.md)
 - [Python graphs and Rust-native graphs](./native-graphs.md)
+- [Typed native result values and language conversions](./native-results.md)
 - [Conditional edges](./conditional_edges.md)
 - [Conditional steps](./conditional_steps.md)
 - [port dependencies and subgraph ports](./interfaces.md)

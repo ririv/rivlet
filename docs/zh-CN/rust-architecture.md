@@ -11,7 +11,7 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
 当前 workspace 包含：
 
 - `crates/action`
-  - 定义 Rust `NativeAction` trait 与稳定错误边界
+  - 定义带输入/输出关联类型的 `NativeAction`、原生值与稳定错误边界
   - 提供不回调 Python 的进程 action
   - 不依赖 PyO3、Tokio 或 Graph core
 - `crates/graph`
@@ -36,6 +36,9 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 只通过项目自己的 `CallbackHost` 接口消费 core，不向领域模型泄漏 Tokio 类型
 
 core 的公开数据模型不出现 PyO3 或其它第三方库类型。
+
+原生结果先保存，再通知 session 完成。Rust 消费方直接共享值；跨语言转换器和
+Python 惰性视图属于 Python adapter，不进入 core，详见[原生结果值](./native-results.md)。
 
 ## 外部库约束
 
@@ -170,8 +173,8 @@ requirement 与 selection 映射成连续整数 ID。provider 索引、任意 pr
 
 - 静态条件叶子和运行时条件 predicate 是 Python callable
 - Python action、结果对象、observe、日志路径和展示 label 是 Python 对象
-- Rust action 是 `NativeGraphStructure` 内部的独立和类型分支；当前成功结果固定为 `None`，不会
-  携带任意 Python 对象，也不作为单个 Python API 暴露
+- Rust action 是 `NativeGraphStructure` 内部的独立和类型分支；类型化结果在 Rust 边上
+  保持原生，只有跨语言时才由适配层转换；进程 action 的 unit 对应 Python None
 - PyO3 adapter 在一次编译调用中遍历声明对象；静态 predicate 的业务求值仍调用 Python
 - Python `GraphCompilation` 只恢复 action、predicate、observe、label path 与结果作用域侧表
 - `ExecutionState` 保存可供 Python action 动态写入的 skip、结果与渲染快照

@@ -70,9 +70,10 @@ graph = (prepare >> compile >> install).graph()
 - Python 接收原生节点的开始、完成与失败信息，用于统一状态、日志和展示。
 - 两类 leaf 共用一份总并发预算，不会各自把 `workers` 用满后叠加超额并发。
 
-当前 Rust leaf 成功结果固定为 `None`。它不能读取 Python `NodeRunContext`，也不能返回
-任意 Python 对象或动态图。如果以后需要原生结果，必须新增稳定的和类型结果协议，不能
-用 `object` 或隐式序列化兜底。
+原生 action 声明确定的输入、输出类型。Rust→Rust 结果边共享 Rust 值；只有跨语言边界
+才转换。进程 action 返回 unit，在 Python 中表现为 `Some(None)`，不是没有结果。
+完整 API 与转换规则见[原生结果值](./native-results.md)。原生 action 仍不能读取 Python
+`NodeRunContext`，也不支持返回并展开动态图。
 
 ## Rust crate 边界
 
@@ -101,7 +102,9 @@ use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf};
 
 struct Work;
 impl NativeAction for Work {
-    fn execute(&self, _: &NativeActionContext) -> Result<(), NativeActionError> {
+    type Inputs = ();
+    type Output = ();
+    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
         println!("work");
         Ok(())
     }
@@ -159,7 +162,7 @@ Python adapter 把该投影与 Python 节点放进同一次编译。Python 可�
 事件、跳过和局部失败传播均保留原生子图边界。私有进程/组合导入函数只是 adapter
 边界，不是第二套公开 Python 声明 API。
 
-本轮**没有实现** Rust 结果值传输和 Rust predicate 执行。就绪端口不是类型化的值通道；
-Python 结果边可以把原生叶子的成功观察为 `Some(None)`，但不能向原生叶子传 Python
-结果参数，此类接线会被拒绝。外层 Python Graph 仍可使用既有运行时/静态条件，
-不会向 core 添加不透明闭包或隐式序列化。
+就绪连接和结果连接复用同一接口，但语义由边显式决定：`Edge::ports` 等待就绪；
+`Edge::results` 还绑定完整、有序的参数组，转发后校验真实 Leaf 的类型和数量。
+Rust predicate 执行仍未实现。外层 Python Graph 保留既有运行时/静态条件，
+core 不引入不透明闭包或隐式序列化。

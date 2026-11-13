@@ -72,10 +72,11 @@ Within one execution session:
 - Both languages share total capacity; they do not each independently consume the
   full worker limit.
 
-A successful native leaf currently returns None. It cannot read Python
-NodeRunContext, return arbitrary Python objects, or produce dynamic graphs.
-Supporting native results would require an explicit stable result protocol,
-not object fields or implicit serialization.
+Native actions declare typed inputs and outputs. Rust-to-Rust result edges share
+Rust-owned values; Python conversions happen only at the adapter boundary.
+A process action returns unit, observed as `Some(None)` in Python, not an absent
+result. See [native result values](./native-results.md) for the API and conversion rules.
+Native actions still cannot read Python NodeRunContext or expand dynamic graphs.
 
 ## Rust crates
 
@@ -104,7 +105,9 @@ use graph::{Edge, Graph, GraphInterface, GraphStructure, Leaf};
 
 struct Work;
 impl NativeAction for Work {
-    fn execute(&self, _: &NativeActionContext) -> Result<(), NativeActionError> {
+    type Inputs = ();
+    type Output = ();
+    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
         println!("work");
         Ok(())
     }
@@ -169,9 +172,9 @@ events, skips, and failure isolation preserve real native graph boundaries. The
 private process/composition importer functions are adapter boundaries, not a second
 public Python declaration API.
 
-Rust result-value transport and Rust predicate execution are **not** implemented
-by this declaration layer. Readiness ports are not typed value channels. A Python
-result edge can observe a successful native leaf as `Some(None)`; sending Python
-result arguments to a native leaf is rejected. An outer Python Graph may still
-have its usual runtime/static conditions. No opaque closure or implicit
-serialization is added to core.
+Readiness connections and result connections remain distinct uses of the same
+interface: `Edge::ports` waits for readiness; `Edge::results` additionally binds a
+complete ordered argument group. Actual leaf types/arity are checked after
+forwarding. Rust predicate execution is still outside this API. An outer Python
+Graph retains its existing runtime/static conditions; core gains neither opaque
+closures nor implicit serialization.
