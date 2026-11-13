@@ -3,19 +3,20 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::thread::{self, JoinHandle};
 
-use crate::{NativeActionContext, NativeActionError, NativeActionHandle};
+use crate::{NativeActionContext, NativeActionError, NativeActionHandle, NativeValue};
 
 struct NativeActionJob {
     node: usize,
     action: NativeActionHandle,
     context: NativeActionContext,
+    inputs: Vec<Option<NativeValue>>,
 }
 
 /// One native action completion retained until its graph session consumes it.
 #[derive(Debug)]
 pub struct NativeActionCompletion {
     node: usize,
-    result: Result<(), NativeActionError>,
+    result: Result<NativeValue, NativeActionError>,
 }
 
 impl NativeActionCompletion {
@@ -28,7 +29,7 @@ impl NativeActionCompletion {
     ///
     /// # Errors
     /// Returns the error produced by the native action.
-    pub fn into_result(self) -> Result<(), NativeActionError> {
+    pub fn into_result(self) -> Result<NativeValue, NativeActionError> {
         self.result
     }
 }
@@ -147,6 +148,7 @@ impl NativeActionExecutor {
         node: usize,
         action: NativeActionHandle,
         context: NativeActionContext,
+        inputs: Vec<Option<NativeValue>>,
     ) -> Result<(), NativeActionError> {
         self.inner
             .jobs
@@ -154,6 +156,7 @@ impl NativeActionExecutor {
                 node,
                 action,
                 context,
+                inputs,
             }))
             .map_err(|_| NativeActionError::new("native action executor is closed"))
     }
@@ -206,8 +209,10 @@ fn worker_loop(
         let Ok(Some(job)) = job else {
             return;
         };
-        let result = catch_unwind(AssertUnwindSafe(|| job.action.execute(&job.context)))
-            .unwrap_or_else(|_| Err(NativeActionError::new("native action panicked")));
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            job.action.execute(&job.context, &job.inputs)
+        }))
+        .unwrap_or_else(|_| Err(NativeActionError::new("native action panicked")));
         let mut state = completions
             .state
             .lock()
@@ -235,7 +240,9 @@ mod tests {
     struct Noop;
 
     impl NativeAction for Noop {
-        fn execute(&self, _context: &NativeActionContext) -> Result<(), NativeActionError> {
+        type Inputs = ();
+        type Output = ();
+        fn execute(&self, _context: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
             Ok(())
         }
     }
@@ -249,6 +256,7 @@ mod tests {
                 0,
                 NativeActionHandle::new(Noop),
                 NativeActionContext::default(),
+                Vec::new(),
             )
             .unwrap();
         executor.wait_for_completion();

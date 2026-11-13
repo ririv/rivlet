@@ -14,7 +14,9 @@ struct Record {
 }
 
 impl NativeAction for Record {
-    fn execute(&self, _: &NativeActionContext) -> Result<(), NativeActionError> {
+    type Inputs = ();
+    type Output = ();
+    fn execute(&self, _: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
         self.events.lock().unwrap().push(self.name);
         self.outcome.clone()
     }
@@ -56,7 +58,8 @@ fn run(compilation: &Compilation) -> (SessionStatus, ExecutionSession) {
                 (
                     *id,
                     action
-                        .execute(&NativeActionContext::default())
+                        .execute(&NativeActionContext::default(), &[])
+                        .map(|_| ())
                         .map_err(|_| ()),
                 )
             })

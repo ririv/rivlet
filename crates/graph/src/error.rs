@@ -15,6 +15,18 @@ pub enum GraphError {
     DuplicateInput(String),
     UnknownInputPort(String),
     UnknownOutputPort(String),
+    EmptyResults,
+    DuplicateResults(NodeIdentity),
+    ResultTargetNotLeaf(NodeIdentity),
+    ResultInputCount {
+        node: NodeIdentity,
+        expected: usize,
+        actual: usize,
+    },
+    ResultTypeMismatch {
+        expected: &'static str,
+        actual: &'static str,
+    },
     Topology(rivlet::TopologyError),
     Declaration(rivlet::DeclarationError),
 }
@@ -38,6 +50,26 @@ impl Display for GraphError {
             Self::DuplicateInput(name) => write!(f, "input port repeats a consumer: {name}"),
             Self::UnknownInputPort(name) => write!(f, "unknown input port: {name}"),
             Self::UnknownOutputPort(name) => write!(f, "unknown output port: {name}"),
+            Self::EmptyResults => f.write_str("result connections require at least one source"),
+            Self::DuplicateResults(id) => {
+                write!(f, "node {} has more than one result group", id.value())
+            }
+            Self::ResultTargetNotLeaf(id) => {
+                write!(f, "result target {} is not a leaf", id.value())
+            }
+            Self::ResultInputCount {
+                node,
+                expected,
+                actual,
+            } => write!(
+                f,
+                "node {} expects {expected} result inputs, received {actual}",
+                node.value()
+            ),
+            Self::ResultTypeMismatch { expected, actual } => write!(
+                f,
+                "result type mismatch: expected {expected}, received {actual}"
+            ),
             Self::Topology(error) => Display::fmt(error, f),
             Self::Declaration(error) => Display::fmt(error, f),
         }

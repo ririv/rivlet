@@ -67,7 +67,8 @@ impl GraphStructure {
     }
 
     fn validate(&self) -> Result<(), GraphError> {
-        // 本层节点/边校验 O(V+E+P)，端口不近似成整个子图的阻塞关系。
+        // 本层校验 O(V+E+R+P)，R 为结果来源总数；不为每条普通边分配来源 Vec。
+        // 端口不近似成整个子图的阻塞关系。
         let mut indexes = HashMap::new();
         for (index, node) in self.nodes.iter().enumerate() {
             if indexes.insert(node.id(), NodeId::new(index)).is_some() {
@@ -78,10 +79,23 @@ impl GraphStructure {
             |id: NodeIdentity| indexes.get(&id).copied().ok_or(GraphError::UnknownNode(id));
         let mut arcs = Vec::new();
         for edge in &self.edges {
-            let source = require(edge.source())?;
             let target = require(edge.target())?;
-            if matches!(edge, Edge::Completion { .. }) {
-                arcs.push(TopologyArc::new(source, target));
+            match edge {
+                Edge::Completion { source, .. } => {
+                    let source = require(*source)?;
+                    arcs.push(TopologyArc::new(source, target));
+                }
+                Edge::Ports { source, .. } => {
+                    require(source.owner())?;
+                }
+                Edge::Results { sources, .. } => {
+                    for source in sources.iter() {
+                        require(match source {
+                            OutputEndpoint::Node(id) => *id,
+                            OutputEndpoint::Port(port) => port.owner(),
+                        })?;
+                    }
+                }
             }
         }
         for targets in self.interface.inputs().values() {

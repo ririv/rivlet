@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use action::NativeActionHandle;
+use action::{NativeActionHandle, NativeValueType};
 use rivlet::{
     CompiledExecutionGraph, DeclarationNode, DeclarationPrerequisite, DeclaredGraph,
     DeclaredNodeKind, GraphCompilation, GraphDeclaration, GraphId, NodeActivation, NodeId,
@@ -10,7 +10,7 @@ use rivlet::{
 
 use crate::{
     Edge, GraphError, GraphStructure, InputEndpoint, InputPort, Node, NodeKind, OutputEndpoint,
-    OutputPort,
+    OutputPort, ResultTarget,
 };
 
 /// Action ownership and composite membership are mutually exclusive.
@@ -29,6 +29,7 @@ pub struct ProjectedNode {
     graph: GraphId,
     kind: ProjectedKind,
     prerequisites: Vec<NodeId>,
+    inputs: Vec<NodeId>,
 }
 
 impl ProjectedNode {
@@ -55,6 +56,10 @@ impl ProjectedNode {
     #[must_use]
     pub fn prerequisites(&self) -> &[NodeId] {
         &self.prerequisites
+    }
+    #[must_use]
+    pub fn inputs(&self) -> &[NodeId] {
+        &self.inputs
     }
 }
 
@@ -152,6 +157,17 @@ impl Projection {
     /// # Errors
     /// Returns the common declaration error, including resolved port cycles.
     pub fn compile(self) -> Result<Compilation, GraphError> {
+        for node in &self.nodes {
+            if let ProjectedKind::Leaf(action) = &node.kind {
+                if action.input_types().len() != node.inputs.len() {
+                    return Err(GraphError::ResultInputCount {
+                        node: node.identity,
+                        expected: action.input_types().len(),
+                        actual: node.inputs.len(),
+                    });
+                }
+            }
+        }
         let graph = GraphDeclaration::new(
             self.scopes.iter().map(|scope| {
                 scope
@@ -223,6 +239,7 @@ impl Projection {
                 graph: scope,
                 kind,
                 prerequisites: Vec::new(),
+                inputs: Vec::new(),
             });
             self.scopes[scope.index()].nodes.push(id);
             self.scopes[scope.index()].local.insert(node.id(), id);
@@ -252,6 +269,19 @@ impl Projection {
                         self.ports.push(PortConnection::new(source, target));
                     }
                 }
+                Edge::Results { sources, target } => {
+                    let sources = sources
+                        .iter()
+                        .map(|source| self.output_endpoint(scope, source))
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let targets = match target {
+                        ResultTarget::Leaf(id) => vec![self.scopes[scope.index()].local_node(*id)?],
+                        ResultTarget::Port(port) => self.input_port(scope, port)?,
+                    };
+                    for target in targets {
+                        self.bind_results(target, &sources)?;
+                    }
+                }
             }
         }
         for (name, targets) in structure.interface().inputs() {
@@ -268,6 +298,45 @@ impl Projection {
             self.scopes[scope.index()]
                 .outputs
                 .insert(name.clone(), resolved);
+        }
+        Ok(())
+    }
+
+    fn bind_results(&mut self, target: NodeId, sources: &[NodeId]) -> Result<(), GraphError> {
+        // O(I) 校验完整参数组并登记真实依赖，不按每个输入重扫节点或子图。
+        let node = &self.nodes[target.index()];
+        let ProjectedKind::Leaf(action) = &node.kind else {
+            return Err(GraphError::ResultTargetNotLeaf(node.identity));
+        };
+        if !node.inputs.is_empty() {
+            return Err(GraphError::DuplicateResults(node.identity));
+        }
+        if action.input_types().len() != sources.len() {
+            return Err(GraphError::ResultInputCount {
+                node: node.identity,
+                expected: action.input_types().len(),
+                actual: sources.len(),
+            });
+        }
+        for (source, expected) in sources.iter().zip(action.input_types()) {
+            let actual = match &self.nodes[source.index()].kind {
+                ProjectedKind::Leaf(action) => action.output_type(),
+                ProjectedKind::Graph(_) => NativeValueType::of::<()>(),
+            };
+            if actual != *expected {
+                return Err(GraphError::ResultTypeMismatch {
+                    expected: expected.name(),
+                    actual: actual.name(),
+                });
+            }
+        }
+        self.nodes[target.index()].inputs = sources.to_vec();
+        for source in sources {
+            if self.nodes[source.index()].graph == self.nodes[target.index()].graph {
+                self.nodes[target.index()].prerequisites.push(*source);
+            } else {
+                self.ports.push(PortConnection::new(*source, target));
+            }
         }
         Ok(())
     }

@@ -1,8 +1,8 @@
 //! Composable Rust graph declarations lowering into the shared execution core.
 //!
 //! Leaf/Graph own metadata; `GraphStructure` is reusable. Node is their common
-//! reference interface and `NodeKind` is the closed concrete union. Native result
-//! values and Rust predicate execution are deliberately outside this API.
+//! reference interface and `NodeKind` is the closed concrete union. Result edges
+//! bind typed action inputs; Rust predicate execution remains outside this API.
 //!
 //! ```
 //! use std::sync::Arc;
@@ -11,7 +11,9 @@
 //!
 //! struct Work;
 //! impl NativeAction for Work {
-//!     fn execute(&self, _: &NativeActionContext) -> Result<(), NativeActionError> {
+//!     type Inputs = ();
+//!     type Output = ();
+//!     fn execute(&self, _: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
 //!         Ok(())
 //!     }
 //! }
@@ -40,7 +42,7 @@ mod node;
 mod projection;
 mod structure;
 
-pub use edge::Edge;
+pub use edge::{Edge, ResultSources, ResultTarget};
 pub use error::GraphError;
 pub use interface::{
     GraphInterface, GraphInterfaceView, InputEndpoint, InputPort, OutputEndpoint, OutputPort,

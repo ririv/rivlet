@@ -32,7 +32,9 @@ impl ProcessAction {
 }
 
 impl NativeAction for ProcessAction {
-    fn execute(&self, context: &NativeActionContext) -> Result<(), NativeActionError> {
+    type Inputs = ();
+    type Output = ();
+    fn execute(&self, context: &NativeActionContext, (): ()) -> Result<(), NativeActionError> {
         let mut command = Command::new(&self.program);
         command.args(&self.arguments);
         configure_command(&mut command, &self.cwd, &self.environment, context)?;
