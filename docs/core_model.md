@@ -207,6 +207,12 @@ shared(ExpectedType). It has no result lookup, log path or scope-index escape ha
 Hosts can inspect Execution.require_result(node). Shared state is explicitly passed
 to Execution; callers own synchronization and cleanup. Sharing creates no edges.
 
+Python result recording is enabled on demand, not unconditionally for every run.
+Once enabled, it also records successful Python returns without result consumers;
+consumer completion does not remove them. For exact activation rules, explicit
+query-only recording and the distinction between current behavior and future
+retention candidates, see [result recording and lifetime](./result_lifetime.md).
+
 ## Conditions and selection
 
 Step and Graph accept the same runtime condition: a zero-argument bool predicate

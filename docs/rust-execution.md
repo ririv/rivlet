@@ -130,5 +130,8 @@ workers start.
   adds no persistent recovery or per-consumer result reclamation. Rust payloads
   remain shared through Arc, without JSON or Python conversion.
 
+For the distinction from Python's on-demand recording and possible future
+retention policies (not implemented), see [result lifetime](./result_lifetime.md).
+
 Graph/action/core remain independently usable. The execution crate is a host
 composition, not a dependency of graph declarations or the Python extension.

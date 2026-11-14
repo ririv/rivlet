@@ -113,4 +113,7 @@ let outcome = Execution::new(compilation, options).run()?;
 - 成功值保留到 outcome 被释放。本入口不新增持久恢复或按消费者回收结果；Rust 载荷
   通过 Arc 共享，不经过 JSON 或 Python 转换。
 
+与 Python 按需记录的区别，以及尚未实现的保留策略候选，见
+[结果生命周期](./result_lifetime.md)。
+
 graph/action/core 仍可独立使用；execution 是宿主组合层，不是图声明或 Python 扩展的依赖。

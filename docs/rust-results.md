@@ -96,6 +96,11 @@ The result store is per execution, not a persistent cache or mutable shared-stat
 API. Ordinary native results needed by native consumers are retained through their
 session; this does not add per-consumer reference-count GC or durable recovery.
 
+Python-side recording is enabled on demand; enabling it does not selectively
+retain only consumed Python results. Standalone Rust outcomes have their own
+ownership boundary. Current activation/retention rules and explicitly unimplemented
+policy candidates are documented in [result lifetime](./result_lifetime.md).
+
 ## Python boundary
 
 Python declarations keep the existing API:

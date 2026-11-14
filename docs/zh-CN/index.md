@@ -38,6 +38,7 @@
 - [Python 图与 Rust 原生图](./rust-graphs.md)
 - [执行 Rust 图](./rust-execution.md)
 - [原生结果值与跨语言转换](./rust-results.md)
+- [结果记录、生命周期与未来保留策略候选](./result_lifetime.md)
 - [条件边](./conditional_edges.md)
 - [条件 Node](./conditional_steps.md)
 - [端口依赖与子图端口](./interfaces.md)
