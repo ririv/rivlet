@@ -4,7 +4,6 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from os import process_cpu_count
 from typing import TYPE_CHECKING, Protocol
 
 from .._native import _ConcurrencyLimits
@@ -132,7 +131,7 @@ class SessionTree:
         owner: RootSession | ChildSession,
         inherited_scopes: tuple[int, ...] = (),
     ) -> None:
-        # 原生 session 保留独立 worker，默认取逻辑 CPU 数且最多 32 个；
+        # 原生 session 的默认容量由 Rust 托管执行层决定，不读取 Python CPU API；
         # 这不是 Python 池大小；显式限额在真正派发前由公共调度器准入。
         concurrency = None
         if self._limits is not None:
@@ -151,7 +150,6 @@ class SessionTree:
                 definition.host.skipped_nodes(),
                 definition.rust_actions,
                 definition.rust_contexts,
-                min(32, process_cpu_count() or 1) if definition.rust_contexts else 1,
                 retain_results=definition.host.retains_rust_results(),
                 concurrency=concurrency,
             ),

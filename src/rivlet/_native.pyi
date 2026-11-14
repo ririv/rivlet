@@ -162,7 +162,7 @@ class CompiledExecutionGraph:
         initially_skipped: list[int],
         rust_actions: RustActionBindings,
         rust_contexts: list[tuple[int, str | None]],
-        workers: int,
+        workers: int | None = ...,
         retain_results: bool = ...,
         concurrency: tuple[_ConcurrencyLimits, list[list[int]]] | None = ...,
     ) -> MixedExecutionSession: ...

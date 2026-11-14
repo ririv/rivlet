@@ -130,8 +130,12 @@ with ThreadPoolExecutor(max_workers=4) as pool:
 InterpreterPoolExecutor 不可直接替换：闭包、上下文、共享状态和扩展对象没有建立
 序列化或隔离契约。Rust 动作继续在 Rust worker 中执行，不经过 Python action 回调；
 其 session 内部资源与借入的 Python 池分开。
-每个 Rust session 默认取逻辑 CPU 数（不可获得时为 1），最多 32 个 worker，且不超过
-当前 Rust 动作数量；不再从 Python `max_workers` 推导其容量。
+Rust 托管 session 使用 `std::thread::available_parallelism()` 决定默认容量，
+最多 32 个 worker，且不超过当前 Rust 动作数。查询失败直接报告执行错误，不静默降为 1。
+纯 Python session 不查询原生并行度，也不创建 Rust worker。显式容量不执行默认 CPU
+查询，也不受默认的 32 上限约束；低阶 ActionExecutor 仍要求明确的正数容量。
+串行执行显式使用一个 worker。Python `max_workers` 和 Python 的 CPU 计数覆盖设置
+均不决定 Rust 容量；Rust 的建议并行度不保证与 Python 进程 CPU 计数完全相同。
 Rust 批次完成通知不占用 Python 动作线程，池已满也不会阻止协程消费已经完成的
 Rust 结果。
 

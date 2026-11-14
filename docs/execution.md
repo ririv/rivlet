@@ -125,8 +125,14 @@ and InterpreterPoolExecutor are not interchangeable: closures, contexts, shared
 state and extension values have no serialization/isolation contract here. Native
 Rust actions still execute in Rust workers without Python action callbacks; their
 session-owned resources are separate from the borrowed Python pool.
-Each Rust session defaults to the logical CPU count (1 when unavailable), capped
-at 32 and at its number of Rust actions; Python `max_workers` is not its capacity input.
+The Rust managed session selects its default capacity with
+`std::thread::available_parallelism()`, capped at 32 and at its number of Rust
+actions. A failed query is an execution error, not a silent single-worker default.
+Python-only sessions neither query native parallelism nor create Rust workers.
+Explicit capacities bypass the default CPU query and 32-worker cap; the low-level
+ActionExecutor still requires a positive capacity. Serial execution explicitly uses
+one worker. Python `max_workers` and Python CPU-count overrides do not set Rust
+capacity; this native estimate is not necessarily equal to Python's process CPU count.
 Rust batch completion notifications do not occupy Python action workers, so a
 full Python pool cannot prevent a coroutine from consuming an already finished
 Rust result.

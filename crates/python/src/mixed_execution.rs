@@ -174,26 +174,42 @@ impl MixedExecutionSession {
     pub(crate) fn new(
         session: ExecutionSession,
         bindings: Vec<Option<RustActionBinding>>,
-        workers: usize,
+        workers: Option<usize>,
         retain_results: bool,
     ) -> PyResult<Self> {
-        if workers == 0 {
-            return Err(PyValueError::new_err(
-                "native action workers must be greater than zero",
-            ));
-        }
+        let workers = workers
+            .map(|value| {
+                NonZeroUsize::new(value).ok_or_else(|| {
+                    PyValueError::new_err("native action workers must be greater than zero")
+                })
+            })
+            .transpose()?;
         let rust_action_count = bindings.iter().filter(|binding| binding.is_some()).count();
         // 纯 Python session 不启动 Rust worker，也不构造原生值包装。
         let actions = if rust_action_count == 0 {
             ActionDispatch::PythonOnly
         } else {
+            // 默认策略属于托管宿主，不下沉到图内核或要求显式容量的 ActionExecutor。
+            // 无 Rust 动作时不探测 CPU；显式容量不参与默认的 32 上限策略。
+            let capacity = match workers {
+                Some(workers) => workers.get(),
+                None => std::thread::available_parallelism()
+                    .map_err(|error| {
+                        PyRuntimeError::new_err(format!(
+                            "failed to determine native action parallelism: {error}"
+                        ))
+                    })?
+                    .get()
+                    .min(32),
+            }
+            .min(rust_action_count);
             let result_sources = bindings
                 .iter()
                 .flatten()
                 .flat_map(|binding| binding.declaration.inputs.iter().copied())
                 .collect();
             ActionDispatch::Mixed {
-                executor: ActionExecutor::new(workers.min(rust_action_count))
+                executor: ActionExecutor::new(capacity)
                     .map_err(|error| PyValueError::new_err(error.to_string()))?,
                 bindings,
                 result_sources,

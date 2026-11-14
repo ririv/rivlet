@@ -354,13 +354,13 @@ impl CompiledExecutionGraph {
         })
     }
 
-    #[pyo3(signature = (initially_skipped, rust_actions, rust_contexts, workers, retain_results=false, concurrency=None))]
+    #[pyo3(signature = (initially_skipped, rust_actions, rust_contexts, workers=None, retain_results=false, concurrency=None))]
     fn mixed_session(
         &self,
         initially_skipped: Vec<usize>,
         rust_actions: &mixed_execution::RustActionBindings,
         rust_contexts: Vec<(usize, Option<String>)>,
-        workers: usize,
+        workers: Option<usize>,
         retain_results: bool,
         concurrency: Option<(
             PyRef<'_, mixed_execution::ConcurrencyLimits>,
