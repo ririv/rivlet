@@ -20,8 +20,9 @@ application; it is not a distributed workflow service.
   through result edges; order-only dependencies need no result passing.
 - **Apply conditions where they belong:** prune optional work before execution,
   skip a step based on runtime results, or condition only a dependency.
-- **Control execution:** run synchronous or asynchronous Python tasks with explicit
-  concurrency limits. Runtime-created subgraphs share the same action budget.
+- **Mix synchronous and asynchronous tasks:** choose blocking or awaitable entry
+  points, with managed or borrowed thread pools. Runtime-created subgraphs reuse
+  the execution's Python resources.
 - **Inspect what happened:** render graphs, query results, and subscribe to typed
   execution events. A failed step blocks dependent work while independent branches
   continue; the overall run still reports failure.
@@ -44,7 +45,7 @@ For Windows x64 source builds and installed-wheel validation, see
 ## Compose steps and reusable subgraphs
 
 ```python
-from rivlet import Execution, Graph, GraphWiring, Step, ThreadRunOptions, graph
+from rivlet import Graph, GraphWiring, Step, graph, run
 
 
 @graph
@@ -57,11 +58,12 @@ def checks() -> GraphWiring:
 prepare = Step(lambda: print("prepare"), label="prepare")
 finish = Step(lambda: print("finish"), label="finish")
 workflow = (prepare >> checks >> finish).graph(label="example")
-Execution(workflow).run(ThreadRunOptions(workers=2))
+run(workflow, max_workers=2)
 ```
 
 After prepare, validate and test can run concurrently; finish waits for both.
-`>>` orders nodes, while `|` adds no dependency. Run options set actual concurrency.
+`>>` orders nodes, while `|` adds no dependency. `max_workers` limits synchronous Python
+threads, not the number of coroutine tasks.
 
 `@graph` calls a zero-argument wiring declaration once, immediately, and replaces
 it with a Graph labeled after the function. Step actions still run only during
@@ -75,11 +77,13 @@ GraphStructure holds reusable structure without a node identity. Declare distinc
 Graph nodes to use one structure twice:
 
 ```python
+from rivlet import run
+
 body = checks.structure
 left = Graph(body, label="left")
 right = Graph(body, label="right")
 both = (left | right).graph(label="both")
-Execution(both).run(ThreadRunOptions(workers=2))
+run(both, max_workers=2)
 ```
 
 The two Graph nodes share structure, not mounted results or paths. The DSL retains
@@ -87,6 +91,31 @@ actual nodes; the same node cannot occur twice in one structure. Execution accep
 the actual Step or Graph root, without wrapping a Graph in a Step. Create another
 Execution to run a declaration again. For direct construction, see the
 [core model](https://github.com/ririv/rivlet/blob/main/docs/core_model.md).
+
+## Manage resources or borrow your own
+
+`run(workflow, max_workers=4)` creates and closes its Python thread pool. In an async
+function, use `await arun(workflow, max_workers=4)` to reuse the caller's event loop.
+Both can execute the same mixture of synchronous and coroutine actions.
+
+Applications with an existing same-interpreter thread pool can use the lower-level
+entry point without transferring ownership:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+from rivlet import Execution
+
+with ThreadPoolExecutor(max_workers=4) as pool:
+    execution = Execution(workflow)
+    execution.run(pool=pool)
+```
+
+Use `await execution.arun(pool=pool)` in an async function. Rivlet waits for its own
+work to exit but never closes a borrowed pool. There is no graph-wide coroutine
+quota; apply business limits explicitly. Process and isolated-interpreter pools
+are not interchangeable with this shared-memory execution model. See
+[execution resources](https://github.com/ririv/rivlet/blob/main/docs/execution.md#managed-and-borrowed-execution-resources).
 
 ## Connect subgraphs through input and output ports
 
@@ -98,15 +127,7 @@ where the consumer starts needing it.
 This complete example connects two otherwise independent subgraphs:
 
 ```python
-from rivlet import (
-    Edge,
-    Execution,
-    Graph,
-    GraphInterface,
-    GraphStructure,
-    Step,
-    ThreadRunOptions,
-)
+from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step, run
 
 data_ready = "validated-data"
 
@@ -133,7 +154,7 @@ pipeline = Graph(
     ),
     label="pipeline",
 )
-Execution(pipeline).run(ThreadRunOptions(workers=3))
+run(pipeline, max_workers=3)
 ```
 
 ```text
@@ -181,13 +202,7 @@ only one direction or declare a new interface with `GraphInterface`.
 ### Static conditions: choose work before execution
 
 ```python
-from rivlet import (
-    Execution,
-    StaticCondition,
-    StaticConditions,
-    Step,
-    ThreadRunOptions,
-)
+from rivlet import Execution, StaticCondition, StaticConditions, Step, run
 
 extra_checks = StaticCondition(payload=False, description="extra checks enabled")
 static = StaticConditions(evaluator=lambda condition: condition.payload is True)
@@ -200,7 +215,7 @@ finish = Step(lambda: print("finish static workflow"), label="finish")
 graph = (prepare >> (verify | static.when(extra_checks, extra)) >> finish).graph(
     label="static conditions",
 )
-Execution(graph).run(ThreadRunOptions(workers=2))
+run(graph, max_workers=2)
 ```
 
 With `payload=False`, compilation removes `extra`; change it to `True` to include
@@ -214,7 +229,7 @@ ordering. Static conditions also do not defer Python construction of a child gra
 ### Static selection: retain candidates, select exactly one
 
 ```python
-from rivlet import Case, Execution, Step, static
+from rivlet import Case, Execution, Step, run, static
 
 platform = "android"
 version = 3
@@ -235,7 +250,7 @@ graph = (
     )
     >> finish
 ).graph(label="static selection")
-Execution(graph).run()
+run(graph)
 ```
 
 Each `Case(condition, component)` contains one complete boolean condition and a
@@ -250,7 +265,7 @@ for subgraphs, boundaries, and direct declarations.
 ### Passing results to an action
 
 ```python
-from rivlet import Execution, Graph, NodeRunContext, Option, Results, Step
+from rivlet import Execution, Graph, NodeRunContext, Option, Results, Step, run
 
 prepare = Step(lambda: print("prepare"))
 plan = Step(lambda: "implementation plan")
@@ -273,7 +288,7 @@ graph = Graph.from_wiring(
         work.wire(after=(prepare, Results(plan, review))),
     )
 )
-Execution(graph).run()
+run(graph)
 ```
 
 `after` lists both kinds of prerequisite: a plain Node only waits for completion;
@@ -287,7 +302,7 @@ subgraphs; see the complete [port result example](https://github.com/ririv/rivle
 ### Runtime conditions: decide from a step result
 
 ```python
-from rivlet import Execution, Graph, Option, Step
+from rivlet import Execution, Graph, Option, Step, run
 
 
 def should_process(result: Option[object]) -> bool:
@@ -310,7 +325,7 @@ graph = Graph.from_wiring(
     ),
     label="runtime conditions",
 )
-Execution(graph).run()
+run(graph)
 ```
 
 `condition=(should_process, probe)` declares the result dependency and passes it as
@@ -328,7 +343,7 @@ For a subgraph, pass the same condition to `Graph(structure, condition=...)`.
 ### Conditional edges: decide whether to wait
 
 ```python
-from rivlet import ConditionalPrerequisite, Execution, Graph, Step, ThreadRunOptions
+from rivlet import ConditionalPrerequisite, Execution, Graph, Step, run
 
 decision = Step(lambda: False, label="wait for checks")
 checks = Step(lambda: print("run checks"), label="checks")
@@ -350,7 +365,7 @@ graph = Graph.from_wiring(
     ),
     label="conditional dependency",
 )
-Execution(graph).run(ThreadRunOptions(workers=2))
+run(graph, max_workers=2)
 ```
 
 `publish` waits for `decision`. If it returns `True`, `publish` also waits for
@@ -363,7 +378,8 @@ through `static.edge(source, target, condition=...)`.
 
 ```python
 import json
-from rivlet import Execution, Step, export_graph
+
+from rivlet import Execution, Step, export_graph, run
 
 graph = (
     Step(lambda: None, label="prepare") >> Step(lambda: None, label="finish")
@@ -373,7 +389,7 @@ declaration = export_graph(graph)
 compilation = execution.compile()
 compiled = export_graph(compilation)
 json.dumps({"declaration": declaration, "compiled": compiled})
-execution.run()  # reuses the same compilation
+run(execution)  # reuses the same compilation
 ```
 
 The versioned JSON document preserves mounted IDs, subgraph boundaries, typed edges,

@@ -40,7 +40,7 @@ settings remain unchanged.
 Declaration and compilation were unchanged; their small differences do not
 establish a gain or regression.
 
-Execution.run(ThreadRunOptions(workers=1)) still uses a thread driver, not
+The current `run(workflow, max_workers=1)` still uses a thread pool, not
 the serial reference driver. Task submission, synchronization, and batch
 Python/Rust exchange still cost more than an ordinary function call.
 

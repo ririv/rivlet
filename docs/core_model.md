@@ -26,13 +26,13 @@ in the [node modeling discussion](./design/node-modeling.md).
 ## Nodes and reusable structure
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphStructure, Step
+from rivlet import Edge, Execution, Graph, GraphStructure, Step, run
 
 prepare = Step(lambda: print("prepare"), label="prepare")
 finish = Step(lambda: print("finish"), label="finish")
 body = GraphStructure(nodes=(prepare, finish), edges=(Edge(prepare, finish),))
 workflow = Graph(body, label="workflow", condition=lambda: True)
-Execution(workflow).run()
+run(workflow)
 
 left = Graph(body, label="left")
 right = Graph(body, label="right")
@@ -65,9 +65,12 @@ composition preserves actual nodes, never silently allocates replacement wrapper
 ## Edges, wire and DSL
 
 ```python
-direct = Graph(GraphStructure(
-    nodes=(prepare, finish), edges=(Edge(prepare, finish),),
-))
+direct = Graph(
+    GraphStructure(
+        nodes=(prepare, finish),
+        edges=(Edge(prepare, finish),),
+    )
+)
 with_wire = Graph.from_wiring((prepare.wire(), finish.wire(after=(prepare,))))
 with_dsl = (prepare >> (left | right) >> finish).graph(label="pipeline")
 ```
@@ -87,7 +90,7 @@ drawn between components is not necessarily a cycle between their actual leaves.
 ## Graph declaration decorator
 
 ```python
-from rivlet import Execution, GraphWiring, graph, step
+from rivlet import Execution, GraphWiring, graph, run, step
 
 
 @step
@@ -104,7 +107,7 @@ def pipeline() -> GraphWiring:
     return prepare >> build
 
 
-Execution(pipeline).run()
+run(pipeline)
 ```
 
 `@graph` immediately calls its zero-argument declaration once and passes the
@@ -132,15 +135,23 @@ from rivlet import NodeRunContext, Option, Results
 plan = Step(lambda: "plan")
 review = Step(lambda: True)
 
-def implement(ctx: NodeRunContext, plan: Option[object], review: Option[object]) -> None:
+
+def implement(
+    ctx: NodeRunContext, plan: Option[object], review: Option[object]
+) -> None:
     ctx.control.require_running()
     print(plan.unwrap(), review.unwrap())
 
+
 work = Step(implement)
-root = Graph.from_wiring((
-    prepare.wire(), plan.wire(), review.wire(),
-    work.wire(after=(prepare, Results(plan, review))),
-))
+root = Graph.from_wiring(
+    (
+        prepare.wire(),
+        plan.wire(),
+        review.wire(),
+        work.wire(after=(prepare, Results(plan, review))),
+    )
+)
 ```
 
 Plain prerequisites only order execution. Results also passes ordered Option
@@ -161,16 +172,21 @@ from rivlet import GraphInterface
 producer = (plan | review).graph(
     interface=GraphInterface(outputs={"plan": plan, "review": review}),
 )
-consumer = Graph(GraphStructure(
-    nodes=(work,), interface=GraphInterface(inputs={"apply": work}),
-))
-root = Graph(GraphStructure(
-    nodes=(producer, consumer),
-    edges=Edge.results(
-        (producer.interface.outputs["plan"], producer.interface.outputs["review"]),
-        consumer.interface.inputs["apply"],
-    ),
-))
+consumer = Graph(
+    GraphStructure(
+        nodes=(work,),
+        interface=GraphInterface(inputs={"apply": work}),
+    )
+)
+root = Graph(
+    GraphStructure(
+        nodes=(producer, consumer),
+        edges=Edge.results(
+            (producer.interface.outputs["plan"], producer.interface.outputs["review"]),
+            consumer.interface.inputs["apply"],
+        ),
+    )
+)
 ```
 
 An exposed input may await outer wiring. Final compilation rejects unresolved

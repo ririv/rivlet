@@ -2,18 +2,18 @@
 
 [English](../execution.md) | 简体中文
 
-## Dynamic / Compiled 模式
+## 展示模式
 
 `Execution` 保留两个公开模式，但二者不再对应两套执行器：
 
 - dynamic
-  - `Execution.run(mode="dynamic")`
+  - `run(execution, mode="dynamic")`
   - 使用 Rust 声明编译器和 Rust execution session
   - 为兼容结构视图，composite 同时记录到 `executed_steps/completed_steps`
   - 端口连接 与 compiled 模式使用同一 lowering
 - compiled
   - `Execution.compile()`
-  - `Execution.run(mode="compiled")`
+  - `run(execution, mode="compiled")`
   - 使用同一个 Rust 声明编译器和 Rust execution session
   - composite 只记录专门的进入与完成状态
   - 支持 端口连接 lowering
@@ -31,16 +31,17 @@ None，之后返回该对象。编译异常不提交半成品。重新求静态�
 
 ## Python action 返回值
 
-串行和线程执行器先调用 Python action，再根据实际返回值处理：
+阻塞和可等待入口共用动作调用、结果处理与 session 推进流程：
 
 - 普通值直接进入结果记录；不为同步 action 创建 asyncio 事件循环。
-- awaitable 在当前执行线程的新事件循环中完成等待；支持 coroutine function、
-  同步函数返回的 coroutine，以及自定义 awaitable。
+- 协程动作使用同一个事件循环。阻塞入口实际遇到 awaitable 后才创建循环，之后的
+  协程和动态子图复用它；可等待入口直接使用调用方当前循环。同样支持同步函数返回
+  coroutine 或自定义 awaitable，保留动作自己的 ContextVar 上下文。
 - 返回 `Graph` 时仍执行动态子图，完成后再结束当前 Node。
 
-不能只根据 `async def` 判断是否需要等待，因为普通函数也可以返回 awaitable。
-异步执行器在 `arun()` 中使用调用方已有事件循环，同步 action 通过 `asyncio.to_thread()` 执行，
-不受这条同步快速路径影响。日志作用域、异常传播、结果存储和 Node 生命周期保持不变。
+同步 Python 动作提交到调用方提供的同解释器线程池。已知协程动作不会排在阻塞线程
+任务后面；普通函数的返回值也会检查是否需要等待，不能只检查 `async def`。
+纯同步执行及其失败收尾均不创建事件循环。日志、异常、结果及 Node 生命周期规则不变。
 
 各项开销的分离测量见 [Node 开销基准](./step_overhead_benchmark.md)。
 
@@ -72,14 +73,14 @@ None，之后返回该对象。编译异常不提交半成品。重新求静态�
 当前渲染接口分两类：
 
 - `render_graph(...)`
-  - 接受 `Graph | GraphCompilation`
-  - 纯结构展示显式接收标题 `root_label`，Graph 自身没有 label
+  - 接受 Step / Graph、GraphStructure 或 GraphCompilation
+  - 纯结构展示显式接收检查标题 `root_label`；不覆盖 Graph 自身的 label
   - `mode="dynamic"` 时返回终端友好的组合结构树
   - `mode="compiled"` 时返回 compilation 视图文本
   - 若传入 `GraphCompilation` 且 `mode="dynamic"`，按 `source_graph` 的组合结构渲染
 - `render_graph_mermaid(...)`
-  - 接受 `Graph | GraphCompilation`
-  - 纯结构展示显式接收标题 `root_label`，Graph 自身没有 label
+  - 接受 Step / Graph、GraphStructure 或 GraphCompilation
+  - 纯结构展示显式接收检查标题 `root_label`；不覆盖 Graph 自身的 label
   - `mode="dynamic"` 时返回原始 `Graph` 的结构 mermaid
   - `mode="compiled"` 时返回 compilation mermaid
   - 若传入 `Graph` 且 `mode="compiled"`，内部会先 `compile_graph(...)`
@@ -88,39 +89,56 @@ None，之后返回该对象。编译异常不提交半成品。重新求静态�
 
 - `render_graph_compilation_mermaid(compilation, root_label=...)`
 
-## Run Options
+## 托管与借用执行资源
 
-位置：
-
-- [src/rivlet/runtime/run.py](../../src/rivlet/runtime/run.py)
-
-当前运行选项拆成两类：
-
-- `ThreadRunOptions`
-  - `workers`
-  - `observer`
-- `AsyncRunOptions`
-  - `concurrency`
-  - `observer`
-
-语义固定为：
-
-- 线程后端使用 `workers`
-- 异步后端使用 `concurrency`
-- 两者默认值都为 `1`
-- `observer` 是可选的
-- 未传 `observer` 时，不会发出 graph observation
-- `Execution.run(options=..., mode=...)` 接受它们的联合类型
-
-已有事件循环时使用：
+不再区分线程模式和异步模式，也不设置全图动作额度。`run` 阻塞调用方；`arun`
+允许调用方异步等待同一类混合工作流。`dynamic` / `compiled` 只控制展示记录。
 
 ```python
-state = await Execution(Graph(structure=(graph).structure)).arun(
-    AsyncRunOptions(concurrency=8)
-)
+from rivlet import arun, run
+
+state = run(workflow, max_workers=4)
+# 在 async 函数中：
+# state = await arun(workflow, max_workers=4)
 ```
 
-同步 `run(AsyncRunOptions(...))` 与 `arun()` 复用同一异步实现。
+高阶函数创建并关闭自己的 Python 线程池。`max_workers` 默认 1，只限制同步 Python
+工作线程，不限制在途协程；线程按需启动。传入 Node 时创建新 Execution，也可以
+直接传入已准备的 Execution，保留同一次编译、结果、事件及宿主绑定。
+两个入口都可显式传 `observer=...`；不传时不发出 graph observation。
+
+已有线程池时使用低阶方法：
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+from rivlet import Execution
+
+with ThreadPoolExecutor(max_workers=4) as pool:
+    execution = Execution(workflow)
+    compilation = execution.compile()
+    state = execution.run(pool=pool)
+    assert execution.compilation is compilation
+    assert pool.submit(lambda: 42).result() == 42
+```
+
+在 async 函数中使用 `await execution.arun(pool=pool)`，不用再传 loop。已经运行
+事件循环的线程不能调用 `execution.run`，应使用 arun。低阶方法从不关闭借入的池，
+失败和取消时也一样；返回前只等待本次提交的工作退出，不等待池中无关任务。
+
+这里只支持同一解释器中的 ThreadPoolExecutor。ProcessPoolExecutor 和
+InterpreterPoolExecutor 不可直接替换：闭包、上下文、共享状态和扩展对象没有建立
+序列化或隔离契约。Rust 动作继续在 Rust worker 中执行，不经过 Python action 回调；
+其 session 内部资源与借入的 Python 池分开。
+每个 Rust session 默认取逻辑 CPU 数（不可获得时为 1），最多 32 个 worker，且不超过
+当前 Rust 动作数量；不再从 Python `max_workers` 推导其容量。
+Rust 批次完成通知不占用 Python 动作线程，池已满也不会阻止协程消费已经完成的
+Rust 结果。
+
+运行时返回的子图复用父执行的 Python 池和事件循环。父动作返回子图后释放线程，
+不在线程里递归等待子图；独立分支不保证先后顺序。不设全图额度，也就不会自动限制
+在途协程数或等待线程池的提交数量。下载、API、内存等预算由业务显式限制，例如
+在网络请求周围组合 asyncio semaphore，不能把 `max_workers` 当作这些资源的预算。
 
 ## 执行控制
 
@@ -306,15 +324,8 @@ Rust compiler 会转换所有声明期已知子图：
 
 ## 当前并发语义
 
-当前 Graph runtime 通过运行选项联合类型控制执行后端与并发度：
-
-- `ThreadRunOptions(workers=...)`
-  - 同步 Python step 直接执行，异步 Python step 通过 `asyncio.run(...)` 桥接
-  - Rust action 由 Rust session 直接派发，并与 Python action 共享同一总并发预算
-- `AsyncRunOptions(concurrency=...)`
-  - 异步 step 直接 await，同步 step 通过 `asyncio.to_thread(...)` 桥接
-  - Rust action 同样通过受控 worker 执行，不阻塞 asyncio event loop
-  - 同步和异步 action 的日志作用域都通过 `ContextVar` 保持任务级隔离
+同步与协程动作可以混用，不再按运行选项选择整图后端。资源所有权和调用方式见
+[托管与借用执行资源](#托管与借用执行资源)。日志作用域通过 ContextVar 保持动作隔离。
 
 并发语义：
 
@@ -328,17 +339,17 @@ Rust compiler 会转换所有声明期已知子图：
 
 ## 并发边界
 
-Graph 已提供线程与异步两种受控调度后端，但仍保持以下边界：
+统一调度保留以下边界：
 
-- 并发上限由显式 run options 决定
+- 同步 Python 工作线程数由池决定，业务限流由使用者组合
 - 只调度拓扑上已经 ready 的节点
 - 显式取消后停止派发新节点；普通失败按依赖关系传播
 - 已经开始执行的同步 worker 或异步 task 不会被 Graph 强制取消
-- 运行期返回图仍使用独立 Rust session，由同一驱动分配全局动作名额
-- 等待子图的父步骤不占名额，所有 Python 子图共用一个线程池或事件循环
-- Python 与 Rust 原生叶子动作合计受根执行的并发上限约束
+- 运行期返回图使用独立 Rust session，由同一驱动推进
+- 等待子图的父步骤不占线程；Python 子图共用线程池和事件循环
+- 不提供 Python / Rust / 协程合计的全图动作额度
 - 节点 ready 判定仍在 Rust，串行嵌套 session 使用显式栈推进
 - action 对宿主共享状态的并发写入安全由宿主负责
 
-该上限不统计 action 内部自行创建的线程、子进程或模型请求；Graph 提供的是 DAG
-调度并发，不是宿主资源、进程或事务的全局并发管理器。
+Graph 不统计 action 内部自行创建的线程、子进程或模型请求；它提供 DAG 调度，
+不是宿主资源、进程或事务的全局并发管理器。

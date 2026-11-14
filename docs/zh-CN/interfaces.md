@@ -84,9 +84,7 @@ graph = prepared_wiring.graph(
 
 ```python
 # 整体转发，保留子图边界，不复制 Node。
-outer = (prepare >> child_graph).graph(
-    interface=child_graph
-)
+outer = (prepare >> child_graph).graph(interface=child_graph)
 
 # 分方向转发；输出以最终收尾步骤为准，不公开 child 原来的输出。
 outer = (child_graph >> normalize).graph(
@@ -160,23 +158,34 @@ GraphStructure.interface 保存声明；Graph.interface 返回绑定该图节点
 Graph，不用 (Step, "port") 或额外 bind。以下是独立可执行的例子：
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step
+from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step, run
 
 plan = Step(lambda: "design", label="plan")
-producer = Graph(GraphStructure(
-    nodes=(plan,), interface=GraphInterface(outputs={"plan": plan}),
-), label="producer")
-work = Step(lambda ctx, value: print(value.unwrap()), label="work")
-consumer = Graph(GraphStructure(
-    nodes=(work,), interface=GraphInterface(inputs={"apply": work}),
-), label="consumer")
-root = Graph(GraphStructure(
-    nodes=(producer, consumer),
-    edges=Edge.results(
-        (producer.interface.outputs["plan"],), consumer.interface.inputs["apply"],
+producer = Graph(
+    GraphStructure(
+        nodes=(plan,),
+        interface=GraphInterface(outputs={"plan": plan}),
     ),
-))
-Execution(root).run()
+    label="producer",
+)
+work = Step(lambda ctx, value: print(value.unwrap()), label="work")
+consumer = Graph(
+    GraphStructure(
+        nodes=(work,),
+        interface=GraphInterface(inputs={"apply": work}),
+    ),
+    label="consumer",
+)
+root = Graph(
+    GraphStructure(
+        nodes=(producer, consumer),
+        edges=Edge.results(
+            (producer.interface.outputs["plan"],),
+            consumer.interface.inputs["apply"],
+        ),
+    )
+)
+run(root)
 ```
 
 公开入口可暂未绑定；最终编译检查每个真实叶子的完整参数组。输入端口指向多个叶子时，
@@ -382,8 +391,10 @@ A 和 B 的子图边界仍然保留；不会为了接线而展开声明图，也
 因此以下两种写法使用同一份 binding lowering：
 
 ```python
-Execution(root=Graph(structure=(graph).structure)).run(mode="compiled")
-Execution(root=Graph(structure=(graph).structure)).run(mode="dynamic")
+from rivlet import run
+
+run(Execution(root=Graph(structure=(graph).structure)), mode="compiled")
+run(Execution(root=Graph(structure=(graph).structure)), mode="dynamic")
 ```
 
 ## 当前语言边界

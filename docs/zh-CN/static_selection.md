@@ -9,7 +9,7 @@
 ## 完整条件与分支内容
 
 ```python
-from rivlet import Graph, Step, Case, Execution, static
+from rivlet import Case, Execution, Graph, Step, run, static
 
 platform = "android"
 version = 3
@@ -32,7 +32,7 @@ graph = (
     >> finish
 ).graph()
 
-Execution(Graph(structure=(graph).structure, label=("platform workflow"))).run()
+run(Graph(structure=(graph).structure, label=("platform workflow")))
 ```
 
 结果为 `prepare → modern → finish`。每个 `Case(condition, component)` 只有两个参数：
@@ -70,7 +70,16 @@ Python 在调用 API 前计算布尔表达式，并构造所有候选组件。�
 不使用 DSL 时，可以声明同一份选择和拓扑：
 
 ```python
-from rivlet import Graph, GraphStructure, Step, Case, Execution, StaticSelection, Edge
+from rivlet import (
+    Case,
+    Edge,
+    Execution,
+    Graph,
+    GraphStructure,
+    StaticSelection,
+    Step,
+    run,
+)
 
 first = Step(lambda: print("first"), label=("first"))
 second = Step(lambda: print("second"), label=("second"))
@@ -84,7 +93,7 @@ graph = Graph(
         static_selections=((StaticSelection(cases=cases),)),
     )
 )
-Execution(Graph(structure=(graph).structure)).run()
+run(Graph(structure=(graph).structure))
 ```
 
 `Graph.from_wiring()` 和 `.graph()` 同样接受 `static_selections=`。DSL 自动携带声明，

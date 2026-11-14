@@ -37,15 +37,16 @@ The event's mounted `node_path` identifies its consumer. Every related `source` 
 
 ```python
 from rivlet import (
-    Graph,
     ActionFailed,
     BlockedByCondition,
     BlockedByConditionInput,
     BlockedByDependency,
     BlockedByParent,
     Execution,
+    Graph,
     NodeExecutionEvent,
     SubgraphFailed,
+    run,
 )
 
 
@@ -68,7 +69,7 @@ class Events:
                 print(event.node_path, event.state)
 
 
-Execution(Graph(structure=(graph).structure), events=Events()).run()
+run(Execution(Graph(structure=(graph).structure), events=Events()))
 ```
 
 ## Direct witnesses

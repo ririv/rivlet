@@ -12,7 +12,8 @@ It has no HTTP, frontend, or Pydantic dependency and is not an executable input 
 
 ```python
 import json
-from rivlet import Graph, Step, Case, Execution, export_graph, static
+
+from rivlet import Case, Execution, Graph, Step, export_graph, run, static
 
 graph = static.select(
     cases=(
@@ -28,7 +29,7 @@ prepared = execution.compile()  # static evaluation happens here, once
 compiled = export_graph(prepared)  # no second compilation or evaluation
 assert execution.compile() is prepared
 json.dumps({"declaration": declared, "compiled": compiled})
-execution.run()  # uses the same prepared structure
+run(execution)  # uses the same prepared structure
 assert execution.compilation is prepared
 ```
 

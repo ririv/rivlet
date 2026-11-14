@@ -10,7 +10,7 @@ GraphTemplate, or second Node/Graph API.
 ## Complete conditions and branch contents
 
 ```python
-from rivlet import Graph, Step, Case, Execution, static
+from rivlet import Case, Execution, Graph, Step, run, static
 
 platform = "android"
 version = 3
@@ -33,7 +33,7 @@ graph = (
     >> finish
 ).graph()
 
-Execution(Graph(structure=(graph).structure, label=("platform workflow"))).run()
+run(Graph(structure=(graph).structure, label=("platform workflow")))
 ```
 
 This runs `prepare → modern → finish`. Each `Case(condition, component)` has two arguments:
@@ -74,7 +74,16 @@ fail.” Another true condition still produces a conflict. There is no implicit 
 The same rules and topology can be declared without the DSL:
 
 ```python
-from rivlet import Graph, GraphStructure, Step, Case, Execution, StaticSelection, Edge
+from rivlet import (
+    Case,
+    Edge,
+    Execution,
+    Graph,
+    GraphStructure,
+    StaticSelection,
+    Step,
+    run,
+)
 
 first = Step(lambda: print("first"), label=("first"))
 second = Step(lambda: print("second"), label=("second"))
@@ -88,7 +97,7 @@ graph = Graph(
         static_selections=((StaticSelection(cases=cases),)),
     )
 )
-Execution(Graph(structure=(graph).structure)).run()
+run(Graph(structure=(graph).structure))
 ```
 
 `Graph.from_wiring()` and `.graph()` also accept `static_selections=`.

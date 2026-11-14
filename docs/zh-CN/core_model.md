@@ -23,13 +23,13 @@ Node（共同协议）
 ## 节点与可复用结构
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphStructure, Step
+from rivlet import Edge, Execution, Graph, GraphStructure, Step, run
 
 prepare = Step(lambda: print("prepare"), label="prepare")
 finish = Step(lambda: print("finish"), label="finish")
 body = GraphStructure(nodes=(prepare, finish), edges=(Edge(prepare, finish),))
 workflow = Graph(body, label="workflow", condition=lambda: True)
-Execution(workflow).run()
+run(workflow)
 
 left = Graph(body, label="left")
 right = Graph(body, label="right")
@@ -57,9 +57,12 @@ GraphStructure 保存节点、边、GraphInterface 声明、观察消息、静�
 ## 边、wire 与 DSL
 
 ```python
-direct = Graph(GraphStructure(
-    nodes=(prepare, finish), edges=(Edge(prepare, finish),),
-))
+direct = Graph(
+    GraphStructure(
+        nodes=(prepare, finish),
+        edges=(Edge(prepare, finish),),
+    )
+)
 with_wire = Graph.from_wiring((prepare.wire(), finish.wire(after=(prepare,))))
 with_dsl = (prepare >> (left | right) >> finish).graph(label="pipeline")
 ```
@@ -76,7 +79,7 @@ NodeWiring 是构造输入，不是执行包装。GraphStructure 保存归一化
 ## 构图装饰器
 
 ```python
-from rivlet import Execution, GraphWiring, graph, step
+from rivlet import Execution, GraphWiring, graph, run, step
 
 
 @step
@@ -93,7 +96,7 @@ def pipeline() -> GraphWiring:
     return prepare >> build
 
 
-Execution(pipeline).run()
+run(pipeline)
 ```
 
 `@graph` 会立即调用一次无参构图函数，把返回的 GraphWiring 交给
@@ -118,15 +121,23 @@ from rivlet import NodeRunContext, Option, Results
 plan = Step(lambda: "plan")
 review = Step(lambda: True)
 
-def implement(ctx: NodeRunContext, plan: Option[object], review: Option[object]) -> None:
+
+def implement(
+    ctx: NodeRunContext, plan: Option[object], review: Option[object]
+) -> None:
     ctx.control.require_running()
     print(plan.unwrap(), review.unwrap())
 
+
 work = Step(implement)
-root = Graph.from_wiring((
-    prepare.wire(), plan.wire(), review.wire(),
-    work.wire(after=(prepare, Results(plan, review))),
-))
+root = Graph.from_wiring(
+    (
+        prepare.wire(),
+        plan.wire(),
+        review.wire(),
+        work.wire(after=(prepare, Results(plan, review))),
+    )
+)
 ```
 
 普通前置只等待完成；Results 还按顺序传 Option。直接构造等价边使用
@@ -144,16 +155,21 @@ from rivlet import GraphInterface
 producer = (plan | review).graph(
     interface=GraphInterface(outputs={"plan": plan, "review": review}),
 )
-consumer = Graph(GraphStructure(
-    nodes=(work,), interface=GraphInterface(inputs={"apply": work}),
-))
-root = Graph(GraphStructure(
-    nodes=(producer, consumer),
-    edges=Edge.results(
-        (producer.interface.outputs["plan"], producer.interface.outputs["review"]),
-        consumer.interface.inputs["apply"],
-    ),
-))
+consumer = Graph(
+    GraphStructure(
+        nodes=(work,),
+        interface=GraphInterface(inputs={"apply": work}),
+    )
+)
+root = Graph(
+    GraphStructure(
+        nodes=(producer, consumer),
+        edges=Edge.results(
+            (producer.interface.outputs["plan"], producer.interface.outputs["review"]),
+            consumer.interface.inputs["apply"],
+        ),
+    )
+)
 ```
 
 公开输入允许等待外层接线；最终编译拒绝未绑定输入、重复参数组和真实循环。

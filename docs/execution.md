@@ -2,13 +2,13 @@
 
 English | [简体中文](./zh-CN/execution.md)
 
-## Dynamic and compiled modes
+## Presentation modes
 
 Both public modes use the same Rust declaration compiler and execution session:
 
-- `Execution.run(mode="dynamic")` retains compatibility presentation records:
+- `run(execution, mode="dynamic")` retains compatibility presentation records:
   composites also appear in `executed_steps/completed_steps`.
-- `Execution.run(mode="compiled")` records composites through their dedicated
+- `run(execution, mode="compiled")` records composites through their dedicated
   entry/completion state. `Execution.compile()` exposes the compiled structure.
 
 str bindings use the same lowering in both modes. The runtime consumes
@@ -28,17 +28,20 @@ business results. See [structural export](./graph_export.md) to freeze the exact
 
 ## Python action return values
 
-Serial and thread drivers invoke a Python action, then inspect its return value:
+The blocking and awaitable entry points use the same action and session pipeline:
 
 - Ordinary values go directly to result recording, without creating an event loop.
-- Awaitables run to completion in a new event loop in the execution thread.
-  This includes coroutine functions, synchronous functions returning coroutines,
-  and custom awaitables.
+- Coroutine actions run on one event loop. A blocking run creates that loop only
+  when it encounters an awaitable; subsequent coroutine actions and dynamically
+  returned subgraphs reuse it. An awaitable run uses the caller's running loop.
+  Synchronous functions returning coroutines and custom awaitables are also
+  supported; the action's ContextVar context is preserved.
 - A returned Graph executes as a dynamic subgraph before the outer Node completes.
 
-Checking only `async def` is insufficient: a synchronous function can return an
-awaitable. The async driver awaits async actions and bridges synchronous calls
-with `asyncio.to_thread()`. `arun()` uses the caller's existing event loop.
+Synchronous Python actions run in the supplied same-interpreter thread pool.
+Known coroutine functions do not queue behind blocking thread work. Checking only
+`async def` is insufficient: every synchronous return value is also inspected.
+No event loop is created for a purely synchronous run, including its failure path.
 See the [Node overhead benchmark](./step_overhead_benchmark.md).
 
 ## Conditional execution
@@ -76,20 +79,65 @@ Execution views use recorded condition results; they do not rerun predicates.
 `render_execution(root_step, state)` and `render_live_execution(root_step, state)`
 receive the actual root Node and derive its name; they do not accept a second `root_label`.
 
-## Run options
+## Managed and borrowed execution resources
 
-[Run options](../src/rivlet/runtime/run.py) form a union:
+There is no thread-versus-async execution mode or graph-wide action quota.
+`run` blocks its caller; `arun` allows its caller to await the same mixed workflow.
+The `dynamic` / `compiled` argument only controls presentation records.
 
-- `ThreadRunOptions(workers=..., observer=...)`
-- `AsyncRunOptions(concurrency=..., observer=...)`
+```python
+from rivlet import arun, run
 
-Both concurrency limits default to 1. Observer is optional; without one, graph
-observation is not emitted. Pass either option type to
-`Execution.run(options=..., mode=...)`.
+state = run(workflow, max_workers=4)
+# In an async function:
+# state = await arun(workflow, max_workers=4)
+```
 
-Inside an existing event loop, use
-`await Execution(root_step).arun(AsyncRunOptions(concurrency=8))`.
-Both entry points use the same asynchronous implementation.
+These high-level functions create and shut down their Python thread pool.
+`max_workers` defaults to 1 and limits only synchronous Python worker threads, not in-flight
+coroutines. The pool starts threads lazily. Pass a Node or an already prepared
+Execution; the latter preserves its compilation, results, events and host bindings.
+`observer=...` is optional and has the same meaning for both entry points.
+
+For externally managed resources, use the lower-level Execution methods:
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+from rivlet import Execution
+
+with ThreadPoolExecutor(max_workers=4) as pool:
+    execution = Execution(workflow)
+    compilation = execution.compile()
+    state = execution.run(pool=pool)
+    assert execution.compilation is compilation
+    assert pool.submit(lambda: 42).result() == 42
+```
+
+Inside an async function, use `await execution.arun(pool=pool)`. No loop argument
+is needed. `execution.run` rejects calls from an already running event loop;
+use `arun` there. Both lower-level methods borrow the pool and never shut it down,
+even after an action failure or cancellation. They wait for their own submitted
+work to exit, not unrelated work belonging to the pool's owner.
+
+Only same-interpreter ThreadPoolExecutor instances are supported. Process pools
+and InterpreterPoolExecutor are not interchangeable: closures, contexts, shared
+state and extension values have no serialization/isolation contract here. Native
+Rust actions still execute in Rust workers without Python action callbacks; their
+session-owned resources are separate from the borrowed Python pool.
+Each Rust session defaults to the logical CPU count (1 when unavailable), capped
+at 32 and at its number of Rust actions; Python `max_workers` is not its capacity input.
+Rust batch completion notifications do not occupy Python action workers, so a
+full Python pool cannot prevent a coroutine from consuming an already finished
+Rust result.
+
+Runtime-generated subgraphs use the same Python pool and event loop as their
+parent execution. Returning a child graph releases the parent worker rather than
+waiting recursively inside it. Independent branches have no promised order.
+Removing a graph-wide quota also means no automatic bound on outstanding coroutine
+tasks or queued synchronous submissions. Apply resource-specific limits explicitly,
+for example an asyncio semaphore around network requests; never assume `max_workers`
+is a download/API/memory budget.
 
 ## Execution control
 
@@ -261,23 +309,21 @@ does not imply simultaneous execution.
 
 ## Concurrency boundaries
 
-Thread options run synchronous Python calls directly in workers and bridge
-awaitables with asyncio.run. Async options await async work and use
-asyncio.to_thread for synchronous calls. Native actions run in controlled Rust
-workers without blocking the async event loop. Both language branches share one
-session's total capacity. ContextVar isolates action log scopes per task.
+Blocking and awaitable entry points share the same mixed-action scheduling model;
+they do not select thread-versus-async modes. Python `max_workers` bounds synchronous
+Python threads, not coroutine tasks or Rust workers. Resource ownership is described
+in [managed and borrowed execution](#managed-and-borrowed-execution-resources).
+ContextVar isolates action log scopes per task.
 
 Only ready nodes are dispatched. Ordinary failures stop dependent work, while
 unrelated ready nodes continue. Explicit cancellation stops new dispatch.
 Already-running workers/tasks are not forcibly cancelled by Graph.
 
 Runtime-returned subgraphs use nested Rust sessions coordinated by one driver.
-Python sessions share one pool or event loop, and all active Python/native leaves
-share the root concurrency budget. Waiting parents retain their dependency
-boundary without occupying action capacity. Serial execution uses an explicit
-session stack. Per-node readiness remains in Rust; the driver allocates capacity
-between sessions. Safety of concurrent host-state writes remains the host's
-responsibility. The budget does not limit work spawned inside individual actions.
+Python sessions share one pool and event loop without a root-wide action quota.
+Waiting parents retain their dependency boundary without occupying a worker.
+Per-node readiness remains in Rust. Safety of concurrent host-state writes and
+limits on work spawned inside individual actions remain the host's responsibility.
 
 Do not rely on ordering between independent Steps. Declare meaningful ordering
 with `wire(after=...)`, edges, or `>>`. Graph manages DAG concurrency, not global

@@ -8,6 +8,10 @@ cooperative cancellation. Both Python and Rust baseline code were extracted and
 built separately; the main checkout was not switched. These are local scheduling
 measurements, not real software builds or model-request benchmarks.
 
+This is historical evidence for the old shared-quota design. The current API
+separates Python thread capacity from coroutine scheduling and has no graph-wide
+action quota. The old quota claims below do not describe current behavior.
+
 ## Method
 
 - Apple M1 Pro, macOS 26.4 (25E246), Python 3.13.5, release Rust extension.
@@ -56,11 +60,11 @@ From the Rivetoo checkout, with its virtual environment:
 .venv/bin/python rivetoo-graph/benchmarks/recipe_scale.py \
   --recipes 2000 --steps 6 --lanes 20 --workers 8 --repeats 9
 .venv/bin/python rivetoo-graph/benchmarks/workflow_runtime.py --repeats 7
-.venv/bin/python rivetoo-graph/benchmarks/workflow_runtime.py --executor async --repeats 7
+.venv/bin/python rivetoo-graph/benchmarks/workflow_runtime.py --entry arun --repeats 7
 ```
 
-The workflow script also runs with the baseline Python package and extension. Use
-an isolated baseline installation or source snapshot through `PYTHONPATH`; the
-script does not change branches or install a baseline automatically. It prints
+Use the benchmark script from the matching revision when measuring an older
+package. Use an isolated source snapshot through `PYTHONPATH`; the current script
+does not preserve removed execution APIs or automatically install a baseline. It prints
 every duration sample and observed concurrency peak as JSON. The other scripts
 print their raw samples as well.

@@ -11,7 +11,8 @@
 
 ```python
 import json
-from rivlet import Graph, Step, Case, Execution, export_graph, static
+
+from rivlet import Case, Execution, Graph, Step, export_graph, run, static
 
 graph = static.select(
     cases=(
@@ -27,7 +28,7 @@ prepared = execution.compile()  # 在这里求静态条件，成功后固定本�
 compiled = export_graph(prepared)  # 不重新编译、不重复求值
 assert execution.compile() is prepared
 json.dumps({"declaration": declared, "compiled": compiled})
-execution.run()  # 使用刚才导出的同一份编译结果
+run(execution)  # 使用刚才导出的同一份编译结果
 assert execution.compilation is prepared
 ```
 

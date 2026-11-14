@@ -6,6 +6,9 @@
 协作式取消改造。基线的 Python 与 Rust 代码通过独立源码快照分别构建，主工作区没有
 切换分支。这里测量的是本地调度成本，没有运行真实软件构建或模型请求。
 
+本文是旧统一额度方案的历史测量，不代表当前语义。当前 API 已分离 Python 线程
+容量与协程调度，不再提供全图动作额度；下文的旧额度保证只对应当时的版本。
+
 ## 测量方法
 
 - Apple M1 Pro、macOS 26.4（25E246）、Python 3.13.5、release Rust 扩展。
@@ -50,9 +53,9 @@ Python/Rust 混合动作的集成测试验证两者合计的预算，不把测�
 .venv/bin/python rivetoo-graph/benchmarks/recipe_scale.py \
   --recipes 2000 --steps 6 --lanes 20 --workers 8 --repeats 9
 .venv/bin/python rivetoo-graph/benchmarks/workflow_runtime.py --repeats 7
-.venv/bin/python rivetoo-graph/benchmarks/workflow_runtime.py --executor async --repeats 7
+.venv/bin/python rivetoo-graph/benchmarks/workflow_runtime.py --entry arun --repeats 7
 ```
 
-新增 workflow 脚本也能在旧版 Python 包与扩展上运行。基线须通过独立安装或
-`PYTHONPATH` 指向隔离快照，脚本不会自动切分支或安装旧版。它以 JSON 输出各次耗时
+测旧版时应使用对应版本的基准脚本，通过独立安装或 `PYTHONPATH` 指向隔离快照。
+当前脚本不兼容已移除的运行 API，也不会自动切分支或安装旧版。它以 JSON 输出各次耗时
 和实际并发峰值，另外两份脚本也会输出原始样本。

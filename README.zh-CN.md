@@ -16,8 +16,8 @@ Rivlet 是一个用于组合和执行任务图的 Python 库，执行核心由 R
 - **显式表达数据流**：用结果边把步骤返回值绑定到 action 或条件函数的参数；
   只需执行顺序的依赖不用传递结果。
 - **在对应位置声明条件**：执行前裁剪可选任务，根据运行结果跳过步骤，或只对某条依赖设置条件。
-- **控制执行方式**：支持同步与异步 Python 任务，显式设置并发度；运行时创建的子图
-  也共享同一份动作并发预算。
+- **混合同步与异步任务**：选择阻塞或可等待入口，可托管或借用线程池；运行时创建的
+  子图复用当次执行的 Python 资源。
 - **查看执行过程**：渲染图、查询结果、订阅强类型执行事件。步骤失败只阻断相关下游，
   无关分支继续运行，整次执行最终仍会报告失败。
 
@@ -38,7 +38,7 @@ Windows x64 的源码构建与安装后验收见
 ## 组合步骤与可复用子图
 
 ```python
-from rivlet import Execution, Graph, GraphWiring, Step, ThreadRunOptions, graph
+from rivlet import Graph, GraphWiring, Step, graph, run
 
 
 @graph
@@ -51,11 +51,11 @@ def checks() -> GraphWiring:
 prepare = Step(lambda: print("prepare"), label="prepare")
 finish = Step(lambda: print("finish"), label="finish")
 workflow = (prepare >> checks >> finish).graph(label="example")
-Execution(workflow).run(ThreadRunOptions(workers=2))
+run(workflow, max_workers=2)
 ```
 
 prepare 完成后，checks 中的 validate/test 可并发执行；finish 等待两者成功。
-`>>` 表示先后，`|` 不添加依赖。实际并发度由执行选项控制。
+`>>` 表示先后，`|` 不添加依赖。`max_workers` 限制同步 Python 线程数，不限制协程数量。
 
 `@graph` 会立即调用一次无参构图函数，将其返回的接线声明构造成以函数名为 label
 的 Graph；步骤动作仍只在执行时运行。节点既可以定义在函数内部，也可以引用外层声明。
@@ -67,17 +67,42 @@ condition，并支持相同的 wire/DSL 操作。Node 只是共同协议，不�
 GraphStructure 保存可复用结构，不持有节点身份。复用时显式创建两个 Graph：
 
 ```python
+from rivlet import run
+
 body = checks.structure
 left = Graph(body, label="left")
 right = Graph(body, label="right")
 both = (left | right).graph(label="both")
-Execution(both).run(ThreadRunOptions(workers=2))
+run(both, max_workers=2)
 ```
 
 两个 Graph 共享结构，但挂载路径和结果独立。DSL 保留传入节点，不能在同一结构里
 重复放入同一节点对象。Execution 接收实际 Step/Graph 根，不用 Step 再包装 Graph。
 声明再次运行时新建 Execution。非 DSL 写法见
 [核心模型](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/core_model.md)。
+
+## 托管资源或借用已有资源
+
+`run(workflow, max_workers=4)` 创建并关闭自己的 Python 线程池；在 async 函数中用
+`await arun(workflow, max_workers=4)`，复用调用方的事件循环。两种入口都能运行同一张
+包含同步与协程动作的图。
+
+应用已有同解释器线程池时，可使用低阶入口，资源所有权不转移：
+
+```python
+from concurrent.futures import ThreadPoolExecutor
+
+from rivlet import Execution
+
+with ThreadPoolExecutor(max_workers=4) as pool:
+    execution = Execution(workflow)
+    execution.run(pool=pool)
+```
+
+在 async 函数中使用 `await execution.arun(pool=pool)`。Rivlet 等待本次工作退出，
+但从不关闭借入的池。不设置全图协程额度，业务限流需要显式组合；进程池和独立
+解释器池不能直接替换这里的共享内存执行模型。详见
+[执行资源](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/execution.md#托管与借用执行资源)。
 
 ## 用出入口连接子图
 
@@ -88,15 +113,7 @@ Execution(both).run(ThreadRunOptions(workers=2))
 下面是连接两个原本独立子图的完整示例：
 
 ```python
-from rivlet import (
-    Edge,
-    Execution,
-    Graph,
-    GraphInterface,
-    GraphStructure,
-    Step,
-    ThreadRunOptions,
-)
+from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step, run
 
 data_ready = "validated-data"
 
@@ -123,7 +140,7 @@ pipeline = Graph(
     ),
     label="pipeline",
 )
-Execution(pipeline).run(ThreadRunOptions(workers=3))
+run(pipeline, max_workers=3)
 ```
 
 ```text
@@ -167,13 +184,7 @@ wrapped = (setup >> producer).graph(interface=producer)
 ### 静态条件：执行前选择任务
 
 ```python
-from rivlet import (
-    Execution,
-    StaticCondition,
-    StaticConditions,
-    Step,
-    ThreadRunOptions,
-)
+from rivlet import Execution, StaticCondition, StaticConditions, Step, run
 
 extra_checks = StaticCondition(payload=False, description="extra checks enabled")
 static = StaticConditions(evaluator=lambda condition: condition.payload is True)
@@ -186,7 +197,7 @@ finish = Step(lambda: print("finish static workflow"), label="finish")
 graph = (prepare >> (verify | static.when(extra_checks, extra)) >> finish).graph(
     label="static conditions",
 )
-Execution(graph).run(ThreadRunOptions(workers=2))
+run(graph, max_workers=2)
 ```
 
 `payload=False` 时，编译会移除 `extra`；改为 `True`，它就会与 `verify` 一起参与执行。
@@ -198,7 +209,7 @@ payload 及其求值方式由应用定义，Rivlet 不内置特定的 feature �
 ### 静态选择：保留候选，编译时恰好选择一个
 
 ```python
-from rivlet import Case, Execution, Step, static
+from rivlet import Case, Execution, Step, run, static
 
 platform = "android"
 version = 3
@@ -219,7 +230,7 @@ graph = (
     )
     >> finish
 ).graph(label="static selection")
-Execution(graph).run()
+run(graph)
 ```
 
 `Case(condition, component)` 包含完整布尔条件和一个 Step 或 Graph；子图直接传 Graph。声明展示保留
@@ -231,7 +242,7 @@ evaluator。Python 构图时已计算布尔条件，编译时检查选择。子�
 ### 把结果传给动作
 
 ```python
-from rivlet import Execution, Graph, NodeRunContext, Option, Results, Step
+from rivlet import Execution, Graph, NodeRunContext, Option, Results, Step, run
 
 prepare = Step(lambda: print("prepare"))
 plan = Step(lambda: "implementation plan")
@@ -254,7 +265,7 @@ graph = Graph.from_wiring(
         work.wire(after=(prepare, Results(plan, review))),
     )
 )
-Execution(graph).run()
+run(graph)
 ```
 
 `after` 统一声明前置：普通 Node 只等待完成，`Results(plan, review)` 还按顺序传入它们的结果。
@@ -266,7 +277,7 @@ Execution(graph).run()
 ### 运行时条件：根据步骤结果决定是否执行
 
 ```python
-from rivlet import Execution, Graph, Option, Step
+from rivlet import Execution, Graph, Option, Step, run
 
 
 def should_process(result: Option[object]) -> bool:
@@ -289,7 +300,7 @@ graph = Graph.from_wiring(
     ),
     label="runtime conditions",
 )
-Execution(graph).run()
+run(graph)
 ```
 
 `condition=(should_process, probe)` 声明结果依赖，并把结果作为 `Option` 传给判断函数，
@@ -305,7 +316,7 @@ action 则得到 `Some(None)`。来源可能被跳过时，先用 `is_some()` �
 ### 条件边：只决定是否等待
 
 ```python
-from rivlet import ConditionalPrerequisite, Execution, Graph, Step, ThreadRunOptions
+from rivlet import ConditionalPrerequisite, Execution, Graph, Step, run
 
 decision = Step(lambda: False, label="wait for checks")
 checks = Step(lambda: print("run checks"), label="checks")
@@ -327,7 +338,7 @@ graph = Graph.from_wiring(
     ),
     label="conditional dependency",
 )
-Execution(graph).run(ThreadRunOptions(workers=2))
+run(graph, max_workers=2)
 ```
 
 `publish` 会等待 `decision`。它返回 `True` 时，`publish` 还要等待 `checks`；
@@ -339,7 +350,8 @@ Execution(graph).run(ThreadRunOptions(workers=2))
 
 ```python
 import json
-from rivlet import Execution, Step, export_graph
+
+from rivlet import Execution, Step, export_graph, run
 
 graph = (
     Step(lambda: None, label="prepare") >> Step(lambda: None, label="finish")
@@ -349,7 +361,7 @@ declaration = export_graph(graph)
 compilation = execution.compile()
 compiled = export_graph(compilation)
 json.dumps({"declaration": declaration, "compiled": compiled})
-execution.run()  # 复用同一份编译结果
+run(execution)  # 复用同一份编译结果
 ```
 
 版本化 JSON 文档保留挂载 ID、子图边界、边类型、条件与端口。声明检查不执行宿主代码，

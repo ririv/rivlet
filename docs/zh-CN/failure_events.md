@@ -32,15 +32,16 @@ Python 动作、原生动作、端口边、静态子图和动作返回的动态�
 
 ```python
 from rivlet import (
-    Graph,
     ActionFailed,
     BlockedByCondition,
     BlockedByConditionInput,
     BlockedByDependency,
     BlockedByParent,
     Execution,
+    Graph,
     NodeExecutionEvent,
     SubgraphFailed,
+    run,
 )
 
 
@@ -63,7 +64,7 @@ class Events:
                 print(event.node_path, event.state)
 
 
-Execution(Graph(structure=(graph).structure), events=Events()).run()
+run(Execution(Graph(structure=(graph).structure), events=Events()))
 ```
 
 ## 直接原因

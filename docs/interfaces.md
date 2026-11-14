@@ -81,9 +81,7 @@ Omitting it means an empty interface, not automatic exposure of inner ports.
 
 ```python
 # Forward the full interface without copying nodes or flattening the child.
-outer = (prepare >> child_graph).graph(
-    interface=child_graph
-)
+outer = (prepare >> child_graph).graph(interface=child_graph)
 
 # Forward inputs only; publish a different output.
 outer = (child_graph >> normalize).graph(
@@ -163,23 +161,34 @@ Step has no interface. References preserve their owning graph without a
 (Step, "port") pair or a separate bind call. This example is independently runnable:
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step
+from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step, run
 
 plan = Step(lambda: "design", label="plan")
-producer = Graph(GraphStructure(
-    nodes=(plan,), interface=GraphInterface(outputs={"plan": plan}),
-), label="producer")
-work = Step(lambda ctx, value: print(value.unwrap()), label="work")
-consumer = Graph(GraphStructure(
-    nodes=(work,), interface=GraphInterface(inputs={"apply": work}),
-), label="consumer")
-root = Graph(GraphStructure(
-    nodes=(producer, consumer),
-    edges=Edge.results(
-        (producer.interface.outputs["plan"],), consumer.interface.inputs["apply"],
+producer = Graph(
+    GraphStructure(
+        nodes=(plan,),
+        interface=GraphInterface(outputs={"plan": plan}),
     ),
-))
-Execution(root).run()
+    label="producer",
+)
+work = Step(lambda ctx, value: print(value.unwrap()), label="work")
+consumer = Graph(
+    GraphStructure(
+        nodes=(work,),
+        interface=GraphInterface(inputs={"apply": work}),
+    ),
+    label="consumer",
+)
+root = Graph(
+    GraphStructure(
+        nodes=(producer, consumer),
+        edges=Edge.results(
+            (producer.interface.outputs["plan"],),
+            consumer.interface.inputs["apply"],
+        ),
+    )
+)
+run(root)
 ```
 
 An exposed input may remain unbound until outer composition; final compilation validates
@@ -355,8 +364,10 @@ Both subgraph boundaries remain. The compiler does not turn this into “all of 
 must finish before any of B starts.” Both public modes use the same lowering:
 
 ```python
-Execution(root=Graph(structure=(graph).structure)).run(mode="compiled")
-Execution(root=Graph(structure=(graph).structure)).run(mode="dynamic")
+from rivlet import run
+
+run(Execution(root=Graph(structure=(graph).structure)), mode="compiled")
+run(Execution(root=Graph(structure=(graph).structure)), mode="dynamic")
 ```
 
 ## Language boundaries
