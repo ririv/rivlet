@@ -2,10 +2,7 @@
 
 [English](../index.md) | 简体中文
 
-`rivlet` 是一个显式、可组合的 Python DAG 声明与执行库。Python 导入入口为：
-
-```python
-```
+`rivlet` 是一个显式、可组合的 DAG 声明与执行库，提供 Python 与 Rust 声明 API。
 
 库本身提供：
 
@@ -15,9 +12,10 @@
 - 构图前要求恰好一个结果的静态选择
 - 保留在图声明中、编译时要求唯一成立的静态选择
 - 静态条件、运行时条件和条件边
-- 子图边界与端口端口
+- 子图边界与具名端口
 - 统一 Rust 编译执行路径，以及 dynamic / compiled 两种展示模式
-- 线程与异步调度后端
+- 混合同步与协程执行，支持托管或借用 Python 线程池
+- 可选的执行级子图并发上限
 - 执行控制、结果读取、观察事件和渲染
 
 ## 设计目标
@@ -50,20 +48,20 @@
 
 以下记录保留测量负载与结果，不属于当前 API 说明，也不承诺最新版本的性能。
 
-- [大规模 Recipe 图基准](./recipe_scale_benchmark.md)
+- [大规模层级图基准](./recipe_scale_benchmark.md)
 - [Node 开销基准](./step_overhead_benchmark.md)
 - [工作流运行与并发基准](./workflow_runtime_benchmark.md)
 
 ## 核心边界
 
 - `Graph`
-  - 声明态 DAG 结构
+  - 有身份与生命周期、组合可复用结构的复合节点
 - `Execution`
   - 声明图与一次执行作用域
-- `Node`
-  - 可选展示 label、条件，以及 Python action、Python 子图或完整 Rust 原生子图
-- `Graph.edges`
-  - 显式接线关系
+- `Node` / `NodeKind`
+  - Step/Graph 的共同协议，以及封闭的可执行联合
+- `GraphStructure.edges`
+  - 可复用结构内的显式接线关系
 - `Node.wire(after=(Results(...),))` / `Edge.results(...)`
   - 按顺序绑定 action 参数的结果依赖；条件独立声明自己的来源
 - `NodeWiring` / `GraphWiring`
@@ -76,15 +74,8 @@
 
 ## 不属于 Graph core 的内容
 
-Graph core 不知道任何具体宿主领域，例如：
-
-- 领域实体或领域阶段
-- 领域缓存策略或产物
-- 领域配置或工作目录
-- CLI 请求、日志目录或进程级信号处理
-
-这些内容应由宿主先建模，再组合为 Graph 或通过 Graph 的公开端口接入。Graph core
-不为某个宿主领域提供隐式分支。
+Rivlet 不解释应用的数据结构、业务策略或持久化格式。应用提供 action 与 predicate，
+显式接入共享状态、日志、事件与取消控制。这些接口不会把特定应用策略变成图模型的一部分。
 
 ## 当前限制
 

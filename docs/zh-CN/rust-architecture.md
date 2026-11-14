@@ -49,10 +49,11 @@ Rust 公共类型表达职责，不重复标注实现语言：`action::Action`�
 Python 中需要区分所有权的类型使用明确的 Rust 限定：`RustGraphStructure`、
 `CompiledRustStep`、`RustActionBindings`。私有编译/执行绑定则按职责命名：
 `CompiledExecutionGraph`、`DeclarationCompilation`、`ExecutionSession`、
-`MixedExecutionSession`。惰性结果视图叫私有 `_RustResult`，不是第二套 recipe API。
+`MixedExecutionSession`。惰性结果视图是私有 `_RustResult`，应用使用公开结果 API，
+不直接处理此适配包装。
 
-二进制扩展模块仍叫 `rivlet._native`。本轮不改变结构导出 schema、
-`action_kind="native"` wire tag 或事件数字编码，不保留旧类型/函数名作为别名。
+二进制扩展模块为 `rivlet._native`。结构导出使用有版本的 `action_kind="native"`
+wire tag，与声明类型的命名独立。
 
 原生结果先保存，再通知 session 完成。Rust 消费方直接共享值；跨语言转换器和
 Python 惰性视图属于 Python adapter，不进入 core，详见[原生结果值](./rust-results.md)。
@@ -75,7 +76,7 @@ executor adapter crate
 ```
 
 不得让第三方节点、任务、错误或 executor 类型进入 Graph 的领域模型和公开 API。
-移除或替换第三方实现时，Python recipe、Graph 声明和 core 模型不应跟着修改。
+移除或替换第三方实现时，应用的 Graph 声明和 core 模型不应跟着修改。
 
 ## 当前执行边界
 
@@ -136,9 +137,10 @@ Python 在有状态变化时通过 `start/advance` 与 session
 声明期已知子图由 Rust 编译为 composite 与 step；子图边界不会被隐式删除。action 在
 运行期返回的新 `Graph` 无法提前编译，因此会以当前 step id、label path 和父作用域作为
 显式输入，再次进入同一个 Rust 编译器，并创建嵌套 session，而不是回到 Python dynamic scheduler。
-Python driver 协调活跃 session 并分配统一动作预算，节点 ready 判定和状态转换仍由
-Rust 负责。父 action 等待子图期间不占动作名额；Python session 共用一个线程池或
-事件循环，纯 Python session 不创建空的 Rust worker 池。
+Python driver 协调活跃 session，共用本次执行的 Python 线程池及必要时的事件循环。
+不设置隐式全局动作预算；显式 `max_concurrency` 由 Rust 在派发前检查，运行时子图继承
+相应范围。父 action 等待子图期间不占线程或准入名额。纯 Python session 不创建空的
+Rust worker 池。详见[执行限额](./execution.md#可选的子图并发上限)。
 
 `mode="dynamic"` 与 `mode="compiled"` 目前保留的是兼容的展示和 composite 记录语义，
 不再代表两套执行引擎。端口连接 在两种模式下进入同一 lowering。
@@ -178,7 +180,7 @@ prerequisite 同样使用和类型区分：
 
 ## 领域边界
 
-package 选择、版本、选项和平台条件属于宿主，不属于执行图核心。
+core 不解释应用数据，也不实现特定业务的解析与持久化策略；action 与 predicate 由应用提供。
 Python 通用拓扑 API 与 Rust topology crate 是两套独立实现，详见
 [拓扑复杂度](./topology_complexity.md)。
 
@@ -197,7 +199,7 @@ requirement 与 selection 映射成连续整数 ID。provider 索引、任意 pr
   保持原生，只有跨语言时才由适配层转换；进程 action 的 unit 对应 Python None
 - PyO3 adapter 在一次编译调用中遍历声明对象；静态 predicate 的业务求值仍调用 Python
 - Python `GraphCompilation` 只恢复 action、predicate、observe、label path 与结果作用域侧表
-- `ExecutionState` 保存可供 Python action 动态写入的 skip、结果与渲染快照
+- `ExecutionState` 保存宿主显式请求的 skip、执行结果与渲染快照
 
 ready 队列、节点状态机、条件阻塞、层级生命周期、执行 DAG 校验、port provider
 求解与 binding lowering 均只有 Rust 一份实现。继续把上述宿主对象包装成原生对象只会

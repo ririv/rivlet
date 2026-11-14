@@ -15,9 +15,8 @@ target.wire(
 )
 ```
 
-`Graph.from_wiring()` 将其归一化为 Edge，不创建隐藏 hook 或修改运行时拓扑。
-宿主仍可显式请求 skip，但 NodeRunContext.control 不再提供跳过操作。
-属于图结构的可选依赖应直接声明，不应藏在 action 副作用里。
+`Graph.from_wiring()` 在执行前将其归一化为 Edge，不增加 action，也不在运行时修改
+已经编译的拓扑。显式 skip 请求是另一项宿主 API，不属于 NodeRunContext.control。
 
 ## 两类条件
 
@@ -32,7 +31,7 @@ ConditionalPrerequisite 的 `condition` 接受判断函数或扁平元组
 
 ## 静态条件
 
-静态条件不读取 action 结果。平台、链接方式或配置选项等业务条件由宿主定义。
+静态条件不读取 action 结果，payload 与解释方式由应用定义。
 
 [static_condition.py](../../src/rivlet/static_condition.py) 只要求不透明 payload
 和展示说明：
@@ -53,8 +52,8 @@ Graph 提供 `all_(...)`、`any_(...)`、`not_(...)` 组合静态条件，但组
 
 ```python
 condition = all_(
-    StaticCondition(payload="android", description="target OS is Android"),
-    StaticCondition(payload="shared", description="shared linkage"),
+    StaticCondition(payload="production", description="production environment"),
+    StaticCondition(payload="audit", description="audit enabled"),
 )
 ```
 
@@ -62,30 +61,32 @@ condition = all_(
 
 ### 静态边示例
 
-假设 archive 仅在 Android 上需要等待环境 shim。此例只控制依赖边，shim Node 始终启用：
+假设发布流程仅在配置要求时等待验证。此例只控制依赖边，验证节点始终启用：
 
 ```python
-build = Step(build_archive_input, label=("build"))
-write_android_env_shim = Step(write_shim, label=("write_android_env_shim"))
-archive = Step(create_archive, label=("archive"))
+from rivlet import Edge, Graph, GraphStructure, StaticCondition, StaticConditions, Step
+
+collect = Step(lambda: print("collect"), label="collect")
+validate = Step(lambda: print("validate"), label="validate")
+publish = Step(lambda: print("publish"), label="publish")
 
 condition = StaticCondition(
-    payload=AndroidOnlyPayload(),
-    description="target_os(android)",
+    payload=True,
+    description="wait for validation",
 )
 graph = Graph(
     structure=GraphStructure(
-        nodes=((build, write_android_env_shim, archive)),
+        nodes=(collect, validate, publish),
         edges=(
             (
-                Edge(source=build, target=archive),
-                Edge(source=write_android_env_shim, target=archive),
+                Edge(source=collect, target=publish),
+                Edge(source=validate, target=publish),
             )
         ),
         static=(
             StaticConditions(
-                evaluator=evaluate_target_condition,
-                conditions={(write_android_env_shim, archive): condition},
+                evaluator=lambda condition: condition.payload is True,
+                conditions={(validate, publish): condition},
             )
         ),
     )
@@ -95,15 +96,15 @@ graph = Graph(
 条件为真：
 
 ```text
-build ────────────────────→ archive
-write_android_env_shim ───→ archive
+collect ───→ publish
+validate ──→ publish
 ```
 
 条件为假：
 
 ```text
-build ────────────────────→ archive
-write_android_env_shim       （仍独立执行）
+collect ───→ publish
+validate      （仍独立执行）
 ```
 
 静态边为真时变成普通依赖，为假时移除。要同时禁用来源 Node，应声明静态节点规则。
@@ -112,12 +113,12 @@ write_android_env_shim       （仍独立执行）
 ## DSL 静态边
 
 ```python
-static = StaticConditions(evaluator=evaluate_target_condition)
-graph = static.edge(checks, build, condition=wait_for_checks).graph()
+static = StaticConditions(evaluator=lambda condition: condition.payload is True)
+graph = static.edge(validate, publish, condition=condition).graph()
 ```
 
 这仍是普通 GraphWiring，不增加 gate Node。与 static.when 不同，条件为假只删除边，
-checks 和 build 都仍然存在。组合多个 StaticConditions 时，每条规则保留自己的 evaluator；
+validate 和 publish 都仍然存在。组合多个 StaticConditions 时，每条规则保留自己的 evaluator；
 同一节点或边的重复规则报错，不覆盖。DSL 不会自动合并重复出现的 Node 对象。
 
 ## 运行时条件
@@ -210,4 +211,4 @@ CompiledConditionalDependency(
 ## 职责边界
 
 Graph 负责条件结构、求值时机与调度语义；宿主决定业务条件并提供 predicate。
-predicate 不应隐藏副作用或领域兜底策略。
+predicate 返回布尔值。需要独立依赖或结果的操作可以组合为 Step，不属于 predicate 的额外语义。

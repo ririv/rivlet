@@ -39,7 +39,8 @@ edges = Edge.results(
 | StepRunContext / step_id / step_path | NodeRunContext / node_id / node_path |
 | NativeGraph（不透明结构） | RustGraphStructure |
 
-recipe 仍返回 Graph，Execution 直接接收实际节点；事件和挂载身份类型同步使用 Node 前缀。
+Execution 直接接收实际 Step 或 Graph，应用工厂函数的返回约定不属于节点模型。
+事件和挂载身份类型同步使用 Node 前缀。
 
 动作节点保留熟悉的 Step 名称，中间的 Leaf 名称移除且不留别名。这不恢复旧包装：
 Step 不能承载 Graph，Graph 可直接组合，也只有 Graph 拥有 interface。

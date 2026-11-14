@@ -271,7 +271,7 @@ The overall run still reports failure.
 - Python and Rust actions follow the same rules. Native errors and failure states
   cross the boundary in batches, not per-node exception queries.
 
-See [port failure examples](./interfaces.md#failures-at-port-ports).
+See [port failure examples](./interfaces.md#failures-at-interface-ports).
 
 After scheduling finishes, one error is raised through the exception chain with
 its node path; multiple errors are reported together in a Python ExceptionGroup.
@@ -311,17 +311,28 @@ The common declaration, compilation, and result APIs are described in the
 [core model](./core_model.md); conditions and failure propagation follow the rules
 above.
 
-## Why there are no side-effectful runtime hooks
+## Runtime extension interfaces
 
-Graph does not provide hidden before/after-step hooks for cache probes, cache
-writes, or skip decisions. Such behavior belongs in the visible declaration:
+Rivlet exposes specific integration interfaces rather than a general
+`before_step` / `after_step` callback API:
 
-- Cache probes and writeback are explicit Steps.
-- Logging is an explicit ActionLog integration or action wrapper.
-- Skipping is an explicit host write through execution control/state APIs.
+- `NodeEventSink` receives committed node lifecycle events.
+- `GraphObserver` receives explicitly declared graph observation messages and result views.
+- `ActionLog` establishes log scopes and records action exception text.
+- `ExecutionOutput` receives the final execution state.
+- `ExecutionControl` and `ExecutionState` expose the documented stop and skip requests.
 
-Observers exist for tracing, timing, visualization, and summaries, not for replacing
-Steps or changing results.
+Event sinks and observers return no scheduling decision; their return values cannot
+replace an action result or change an edge. They may perform their intended external
+I/O, such as recording a trace. Delivery failures follow the
+[event failure rules](./failure_events.md), not ordinary action-failure isolation.
+
+Caching, persistence, retries, and application cleanup policies are not implemented
+by these interfaces. Applications choose how to compose their own operations; Rivlet
+does not prescribe a cache workflow or a universal prohibition on hooks. For cleanup
+within an action, normal Python context managers and `try/finally` retain their usual
+meaning. An ordinary downstream Step is not a `finally` handler: failed prerequisites
+block it. This section describes the current API, not a restriction on future extensions.
 
 ## DAG constraints
 

@@ -17,10 +17,9 @@ target.wire(
 )
 ```
 
-Graph.from_wiring normalizes this into an Edge. No hidden hook or runtime
-topology mutation is involved. Explicit skip requests remain available to the host,
-not through NodeRunContext.control. Structural optional dependencies should be
-visible in the graph rather than hidden inside action side effects.
+Graph.from_wiring normalizes this into an Edge before execution, without adding
+an action or changing the compiled topology at runtime. Explicit skip requests
+are a separate host API, not part of NodeRunContext.control.
 
 ## Two kinds of conditions
 
@@ -38,7 +37,7 @@ boundary: a false internal edge does not make the whole composite finish early.
 ## Static conditions
 
 A static condition is known at compilation time and does not read action results.
-Examples include a host-defined platform, linkage, or feature selection.
+Its payload and interpretation are application-defined.
 
 [static_condition.py](../src/rivlet/static_condition.py) models a condition as
 an opaque payload and a display description:
@@ -50,8 +49,8 @@ StaticCondition(
 )
 ```
 
-Graph does not define domain-specific environment, platform, or artifact-kind
-expressions. The host supplies their meaning through StaticConditions. Its
+Graph does not define application-specific expressions. The application supplies
+their meaning through StaticConditions. Its
 `evaluator` accepts either a StaticConditionEvaluator or
 `Callable[[StaticCondition], bool]`.
 
@@ -64,8 +63,8 @@ static conditions. Combining leaves does not remove the need for an evaluator:
 
 ```python
 condition = all_(
-    StaticCondition(payload="android", description="target OS is Android"),
-    StaticCondition(payload="shared", description="shared linkage"),
+    StaticCondition(payload="production", description="production environment"),
+    StaticCondition(payload="audit", description="audit enabled"),
 )
 ```
 
@@ -74,31 +73,33 @@ StaticConditions requires an explicit evaluator.
 
 ### A static-edge example
 
-Suppose archive must wait for an Android environment shim only on Android.
-This example intentionally controls only the dependency; the shim Node stays enabled.
+Suppose publishing waits for validation only when the configuration requires it.
+This example controls only the dependency; validation itself stays enabled.
 
 ```python
-build = Step(build_archive_input, label=("build"))
-write_android_env_shim = Step(write_shim, label=("write_android_env_shim"))
-archive = Step(create_archive, label=("archive"))
+from rivlet import Edge, Graph, GraphStructure, StaticCondition, StaticConditions, Step
+
+collect = Step(lambda: print("collect"), label="collect")
+validate = Step(lambda: print("validate"), label="validate")
+publish = Step(lambda: print("publish"), label="publish")
 
 condition = StaticCondition(
-    payload=AndroidOnlyPayload(),
-    description="target_os(android)",
+    payload=True,
+    description="wait for validation",
 )
 graph = Graph(
     structure=GraphStructure(
-        nodes=((build, write_android_env_shim, archive)),
+        nodes=(collect, validate, publish),
         edges=(
             (
-                Edge(source=build, target=archive),
-                Edge(source=write_android_env_shim, target=archive),
+                Edge(source=collect, target=publish),
+                Edge(source=validate, target=publish),
             )
         ),
         static=(
             StaticConditions(
-                evaluator=evaluate_target_condition,
-                conditions={(write_android_env_shim, archive): condition},
+                evaluator=lambda condition: condition.payload is True,
+                conditions={(validate, publish): condition},
             )
         ),
     )
@@ -108,15 +109,15 @@ graph = Graph(
 When the evaluator returns true:
 
 ```text
-build ────────────────────→ archive
-write_android_env_shim ───→ archive
+collect ───→ publish
+validate ──→ publish
 ```
 
 When it returns false:
 
 ```text
-build ────────────────────→ archive
-write_android_env_shim       (still runs independently)
+collect ───→ publish
+validate      (still runs independently)
 ```
 
 A true static edge becomes an ordinary dependency; a false one disappears.
@@ -127,12 +128,12 @@ belong to the host.
 ## Static edge DSL
 
 ```python
-static = StaticConditions(evaluator=evaluate_target_condition)
-graph = static.edge(checks, build, condition=wait_for_checks).graph()
+static = StaticConditions(evaluator=lambda condition: condition.payload is True)
+graph = static.edge(validate, publish, condition=condition).graph()
 ```
 
 This returns ordinary GraphWiring without gate Steps. Unlike static.when, false
-removes only the edge; checks and build remain. Composed StaticConditions retain
+removes only the edge; validate and publish remain. Composed StaticConditions retain
 their own evaluators. Duplicate rules for one target are rejected, never overridden.
 The DSL does not automatically merge repeated Node objects.
 
@@ -233,4 +234,5 @@ active conditional edges and inputs, but not inactive edges. See
 
 Graph owns condition structure, evaluation timing, and scheduling semantics.
 Hosts decide which domain relations are conditional and supply predicates.
-Predicates must not hide side effects or domain fallback policies.
+Predicates return booleans. Operations needing their own dependencies or results
+can be composed as Steps rather than being treated as additional predicate semantics.

@@ -152,7 +152,7 @@ neither actions nor predicates at runtime; 12,000 leaves survive compilation.
 Most improvement comes from indexed traversal; the identity path adds roughly 2%
 for the full hierarchy. A separate 20 × 12 check remained around 1–2 ms, with changes
 of tens of microseconds; it does not establish a small-graph speedup. No memory
-usage or real recipe build speedup is claimed.
+usage or end-to-end application speedup is claimed.
 
 Reproduce with `python benchmarks/declaration_compile.py --repeats 5` against each
 release extension. [Raw samples](../benchmarks/results/declaration_compile_2026-10-17.json)
@@ -181,6 +181,6 @@ costs still include Python traversal, temporary objects, and conversions.
 mean exactly one loop.
 
 Historical measurements are recorded in the
-[recipe-scale benchmark](./recipe_scale_benchmark.md) and
+[hierarchical graph benchmark](./recipe_scale_benchmark.md) and
 [Node overhead benchmark](./step_overhead_benchmark.md), with their own dates and
 workload boundaries.

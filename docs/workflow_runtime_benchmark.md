@@ -9,14 +9,15 @@ built separately; the main checkout was not switched. These are local scheduling
 measurements, not real software builds or model-request benchmarks.
 
 This is historical evidence for the old shared-quota design. The current API
-separates Python thread capacity from coroutine scheduling and has no graph-wide
-action quota. The old quota claims below do not describe current behavior.
+separates Python thread capacity from coroutine scheduling, with no implicit
+action quota. Optional [subtree limits](./execution.md#optional-subtree-concurrency-limits)
+are configured separately. The old quota claims below describe only the measured revision.
 
 ## Method
 
 - Apple M1 Pro, macOS 26.4 (25E246), Python 3.13.5, release Rust extension.
 - Empty-step cases: nine samples after warm-up, median runtime, reused compilation.
-- Recipe scale: 2,000 static subgraphs, six Steps each, 20 dependency lanes, eight
+- Hierarchical case: 2,000 static subgraphs, six Steps each, 20 dependency lanes, eight
   workers; nine samples with fresh execution state.
 - Dynamic case: branching width three, depth three, 108 step actions sleeping
   1 ms, requested capacity eight; seven samples after warm-up. Runtime includes
@@ -31,12 +32,12 @@ action quota. The old quota claims below do not describe current behavior.
 | 3,000 empty Steps, serial | 26.242 ms | 26.230 ms |
 | 3,000 empty Steps, one worker | 85.437 ms | 84.976 ms |
 | 3,000 empty Steps, eight workers | 101.498 ms | 103.097 ms |
-| 2,000 recipes / 12,000 Steps, eight workers | 414.304 ms | 419.790 ms |
+| 2,000 subgraphs / 12,000 Steps, eight workers | 414.304 ms | 419.790 ms |
 
 The eight-worker medians increased about 1.6% and 1.3%, respectively. Serial and
 one-worker medians were approximately unchanged. These numbers expose costs for
 very short actions and do not establish a universal regression bound. No full
-recipe build was performed for this comparison.
+application workflow was performed for this comparison.
 
 ## Dynamic workflow results
 
@@ -52,15 +53,15 @@ Python/native budget correctness is additionally checked by integration tests.
 
 ## Reproduction
 
-From the Rivetoo checkout, with its virtual environment:
+From the Rivlet repository root, with the extension installed in its virtual environment:
 
 ```bash
-.venv/bin/python rivetoo-graph/benchmarks/step_overhead.py \
+.venv/bin/python benchmarks/step_overhead.py \
   --nodes 3000 --repeats 9 --workers 1 8
-.venv/bin/python rivetoo-graph/benchmarks/recipe_scale.py \
+.venv/bin/python benchmarks/recipe_scale.py \
   --recipes 2000 --steps 6 --lanes 20 --workers 8 --repeats 9
-.venv/bin/python rivetoo-graph/benchmarks/workflow_runtime.py --repeats 7
-.venv/bin/python rivetoo-graph/benchmarks/workflow_runtime.py --entry arun --repeats 7
+.venv/bin/python benchmarks/workflow_runtime.py --repeats 7
+.venv/bin/python benchmarks/workflow_runtime.py --entry arun --repeats 7
 ```
 
 Use the benchmark script from the matching revision when measuring an older

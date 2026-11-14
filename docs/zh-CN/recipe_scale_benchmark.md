@@ -1,4 +1,4 @@
-# 大规模 Recipe 图基准
+# 大规模层级图基准
 
 [English](../recipe_scale_benchmark.md) | 简体中文
 
@@ -7,28 +7,28 @@
 
 ## 目的
 
-该实验回答一个特定问题：当一次请求包含数千个 recipe，并且每个 recipe 都拥有多个
-step 时，把执行图编译与调度状态机迁移到 Rust 是否仍有收益。
+该实验回答一个特定问题：当一个工作流包含数千个子图，并且每个子图拥有多个
+Step 时，把执行图编译与调度状态机迁移到 Rust 是否仍有收益。
 
-这不是构建系统吞吐量基准。实验中的 action 全部为空，刻意移除编译器、磁盘、网络和
-子进程耗时，使 Graph 自身的声明编译、跨语言协调和调度成本可见。真实构建通常会被
-外部工作主导，不能把这里的比例直接套用到完整构建耗时。
+这不是应用吞吐量基准。实验中的 action 全部为空，移除外部工具、磁盘、网络和
+子进程耗时，使 Graph 自身的声明编译、跨语言协调和调度成本可见。
+不能把这里的比例直接套用到应用端到端耗时。
 
 ## 图结构
 
 本次固定输入为：
 
-- 2,000 个 recipe 子图
-- 每个 recipe 包含 6 个串行 step step
+- 2,000 个子图
+- 每个子图包含 6 个串行 Step
 - 共 12,000 个 Python action
-- 每个 recipe 由一个 composite 保留子图边界，共 2,000 个 composite
-- recipe 之间组成 20 条依赖链，允许最多 20 个 recipe 层级并行推进
+- 每个子图由一个 composite 保留边界，共 2,000 个 composite
+- 子图之间组成 20 条依赖链，允许最多 20 条独立通道并行推进
 - runtime 使用 8 个线程 worker
 - 编译与 runtime 分别执行 5 次并取中位数
 
-该结构不是某个真实 package repository 的依赖图快照，而是一个可重复的分层 DAG。
-它同时保留 recipe 边界、recipe 内阶段顺序和跨 recipe 依赖，比“总共 2,000 个独立
-step”的微基准更接近大规模构建编排。
+该结构不是某个实际应用的快照，而是一个可重复的分层 DAG，保留复合边界、内部顺序
+和跨子图依赖，不等同于 2,000 个独立 Step。现有脚本名为 `recipe_scale.py`，历史参数
+`--recipes` 只是合成子图数量，不表示 Rivlet 具有 recipe 业务模型。
 
 ## 环境
 
@@ -83,7 +83,7 @@ action、8 worker、5 次采样的中位数为：
 | Batch | 约 0.321 s |
 | Tokio callback | 约 1.280 s |
 
-callback / batch 约为 3.98。这是历史调度微基准，不是上面的 recipe 规模负载，
+callback / batch 约为 3.98。这是历史调度微基准，不是上面的层级规模负载，
 也不能证明所有 Rust runtime 都更慢。实验位于 `crates/tokio-runtime` 与
 `benchmarks/runtime_drivers.py`，正式驱动不依赖它。
 
@@ -102,28 +102,14 @@ PYTHONPATH=src .venv/bin/python benchmarks/recipe_scale.py \
   --repeats 5
 ```
 
-同一个脚本只依赖公开 Python API。要测试保留在 `python` 分支的纯 Python 实现，可以让
-`PYTHONPATH` 指向其 worktree，同时仍执行主线中的脚本：
-
-```bash
-PYTHONPATH=/path/to/python-checkout/src \
-  .venv/bin/python benchmarks/recipe_scale.py \
-  --implementation pure-python \
-  --recipes 2000 \
-  --steps 6 \
-  --lanes 20 \
-  --workers 8 \
-  --repeats 5
-```
-
-将 `/path/to/python-checkout` 换成实际 `python` 分支 checkout 的路径；必须确认导入的
-模块来自该目录，而不是当前安装版本。历史数据的精确复现还需要对应代码和工具版本。
+复现旧数据时，应使用对应版本的基准脚本和环境。历史分支的包名与执行 API 可能不同，
+当前脚本不会适配它们。必须检查实际导入位置，并明确所测拓扑、解释器与工具链版本。
 
 ## 解释边界
 
-- 空 action 放大 Graph 固定成本，不代表真实 recipe action 的耗时分布
-- 20 条依赖链是合成拓扑，不代表真实仓库的扇入、扇出和关键路径
-- 本实验不测依赖解析、下载、缓存命中、子进程、文件系统或构建工具
+- 空 action 放大 Graph 固定成本，不代表应用 action 的耗时分布
+- 20 条依赖链是合成拓扑，不代表任意工作流的扇入、扇出和关键路径
+- 本实验不测 action I/O、子进程或特定应用计算
 - Python 侧仍需恢复 action、predicate、label 与声明作用域等不透明宿主对象；修复复杂度
   问题后该过程已经是线性路径，是否继续下沉必须由新的 profile 和真实规模需求决定
 - 结果是上述日期、机器与版本的一次工程决策记录，不是跨版本性能承诺

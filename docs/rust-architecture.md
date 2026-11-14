@@ -43,11 +43,11 @@ Python types that distinguish ownership use an explicit Rust qualifier:
 `RustGraphStructure`, `CompiledRustStep`, and `RustActionBindings`. Private
 compiler/session bindings instead use their role: `CompiledExecutionGraph`,
 `DeclarationCompilation`, `ExecutionSession`, and `MixedExecutionSession`.
-The lazy Rust result view is private `_RustResult`, not a second recipe API.
+The lazy Rust result view is private `_RustResult`; application code uses the public
+result APIs rather than handling this adapter wrapper.
 
-The binary extension module remains `rivlet._native`. This naming migration does
-not change the structural export schema, its `action_kind="native"` wire tag, or
-numeric event encoding. Old type/function names are not retained as aliases.
+The binary extension module is `rivlet._native`. Structural export keeps its
+versioned `action_kind="native"` wire tag independently of declaration type names.
 
 ## External-library boundary
 
@@ -127,9 +127,11 @@ batches when state changes:
 Known subgraphs compile as composites and leaves without losing their boundaries.
 A graph returned by an action is compiled later with the current path and ancestor
 scopes, in a nested Rust session. The Python driver coordinates active sessions
-and allocates one global action budget; node readiness and transitions remain in
-Rust. Waiting parent actions consume no worker slot. Python sessions share one
-pool or event loop, and Python-only sessions create no empty native worker pool.
+using the same Python pool and, when needed, event loop. There is no implicit
+global action budget. Explicit `max_concurrency` scopes are checked by Rust before
+dispatch and inherited by runtime children. Waiting parent actions consume no worker
+or admission slot. Python-only sessions create no empty Rust worker pool. See
+[execution limits](./execution.md#optional-subtree-concurrency-limits).
 
 Dynamic and compiled modes retain different presentation/composite-recording
 behavior, not different execution engines.
@@ -161,8 +163,9 @@ Core can therefore detect blocking and cycles without interpreting Python logic.
 
 ## Domain boundary
 
-Package selection, versions, options, and platform predicates belong to the host,
-not the execution core. Python's generic topology API and the Rust topology crate
+The core does not interpret application payloads or implement business-specific
+resolution and persistence policies. Actions and predicates are supplied by the
+application. Python's generic topology API and the Rust topology crate
 are separate implementations; see [topology complexity](./topology_complexity.md).
 
 ## Python boundary

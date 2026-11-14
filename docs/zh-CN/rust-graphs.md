@@ -3,7 +3,7 @@
 [English](../rust-graphs.md) | 简体中文
 
 `rivlet` 允许一张 Python 声明图挂载完整的 Rust 原生子图。两者最终进入同一份
-Rust `CompiledExecutionGraph`，共享依赖、层级、失败传播和并发预算，但不会把原生子图
+Rust `CompiledExecutionGraph`，共享依赖、层级、失败传播及显式配置的并发范围，但不会把原生子图
 拆成一组 Python action：
 
 ```text
@@ -27,33 +27,24 @@ Python 只看见一个不透明的 `RustGraphStructure`。它不能取得并逐�
 
 ## 声明边界
 
-Python action 仍按原有方式声明：
-
-```python
-prepare = Step(prepare_source, label=("prepare"))
-```
-
 Rust adapter 构造 graph::GraphStructure；Python adapter 将其包装为不透明的
-RustGraphStructure，再由 Python Graph 节点组合：
+RustGraphStructure，再由 Python Graph 节点与 Python action 组合：
 
 ```python
-from rivetoo_ninja import import_clean_build_graph
+from rivlet import Graph, RustGraphStructure, Step
 
-ninja_graph = import_clean_build_graph(
-    "build/build.ninja",
-    shell="/bin/sh",
-    env=build_env,
-)
 
-compile = Graph(ninja_graph, label="compile")
-graph = (prepare >> compile >> install).graph()
+def make_workflow(body: RustGraphStructure) -> Graph:
+    prepare = Step(lambda: print("prepare"), label="prepare")
+    finish = Step(lambda: print("finish"), label="finish")
+    rust_work = Graph(body, label="rust-work")
+    return (prepare >> rust_work >> finish).graph()
 ```
 
-上例需要单独的实验性 `rivetoo-ninja` 包，不是 Graph 安装自带的端口。
-`import_clean_build_graph` 仅支持选定输出尚不存在的 clean build，不能替代 Ninja 的
-增量构建判定；是否使用该 adapter 由宿主显式选择。
+`body` 必须由能够提供 RustGraphStructure 的 adapter 传入。这个函数不虚构导入 API，
+也不要求使用某个外部构建系统。如何在 Rust 中构造底层图，见下方 Rust 声明 API。
 
-这里 `compile` 是外层 composite。它保留子图边界；原生图内部的节点和边仍由 Rust
+这里 `rust_work` 是外层 composite。它保留子图边界；原生图内部的节点和边仍由 Rust
 编译器看到并参与全局调度。Graph 不会隐式展开并丢掉这个边界。
 
 `RustGraphStructure` 是 Python 可以持有的最小原生单位。Python 包不公开 `Action` 或
@@ -68,7 +59,8 @@ graph = (prepare >> compile >> install).graph()
 - Rust step 直接提交 Rust worker；完成进入 Rust completion queue，再由混合 driver 批量推进
   同一 session。
 - Python 接收原生节点的开始、完成与失败信息，用于统一状态、日志和展示。
-- 两类 step 共用一份总并发预算，不会各自把 `workers` 用满后叠加超额并发。
+- Python 线程容量与 Rust worker 是不同的执行资源；显式 `max_concurrency` 同时统计
+  两类动作，不配置就没有共享动作额度，见[执行限额](./execution.md#可选的子图并发上限)。
 
 原生 action 声明确定的输入、输出类型。Rust→Rust 结果边共享 Rust 值；只有跨语言边界
 才转换。进程 action 返回 unit，在 Python 中表现为 `Some(None)`，不是没有结果。

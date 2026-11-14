@@ -2,10 +2,8 @@
 
 English | [简体中文](./zh-CN/index.md)
 
-`rivlet` is an explicit, composable DAG declaration and execution library:
-
-```python
-```
+`rivlet` is an explicit, composable DAG declaration and execution library with Python
+and Rust declaration APIs.
 
 ## Features
 
@@ -17,7 +15,8 @@ English | [简体中文](./zh-CN/index.md)
 - Static conditions, runtime conditions, and conditional edges.
 - Subgraph boundaries and interface ports.
 - One Rust compilation/execution path with dynamic and compiled presentation modes.
-- Thread-based and async execution drivers.
+- Mixed synchronous/coroutine execution with managed or borrowed Python thread pools.
+- Optional execution-level subtree concurrency limits.
 - Execution control, results, observation events, and rendering.
 
 ## Design goals
@@ -52,7 +51,7 @@ domain workflows are connected explicitly, not read from implicit global facilit
 These records preserve measured workloads and results, not the current API or a
 performance guarantee for the latest release.
 
-- [Recipe-scale benchmark](./recipe_scale_benchmark.md)
+- [Hierarchical graph benchmark](./recipe_scale_benchmark.md)
 - [Node overhead benchmark](./step_overhead_benchmark.md)
 - [Workflow runtime and concurrency benchmark](./workflow_runtime_benchmark.md)
 
@@ -60,20 +59,20 @@ performance guarantee for the latest release.
 
 | Type or field | Responsibility |
 | --- | --- |
-| `Graph` | Declarative execution DAG |
+| `Graph` | Composite node with identity, lifecycle, and a reusable body |
 | `Execution` | A declaration and one execution scope |
-| `Node` | Optional label and condition; Python action, Python subgraph, or Rust-native subgraph |
-| `Graph.edges` | Explicit wiring |
+| `Node` / `NodeKind` | Shared Step/Graph protocol / closed executable union |
+| `GraphStructure.edges` | Explicit wiring within a reusable structure |
 | `Node.wire(after=(Results(...),))` / `Edge.results(...)` | Ordered action results; conditions declare their own sources |
 | `NodeWiring` / `GraphWiring` | Declaration-time composition |
 | `GraphCompilation` | Runtime execution structure and composite boundaries |
 
 ## Outside Graph core
 
-Graph core does not know about domain entities, build phases, caches, artifacts,
-configuration, working directories, CLI requests, log directories, or process-level
-signal handling. Hosts model these concerns and compose graphs or connect public
-interfaces. There are no implicit branches for a particular host application.
+Rivlet does not interpret application payload schemas, business policies, or persistence
+formats. Applications supply actions and predicates and explicitly connect shared state,
+logging, events, and cancellation. These interfaces do not make application-specific
+policies part of the graph model.
 
 ## Current limitations
 

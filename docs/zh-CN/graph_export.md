@@ -135,7 +135,7 @@ source/target，并按方向包含 source_port/provider_node 或 target_port/con
 复用，不是 Action／业务结果缓存，也不让单次执行状态变成可重复运行的状态。重新求静态条件
 需要新建 Execution。独立工具 `compile_graph()` 仍每次独立编译，不会准备另一个 execution。
 
-## 范围与交付
+## 范围
 
 导出只描述所给作用域，不能预知未来工作。Action 返回的动态子图必须等它实际产生并编译后，
 再按已有父 NodePath 前缀单独导出；根文档不会被悄悄重写成“预知全部动态工作”的历史。
@@ -146,10 +146,7 @@ source/target，并按方向包含 source_port/provider_node 或 target_port/con
 手工拼装而没有编译来源的 GraphCompilation 会明确拒绝导出，不重新编译或猜边类型。
 请通过 compile_graph 或 Execution.compile 获取编译器产物。
 
-这是新源码 API，PyPI 的 0.2.0.post1 和原始 0.3.0 准备提交都不包含它。消费方必须显式使用
-经过验收、包含本次改动的构建，安装升级属于另外一次部署操作。导出 JSON 不意味着增加 JS
-绑定、跨语言执行器、服务、旧格式兼容读取或自动发布。Python 投影没有增加第三方依赖，
-原有 Python 适配层仅补充编译来源和原生图的安全结构读取。
+JSON 导出是检查格式，不是执行服务或其它语言绑定，不引入新的第三方依赖。
 
 导出开销与挂载节点、边、端口、条件及输入引用、路径／输出总长度成正比，不执行 Action I/O，
 不改变调度。编译来源侧表不复制另一套拓扑，只记录原有编译过程已经作出的决定。

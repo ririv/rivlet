@@ -208,8 +208,9 @@ select_one 接收 StaticBranch(active=bool, value=...)，返回原始选中值�
 ## 执行与编译
 
 Execution 接受 Step/Graph；首次成功编译由 compile/run/arun 复用，重新求静态规则
-需新建 Execution。State 单次使用。各驱动共用 Rust 编译和调度，动态子图共享并发
-预算。GraphCompilation 包含 Python 叶子、原生叶子和复合生命周期，不是空任务。
+需新建 Execution。State 单次使用。执行路径共用 Rust 编译和调度。Python 嵌套 session
+共用本次执行的 Python 池与事件循环；显式并发限额跨 session 生效，不设置隐式动作额度。
+GraphCompilation 包含 Python 叶子、原生叶子和复合生命周期，不是空任务。
 低层 compile_graph 接收 GraphStructure，用于结构检查或展开。
 
 action 返回 GraphStructure 时在当前节点下直接展开结构；返回 Graph 时挂载真实

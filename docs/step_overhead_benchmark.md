@@ -25,7 +25,7 @@ settings remain unchanged.
 - Five samples per case, reported as medians; before/after groups ran sequentially.
 - One warm-up per microbenchmark case. Execution reused a compilation, with fresh
   execution state for each run.
-- No observer, log files, or final execution output; logging was measured separately.
+- No observer, log files, or final execution output.
 
 ## 1,000 independent empty Steps
 
@@ -44,10 +44,10 @@ The current `run(workflow, max_workers=1)` still uses a thread pool, not
 the serial reference driver. Task submission, synchronization, and batch
 Python/Rust exchange still cost more than an ordinary function call.
 
-## 2,000 recipe subgraphs
+## 2,000 subgraphs
 
-The recipe_scale.py workload uses 6 sequential leaves per recipe: 12,000 Python
-actions, 2,000 composites, 20 recipe chains, and 8 workers.
+The `benchmarks/recipe_scale.py` workload uses 6 sequential leaves per subgraph:
+12,000 Python actions, 2,000 composites, 20 subgraph chains, and 8 workers.
 
 | Phase | Before median | After median |
 | --- | ---: | ---: |
@@ -55,7 +55,7 @@ actions, 2,000 composites, 20 recipe chains, and 8 workers.
 | Execution | 3.365259 s | 0.520759 s |
 
 Execution improved by about 6.46×. This does not imply a 6.46× speedup for real
-package builds.
+application workflows.
 
 Raw execution samples, in seconds:
 
@@ -63,26 +63,6 @@ Raw execution samples, in seconds:
 before = [3.369867, 3.348461, 3.354630, 3.374089, 3.365259]
 after  = [0.546870, 0.525995, 0.520759, 0.520433, 0.515768]
 ```
-
-## Rivetoo logging integration
-
-An additional measurement used the host's real RivetooActionLog with 1,000
-actions in one composite and a temporary component log path. Each action checked
-that its log context was bound. The write case appended one line per action and
-verified exactly 1,000 lines afterward.
-
-Compilation and log-path binding were excluded from execution time, and final
-execution-file output was disabled. In the same process, the benchmark alternated
-the old unconditional asyncio.run handling and the new implementation, warmed up
-each once, and took five-sample medians. Host logging itself was unchanged.
-
-| Case, 8 workers | Old handling | New handling |
-| --- | ---: | ---: |
-| Enter/exit real log scope only | 320.92 ms | 56.67 ms |
-| Append one log line per action | 459.09 ms | 178.91 ms |
-
-Log-path resolution and file I/O remain. File-system state affects these numbers;
-empty-graph improvements are not production-logging speedup guarantees.
 
 ## Reproduction
 
@@ -95,9 +75,7 @@ From the Graph repository root, with the current extension installed:
 ```
 
 The first script separates declaration, compilation, serial execution, and threaded
-execution. The second retains nesting and cross-recipe dependencies. From the
-Rivetoo parent repository, prefix script paths with rivetoo-graph/.
+execution. The second retains nesting and dependencies between subgraphs.
 
 These commands measure the current checkout and do not automatically restore the
-before version. The Rivetoo logging measurement requires that host project; it is
-not an integration bundled with standalone Graph.
+before version. Application logging and file I/O are not measured by these commands.

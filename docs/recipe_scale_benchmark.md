@@ -1,4 +1,4 @@
-# Recipe-scale graph benchmark
+# Hierarchical graph benchmark
 
 English | [简体中文](./zh-CN/recipe_scale_benchmark.md)
 
@@ -9,25 +9,27 @@ mainline performance. Later synchronous-action improvements are covered in the
 ## Purpose
 
 The experiment asks whether moving compilation and scheduling to Rust still helps
-when one request contains thousands of recipes, each with several Steps.
+when one workflow contains thousands of subgraphs, each with several Steps.
 
-It is not a build-throughput benchmark. All actions are empty, deliberately
+It is not an application-throughput benchmark. All actions are empty, deliberately
 excluding compilers, disks, networks, and subprocesses to expose graph compilation,
 language-boundary coordination, and scheduling costs. These ratios must not be
-applied directly to real build times.
+applied directly to end-to-end application times.
 
 ## Graph shape
 
-- 2,000 recipe subgraphs.
-- 6 sequential leaves per recipe: 12,000 Python actions.
-- One boundary-preserving composite per recipe: 2,000 composites.
-- 20 inter-recipe chains, allowing up to 20 recipe-level lanes.
+- 2,000 subgraphs.
+- 6 sequential leaves per subgraph: 12,000 Python actions.
+- One boundary-preserving composite per subgraph: 2,000 composites.
+- 20 chains connecting subgraphs, allowing up to 20 independent lanes.
 - 8 thread workers.
 - 5 compilation and 5 execution samples, reported as medians.
 
 This is a reproducible synthetic hierarchical DAG, not a snapshot of a real
-repository. It retains recipe boundaries, internal phases, and cross-recipe
-dependencies, unlike a benchmark containing only 2,000 independent Steps.
+application. It retains composite boundaries, internal ordering, and dependencies
+between subgraphs, unlike a benchmark containing only 2,000 independent Steps.
+The existing script is named `recipe_scale.py`; its historical `--recipes` parameter
+counts synthetic subgraphs and does not introduce a recipe concept into Rivlet.
 
 ## Environment
 
@@ -84,7 +86,7 @@ macOS arm64, and a release extension, 2,000 independent no-op actions with
 | Tokio callback | approximately 1.280 s |
 
 The callback/batch ratio was approximately 3.98. This is a historical scheduling
-microbenchmark, not the recipe-scale workload above, and does not establish that
+microbenchmark, not the hierarchical workload above, and does not establish that
 all Rust runtimes are slower. The experiment lives in `crates/tokio-runtime`
 and `benchmarks/runtime_drivers.py`; production drivers do not depend on it.
 
@@ -104,30 +106,16 @@ PYTHONPATH=src .venv/bin/python benchmarks/recipe_scale.py \
   --repeats 5
 ```
 
-The script uses public Python APIs. To compare the preserved Python branch, point
-PYTHONPATH to that checkout while running the mainline script:
-
-```bash
-PYTHONPATH=/path/to/python-checkout/src \
-  .venv/bin/python benchmarks/recipe_scale.py \
-  --implementation pure-python \
-  --recipes 2000 \
-  --steps 6 \
-  --lanes 20 \
-  --workers 8 \
-  --repeats 5
-```
-
-Replace /path/to/python-checkout with the actual Python-branch checkout. Verify
-that imports come from it rather than the installed mainline package. Exact
-historical reproduction also requires the corresponding code and tool versions.
+To reproduce an older measurement, use the benchmark script and environment from
+the matching revision. Historical branches may have different package names and
+execution APIs; the current script does not adapt them. Verify the imported package
+location, and keep the measured topology and interpreter/toolchain versions explicit.
 
 ## Interpretation limits
 
-- Empty actions amplify fixed graph costs, not real recipe action distributions.
-- Twenty chains do not reproduce a real repository's fan-in, fan-out, or critical path.
-- The test excludes dependency resolution, downloads, caches, subprocesses, file
-  systems, and build tools.
+- Empty actions amplify fixed graph costs, not application action distributions.
+- Twenty chains do not reproduce every workload's fan-in, fan-out, or critical path.
+- The test excludes action I/O, subprocesses, and application-specific computation.
 - Python still recovers opaque host objects. After fixing accidental complexity,
   further migration should be justified by new profiles and real workloads.
 - These results record an engineering decision on the stated date, machine, and

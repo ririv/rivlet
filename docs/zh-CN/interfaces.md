@@ -269,8 +269,8 @@ graph = Graph(structure=GraphStructure(nodes=((a, b, c)), edges=(bindings)))
 ```
 
 没有选择时，多提供者属于歧义并直接失败。runtime 不会采用“谁先完成就用谁”，
-也不会在某个提供者失败后自动换另一个；这类行为会让产物、缓存身份和失败结果变得
-不确定。
+也不会在某个提供者失败后自动换另一个；端口绑定固定依赖来源，运行时没有重新选择
+提供者的协议。
 
 上层领域解析器可以根据自己的配置或锁定结果产生 `ProviderSelection`，但这些选择
 策略不进入 Graph core。Graph 只负责验证选择结果，并把绑定 lower 为确定的节点依赖。

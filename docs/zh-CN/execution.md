@@ -248,7 +248,7 @@ C（成功）→ D（继续执行）
   条件函数自身抛错时，相关节点被阻断，不会读取缺失的 action 结果。
 - 已进入的子图让内部无关分支执行完，再汇总为失败；不会触发 `AFTER_SUCCESS`。
   依赖整个子图的节点被阻断。尚未进入就被阻断的子图，其全部后代也标记为 `blocked`。
-- 端口端口遵循实际接线：出口步骤已成功，则该端口仍就绪，不因其子图内其他步骤失败而撤销。
+- 端口连接遵循实际接线：出口步骤已成功，则该端口仍就绪，不因其子图内其他步骤失败而撤销。
   如果出口失败，消费它的入口被阻断；消费者子图内不依赖该入口的准备工作仍可执行。
 - 动态 action 返回的子图使用相同规则；其失败最终使外层 action 失败。
 - Python action 与 Rust action 共享以上语义。Rust 批量回传失败状态和错误，不增加逐节点异常查询。
@@ -289,32 +289,24 @@ action 日志端口。需要日志或执行视图时，宿主必须显式传入�
 
 声明、编译和结果 API 统一见[核心模型](./core_model.md)；条件与失败传播按上文规则处理。
 
-## 为什么当前不提供 runtime hooks
+## 运行时扩展接口
 
-当前 Graph runtime 仍然不提供 side-effectful hooks，例如：
+Rivlet 当前提供职责明确的接入接口，没有通用 `before_step` / `after_step` 回调 API：
 
-- `before_step`
-- `after_step`
-- cache probe / cache writeback hook
-- skip 决策 hook
+- `NodeEventSink`：接收已经提交的节点生命周期事件。
+- `GraphObserver`：接收显式声明的图观察消息和结果视图。
+- `ActionLog`：建立日志作用域，记录 action 异常文本。
+- `ExecutionOutput`：接收最终执行状态。
+- `ExecutionControl` 与 `ExecutionState`：提供文档约定的停止与跳过请求。
 
-原因不是 hooks 做不到，而是它们会把核心执行语义从图上挪走。
+事件接收器和观察器不返回调度决策，返回值不能替换 action 结果或改变边。它们可以执行
+记录 trace 等预期的外部 I/O。事件发送失败遵循[事件错误规则](./failure_events.md)，
+不是普通 action 失败隔离。
 
-当前模型刻意要求这些行为都留在声明层显式表达：
-
-- cache：显式 probe step / writeback step
-- log：显式接入 `ActionLog`，或在声明层组合 action wrapper
-- skip：由宿主显式写入 `ExecutionState`
-
-这样图本身就能直接表达：
-
-- 哪些步骤会做 cache probe
-- 哪些步骤可能写回外部状态
-- 哪些步骤会被跳过
-
-如果这些行为进入 runtime hooks，图上就看不出真正流程，执行语义也会变隐式，不符合当前“显式、可追踪、组合优先”的约束。
-
-当前已经提供只读 observer/event 接口，用于 trace、timing、可视化与图级摘要输出；但它不应修改执行结果，也不替代显式 graph step。
+这些接口不实现应用缓存、持久化、重试或清理策略。应用自行组合自己的操作，Rivlet 不规定
+缓存必须如何编排，也不把“不提供通用 hooks”视为普遍设计禁令。action 内的资源清理仍可
+使用普通 Python 上下文管理器或 `try/finally`。普通下游 Step 不是 `finally` 处理器：
+前置失败会阻断它。本节只说明当前接口，不预先限制未来扩展。
 
 ## DAG 约束
 

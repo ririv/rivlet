@@ -4,7 +4,7 @@ English | [简体中文](./zh-CN/rust-graphs.md)
 
 A Python declaration can mount a complete Rust-native subgraph. Both enter one
 Rust CompiledExecutionGraph and share dependencies, hierarchy, failure propagation,
-and the session's concurrency budget. Native subgraphs are not converted into
+and explicit concurrency scopes, when configured. Native subgraphs are not converted into
 Python actions.
 
 ```text
@@ -28,33 +28,25 @@ execution views; opacity does not hide them as a single undifferentiated action.
 
 ## Declaration boundary
 
-Python actions retain their usual declaration:
-
-```python
-prepare = Step(prepare_source, label=("prepare"))
-```
-
 A Rust adapter constructs graph::GraphStructure. The Python adapter wraps it as
-RustGraphStructure; Python composes that body into a Graph:
+RustGraphStructure; Python composes that body into a Graph alongside Python actions:
 
 ```python
-from rivetoo_ninja import import_clean_build_graph
+from rivlet import Graph, RustGraphStructure, Step
 
-ninja_graph = import_clean_build_graph(
-    "build/build.ninja",
-    shell="/bin/sh",
-    env=build_env,
-)
-compile = Graph(ninja_graph, label="compile")
-graph = (prepare >> compile >> install).graph()
+
+def make_workflow(body: RustGraphStructure) -> Graph:
+    prepare = Step(lambda: print("prepare"), label="prepare")
+    finish = Step(lambda: print("finish"), label="finish")
+    rust_work = Graph(body, label="rust-work")
+    return (prepare >> rust_work >> finish).graph()
 ```
 
-This example requires the separate, experimental rivetoo-ninja package.
-It is not included with Graph. The importer requires selected outputs to be absent:
-it imports clean builds, not Ninja's incremental-build decisions. The host must
-explicitly choose this adapter.
+`body` must come from an adapter that provides a RustGraphStructure. The function
+does not invent an importer or require any particular external build system.
+The Rust declaration API below shows how to construct the underlying graph in Rust.
 
-Here compile is an outer composite. Rust sees the internal nodes and edges for
+Here rust_work is an outer composite. Rust sees the internal nodes and edges for
 global scheduling while preserving the composite boundary.
 
 RustGraphStructure is the smallest native unit exposed to Python. There is no public
@@ -69,8 +61,9 @@ Within one execution session:
   callables, Python results, and runtime-returned graphs.
 - Rust leaves go directly to Rust workers and a native completion queue.
 - The mixed driver receives native start, completion, and failure information.
-- Both languages share total capacity; they do not each independently consume the
-  full worker limit.
+- Python thread capacity and Rust workers are separate execution resources.
+  Explicit `max_concurrency` scopes count both languages together; without them,
+  there is no shared action quota. See [execution limits](./execution.md#optional-subtree-concurrency-limits).
 
 Native actions declare typed inputs and outputs. Rust-to-Rust result edges share
 Rust-owned values; Python conversions happen only at the adapter boundary.

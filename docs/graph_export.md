@@ -156,7 +156,7 @@ reuse, not action/result caching or permission to reuse the single-use execution
 Use a new Execution to reevaluate static choices. Standalone `compile_graph()`
 still produces a fresh compilation and does not prepare another execution.
 
-## Limits and delivery
+## Limits
 
 Export reflects the supplied scope, not future work. A Graph returned by an action
 cannot be known before that action runs; when such a child is actually compiled,
@@ -171,12 +171,8 @@ Exporting a manually assembled GraphCompilation without compiler provenance rais
 GraphError rather than recompiling or guessing missing edge kinds. Use compile_graph
 or Execution.compile to obtain a compiler-produced result.
 
-This is a new source-level API, absent from PyPI 0.2.0.post1 and from the original
-0.3.0 preparation commit. Integration requires an explicitly validated build containing
-this change; updating a consumer's installed Rivlet is a separate deployment action.
-No JS binding, cross-language executor, service, compatibility reader, or publication
-is implied by exporting JSON. The Python export projection has no new dependencies;
-only the existing Python adapter gains compiler provenance and safe native inspection.
+JSON export is an inspection format, not an execution service or foreign-language
+binding. It introduces no new third-party dependency.
 
 Export cost is proportional to mounted nodes, edges, ports, condition/input references,
 and total path/output size. It performs no action I/O and does not affect scheduling.

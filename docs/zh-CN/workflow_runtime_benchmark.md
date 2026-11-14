@@ -7,13 +7,14 @@
 切换分支。这里测量的是本地调度成本，没有运行真实软件构建或模型请求。
 
 本文是旧统一额度方案的历史测量，不代表当前语义。当前 API 已分离 Python 线程
-容量与协程调度，不再提供全图动作额度；下文的旧额度保证只对应当时的版本。
+容量与协程调度，不设置隐式动作额度；可选的[子图限额](./execution.md#可选的子图并发上限)
+单独配置，下文的旧额度保证只对应测量时的版本。
 
 ## 测量方法
 
 - Apple M1 Pro、macOS 26.4（25E246）、Python 3.13.5、release Rust 扩展。
 - 空 Node 预热后测九次，复用 compilation，以执行时间中位数比较。
-- Recipe 场景为 2,000 个静态子图、每图六个步骤、20 条依赖链、八个 worker；九次
+- 层级场景为 2,000 个静态子图、每图六个步骤、20 条依赖链、八个 worker；九次
   执行各自使用新的执行状态。
 - 动态场景宽度三、深度三，共 108 个叶子动作，每个休眠 1 ms，请求并发为八；
   预热后测七次，耗时包含运行中构图和编译。
@@ -26,11 +27,10 @@
 | 3,000 个空 Node，串行 | 26.242 ms | 26.230 ms |
 | 3,000 个空 Node，单 worker | 85.437 ms | 84.976 ms |
 | 3,000 个空 Node，八 worker | 101.498 ms | 103.097 ms |
-| 2,000 个 recipe / 12,000 个 Node，八 worker | 414.304 ms | 419.790 ms |
+| 2,000 个子图 / 12,000 个 Node，八 worker | 414.304 ms | 419.790 ms |
 
 后两项中位数分别增加约 1.6% 和 1.3%，串行与单 worker 基本相同。这是极短 action 的
-调度开销结果，不能承诺所有机器或工作流都在这一波动范围内；本轮没有真实 recipe
-构建验收。
+调度开销结果，不能承诺所有机器或工作流都在这一波动范围内；本次没有实际应用工作流验收。
 
 ## 动态工作流结果
 
@@ -45,15 +45,15 @@ Python/Rust 混合动作的集成测试验证两者合计的预算，不把测�
 
 ## 复现
 
-在 Rivetoo 工作区使用现有虚拟环境：
+在 Rivlet 仓库根目录使用已安装原生扩展的虚拟环境：
 
 ```bash
-.venv/bin/python rivetoo-graph/benchmarks/step_overhead.py \
+.venv/bin/python benchmarks/step_overhead.py \
   --nodes 3000 --repeats 9 --workers 1 8
-.venv/bin/python rivetoo-graph/benchmarks/recipe_scale.py \
+.venv/bin/python benchmarks/recipe_scale.py \
   --recipes 2000 --steps 6 --lanes 20 --workers 8 --repeats 9
-.venv/bin/python rivetoo-graph/benchmarks/workflow_runtime.py --repeats 7
-.venv/bin/python rivetoo-graph/benchmarks/workflow_runtime.py --entry arun --repeats 7
+.venv/bin/python benchmarks/workflow_runtime.py --repeats 7
+.venv/bin/python benchmarks/workflow_runtime.py --entry arun --repeats 7
 ```
 
 测旧版时应使用对应版本的基准脚本，通过独立安装或 `PYTHONPATH` 指向隔离快照。

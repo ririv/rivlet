@@ -44,7 +44,9 @@ contain exactly one wheel for that interpreter. The shared verification script
 checks metadata, installs the exact wheel, verifies the installed native extension
 in isolated mode, and runs the full Python suite. It works without shell globbing.
 It never uploads artifacts. Python subprocesses, dynamic graphs, native actions,
-and their shared concurrency budget are tested on Windows without POSIX-only skips.
+their independent worker resources, and optional shared admission limits are covered
+by the same cross-platform tests. Do not infer target support merely from skipping
+platform-specific tests; installed artifacts require native validation.
 
 No Unix shell is supplied implicitly. Native adapters must explicitly provide a
 program, an argument vector, a working directory, and the child environment;

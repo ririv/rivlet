@@ -232,8 +232,10 @@ instead retains every constructed candidate. Neither uses declaration order as p
 
 Execution accepts Step or Graph. Its first successful compile is reused by
 compile/run/arun; create another execution to evaluate static rules again. State
-is single-use. All drivers share Rust compilation/scheduling and one concurrency
-budget for runtime-created subgraphs. GraphCompilation contains Python leaves,
+is single-use. Execution paths share Rust compilation/scheduling. Python nested
+sessions share the execution's Python pool and event loop; explicitly configured
+concurrency scopes apply across sessions, with no implicit action quota.
+GraphCompilation contains Python leaves,
 native leaves and composite lifecycle boundaries, not no-op composite actions.
 Low-level compile_graph accepts GraphStructure for inspection/expansion.
 

@@ -254,7 +254,8 @@ graph = Graph(structure=GraphStructure(nodes=((a, b, c)), edges=(bindings)))
 ```
 
 Ambiguity without a selection is an error. There is no “first ready wins” policy
-and no provider failover. Hosts can derive selections from their configuration
+and no provider failover: bindings fix dependency sources before execution.
+Hosts can derive selections from their configuration
 or lock data; Graph validates and lowers them without adopting domain policies.
 
 ## A plain-language example

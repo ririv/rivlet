@@ -44,7 +44,8 @@ interface through wrapping. Forwarded port references retain their owning graph.
 | StepRunContext / step_id / step_path | NodeRunContext / node_id / node_path |
 | NativeGraph (opaque body) | RustGraphStructure |
 
-Recipe functions still return Graph. Execution receives that actual node directly.
+Execution receives an actual Step or Graph directly; application factory return
+contracts are not part of this node model.
 Events and mounted identity types likewise use the Node prefix.
 
 The action node retains the familiar Step name (the intermediate Leaf name is

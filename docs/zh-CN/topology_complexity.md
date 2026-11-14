@@ -129,8 +129,8 @@ Python 结果物化，不包含 Graph 构造、每轮计时前的 GC，也不执
 
 子图场景另有 2000 个 composite；裁剪后保留 12000 个叶子。主要收益来自索引遍历，
 身份保留快路径在完整子图场景额外改善约 2%。另测 20 × 12 小图，约 1–2 ms，
-差异为几十微秒，不能据此宣称小图明显提速。未测内存占用，不代表真实 recipe 构建
-耗时降低相同比例。
+差异为几十微秒，不能据此宣称小图明显提速。未测内存占用，不代表实际应用的
+端到端耗时降低相同比例。
 
 复现：针对各版本 release 扩展运行 `python benchmarks/declaration_compile.py --repeats 5`。
 [原始样本](../../benchmarks/results/declaration_compile_2026-10-17.json) 同时保留小图数据。
@@ -156,5 +156,5 @@ Rust 并未降低上述线性算法的渐进复杂度。它的收益来自紧凑
 批量调度；成本也包含 Python 声明遍历、临时对象及跨语言转换。不能只凭“使用 Rust”
 推断某张小图一定更快，也不能把 O(V + E) 理解为只执行一遍循环。
 
-历史测量见 [Recipe 规模基准](./recipe_scale_benchmark.md) 和
+历史测量见[层级图基准](./recipe_scale_benchmark.md)和
 [Node 开销基准](./step_overhead_benchmark.md)。测量覆盖的版本与负载以各文档为准。
