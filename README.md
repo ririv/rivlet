@@ -91,6 +91,8 @@ actual nodes; the same node cannot occur twice in one structure. Execution accep
 the actual Step or Graph root, without wrapping a Graph in a Step. Create another
 Execution to run a declaration again. For direct construction, see the
 [core model](https://github.com/ririv/rivlet/blob/main/docs/core_model.md).
+For complete examples showing when a subgraph is declared versus returned by an action,
+see [subgraph execution](https://github.com/ririv/rivlet/blob/main/docs/execution.md#declared-versus-runtime-returned-subgraphs).
 
 ## Manage resources or borrow your own
 

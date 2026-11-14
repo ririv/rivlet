@@ -77,8 +77,10 @@ interfaces. There are no implicit branches for a particular host application.
 
 ## Current limitations
 
-- Runtime-created graphs receive nested sessions under the root action budget;
-  work created inside an action is outside that budget.
+- Runtime-created graphs receive nested sessions and inherit explicitly configured
+  ancestor concurrency limits. There is no implicit action quota; work spawned
+  inside an action is outside graph admission limits. See the
+  [subgraph comparison](./execution.md#declared-versus-runtime-returned-subgraphs).
 - `ExecutionState` is single-use, with no reset or reuse operation.
 - The runtime does not aggregate host-domain results.
 - Runtime-generated subgraphs cannot be compiled in advance. Once returned, they

@@ -336,6 +336,106 @@ See [topology complexity](./topology_complexity.md).
 
 ## Subgraphs and result scopes
 
+### Declared versus runtime-returned subgraphs
+
+Prefer a declared subgraph when its structure is known before execution. Return a
+graph from an action only when its nodes or topology depend on runtime discovery.
+These are two uses of the existing Step/Graph API, not two declaration systems.
+
+The following alternatives perform the same work: prepare two input files, process
+them independently, then verify both outputs. Run the shared definitions first and
+then either alternative. Each alternative uses a separate, automatically cleaned-up
+temporary directory; no external tools or files are required.
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from rivlet import Graph, GraphStructure, Step, run, step
+
+
+def prepare_files(directory: Path) -> None:
+    (directory / "a.txt").write_text("alpha", encoding="utf-8")
+    (directory / "b.txt").write_text("beta", encoding="utf-8")
+
+
+def make_jobs(files: tuple[Path, ...]) -> Graph:
+    def make_job(path: Path) -> Step:
+        @step
+        def process() -> None:
+            text = path.read_text(encoding="utf-8")
+            path.with_suffix(".out").write_text(text.upper(), encoding="utf-8")
+
+        return process
+
+    return Graph(
+        GraphStructure(nodes=tuple(make_job(path) for path in files)), label="jobs"
+    )
+
+
+def verify_outputs(directory: Path) -> None:
+    assert (directory / "a.out").read_text(encoding="utf-8") == "ALPHA"
+    assert (directory / "b.out").read_text(encoding="utf-8") == "BETA"
+```
+
+**Declared subgraph:** the names are known, so create `jobs` before running. Creating
+the graph only declares actions; it does not read the files before `prepare` runs.
+
+```python
+with TemporaryDirectory() as temporary:
+    directory = Path(temporary)
+    prepare = Step(lambda: prepare_files(directory), label="prepare")
+    finish = Step(lambda: verify_outputs(directory), label="finish")
+    jobs = make_jobs((directory / "a.txt", directory / "b.txt"))
+
+    workflow = (prepare >> jobs >> finish).graph()
+    run(workflow, max_workers=2)
+```
+
+**Runtime-returned subgraph:** discover the names after `prepare` has created the
+inputs. The root declaration initially contains the `discover_and_expand` Step,
+not the returned graph's processing nodes.
+
+```python
+with TemporaryDirectory() as temporary:
+    directory = Path(temporary)
+    prepare = Step(lambda: prepare_files(directory), label="prepare")
+    finish = Step(lambda: verify_outputs(directory), label="finish")
+
+    @step
+    def discover_and_expand() -> Graph:
+        files = tuple(sorted(directory.glob("*.txt")))
+        return make_jobs(files)
+
+    workflow = (prepare >> discover_and_expand >> finish).graph()
+    run(workflow, max_workers=2)
+```
+
+`make_jobs` is an ordinary Python factory, not a lazy graph template. In the first
+alternative it runs during declaration; in the second it runs inside an action.
+Both alternatives succeed silently: `finish` reads and checks both generated files.
+The two processing actions have no prescribed order, but `finish` must wait for both.
+
+| Boundary | Declared `jobs` | Graph returned by `discover_and_expand` |
+| --- | --- | --- |
+| Structure becomes known | Before root execution | While the producing action runs |
+| Compilation and session | Part of the root compilation/session | Nested compilation/session after return |
+| Parent's downstream dependency | `finish` waits for the `jobs` Graph | `finish` waits for the producing Step, including its child graph |
+| Ports and results | Exposed ports can be wired into the root before compilation | Cannot prewire references to nodes that do not exist in the root declaration; the producer can capture its received inputs in child actions |
+| Python resources | Uses the execution's pool and event loop, if needed | Uses the same pool/loop; the parent releases its worker instead of blocking it |
+| Explicit concurrency limits | Derived from the declared ancestry | Child actions inherit the producing Step's scopes across sessions |
+
+Returning the graph is not fire-and-forget: the producing Step succeeds only after
+the child succeeds; child failures propagate through it. It does not recursively
+call `Execution.run()` or create a separate Python pool. Declared subgraphs may
+also expose intermediate ports so a consumer can start before the entire producer
+finishes; the whole-Graph dependency in this example deliberately waits for all work.
+Runtime expansion does not retroactively add arbitrary edges into the already compiled
+root. A runtime `condition` selects whether an existing node runs; it does not create
+that node's internal graph structure.
+
+### Compilation and result scopes
+
 For a declared subgraph:
 
 - Leaves join the global execution structure.

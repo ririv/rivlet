@@ -80,6 +80,8 @@ run(both, max_workers=2)
 重复放入同一节点对象。Execution 接收实际 Step/Graph 根，不用 Step 再包装 Graph。
 声明再次运行时新建 Execution。非 DSL 写法见
 [核心模型](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/core_model.md)。
+子图应该提前声明，还是由 action 运行时返回，完整对比示例见
+[子图执行](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/execution.md#声明子图与动态子图对比)。
 
 ## 托管资源或借用已有资源
 

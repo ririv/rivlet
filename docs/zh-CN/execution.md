@@ -333,6 +333,99 @@ Graph 将本层显式边和运行时条件读取投影为整数节点与阻塞�
 
 ## 子图语义
 
+### 声明子图与动态子图对比
+
+结构在执行前已经确定时，优先直接声明子图；只有节点数量或拓扑依赖运行时发现的结果，
+才让 action 返回动态子图。这是同一套 Step/Graph API 的两种使用方式，不是两套声明模型。
+
+下面两种流程完成同一件事：准备两个输入文件，分别处理，最后验证两份输出。
+先运行共用定义，再任选一种流程。每种流程使用独立的临时目录，结束后自动清理，
+不需要外部工具或预先准备文件。
+
+```python
+from pathlib import Path
+from tempfile import TemporaryDirectory
+
+from rivlet import Graph, GraphStructure, Step, run, step
+
+
+def prepare_files(directory: Path) -> None:
+    (directory / "a.txt").write_text("alpha", encoding="utf-8")
+    (directory / "b.txt").write_text("beta", encoding="utf-8")
+
+
+def make_jobs(files: tuple[Path, ...]) -> Graph:
+    def make_job(path: Path) -> Step:
+        @step
+        def process() -> None:
+            text = path.read_text(encoding="utf-8")
+            path.with_suffix(".out").write_text(text.upper(), encoding="utf-8")
+
+        return process
+
+    return Graph(
+        GraphStructure(nodes=tuple(make_job(path) for path in files)), label="jobs"
+    )
+
+
+def verify_outputs(directory: Path) -> None:
+    assert (directory / "a.out").read_text(encoding="utf-8") == "ALPHA"
+    assert (directory / "b.out").read_text(encoding="utf-8") == "BETA"
+```
+
+**声明子图：** 文件名已经知道，执行前就构造 `jobs`。构造只声明 action，
+不会在 `prepare` 执行前读取输入文件。
+
+```python
+with TemporaryDirectory() as temporary:
+    directory = Path(temporary)
+    prepare = Step(lambda: prepare_files(directory), label="prepare")
+    finish = Step(lambda: verify_outputs(directory), label="finish")
+    jobs = make_jobs((directory / "a.txt", directory / "b.txt"))
+
+    workflow = (prepare >> jobs >> finish).graph()
+    run(workflow, max_workers=2)
+```
+
+**动态子图：** `prepare` 创建输入后，再发现文件名。根图最初只有
+`discover_and_expand` 这个 Step，并没有它随后返回的处理子图节点。
+
+```python
+with TemporaryDirectory() as temporary:
+    directory = Path(temporary)
+    prepare = Step(lambda: prepare_files(directory), label="prepare")
+    finish = Step(lambda: verify_outputs(directory), label="finish")
+
+    @step
+    def discover_and_expand() -> Graph:
+        files = tuple(sorted(directory.glob("*.txt")))
+        return make_jobs(files)
+
+    workflow = (prepare >> discover_and_expand >> finish).graph()
+    run(workflow, max_workers=2)
+```
+
+`make_jobs` 是普通的 Python 工厂函数，不是惰性图模板。前一种写法在声明时调用它，
+后一种写法在 action 内调用。两种流程成功时都没有输出，`finish` 会读取并验证两个生成文件。
+两个处理 action 没有预定执行顺序，但 `finish` 必须等待它们全部完成。
+
+| 边界 | 声明的 `jobs` | `discover_and_expand` 返回的图 |
+| --- | --- | --- |
+| 何时知道内部结构 | 根图执行前 | 生产它的 action 执行时 |
+| 编译与 session | 随根图统一编译、使用同一 session | 返回后建立嵌套 compilation/session |
+| 根图的后续依赖 | `finish` 等待 `jobs` 这个 Graph | `finish` 等待生产它的 Step，包含其子图完成 |
+| 端口与结果 | 可在编译前把公开端口接到根图 | 不能提前接线到根声明中尚不存在的节点；生产者可把已收到的输入捕获到子图动作中 |
+| Python 执行资源 | 使用本次执行的池及必要时的事件循环 | 共用原池与循环；父步骤让出 worker，不占线程递归等待 |
+| 显式并发限额 | 按已声明的祖先关系计算 | 子图 action 跨 session 继承生产步骤所在范围 |
+
+返回子图不是后台启动后立即完成：子图成功后，生产它的 Step 才成功；子图失败会通过它传播。
+它不会递归调用 `Execution.run()`，也不另建 Python 池。声明子图还可以公开中间端口，
+允许消费者在整个生产子图结束前启动；这里刻意采用整图依赖，等待全部处理完成。
+运行时展开不意味着能向已经编译的根图任意追加入边。运行时 `condition` 决定已有节点
+是否执行，不会创建该节点的内部图结构。
+
+### 编译与结果作用域
+
 Graph 自身是声明态复合节点，内部可复用结构保存在 graph.structure；不再用 Step 包装。
 
 Rust compiler 会转换所有声明期已知子图：
