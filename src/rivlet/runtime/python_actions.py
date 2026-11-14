@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import inspect
 import traceback
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from ..compile import CompiledPythonStep, GraphCompilation, compile_graph
 from ..observe import GraphObservationPhase
 from ..option import Nothing, Option
+from .concurrency import SessionLimits
 from .executor_common import as_graph_result, emit_graph_observation
 from .run import CompiledGraphRun, RuntimeStep
 from .session_tree import (
@@ -18,10 +19,10 @@ from .session_tree import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Mapping
     from pathlib import Path
 
-    from ..model import Step
+    from ..model import NodePath, Step
     from ..observe import GraphObserver
     from ..results import NodeRunContext
     from .action_log import ActionLog
@@ -49,6 +50,7 @@ class PythonActionRuntime:
         ],
         object,
     ]
+    max_concurrency: Mapping[NodePath, int] = field(default_factory=dict)
 
     def prepare(
         self, compilation: GraphCompilation, *, step_log_path: Path | None = None
@@ -83,6 +85,7 @@ class PythonActionRuntime:
                 if isinstance(node, CompiledPythonStep)
                 and inspect.iscoroutinefunction(node.action.action)
             ),
+            SessionLimits.resolve(compilation, self.max_concurrency),
         )
 
     def after_success(

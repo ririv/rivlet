@@ -14,11 +14,11 @@ from .python_actions import PythonActionRuntime
 from .state import ExecutionState
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable
+    from collections.abc import Awaitable, Mapping
     from concurrent.futures import ThreadPoolExecutor
     from pathlib import Path
 
-    from ..model import Step
+    from ..model import NodePath, Step
     from ..observe import GraphObserver
     from ..option import Option
     from ..results import NodeRunContext
@@ -90,6 +90,7 @@ class GraphExecutor:
         observer: GraphObserver | None = None,
         action_log: ActionLog = NO_ACTION_LOG,
         record_composites_as_steps: bool = False,
+        max_concurrency: Mapping[NodePath, int] | None = None,
     ) -> None:
         self.state = state or ExecutionState()
         self.execution_control = execution_control
@@ -101,6 +102,7 @@ class GraphExecutor:
             shared,
             record_composites_as_steps,
             invoke_action,
+            {} if max_concurrency is None else max_concurrency,
         )
 
     def _prepare(self, graph: ExecutableGraph) -> SessionDefinition:

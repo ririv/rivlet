@@ -52,6 +52,7 @@ class Execution:
 
     dynamic / compiled 仅控制展示记录，不是线程 / 异步模式。
     模块级 run/arun 提供创建及关闭 Python 线程池的高阶封装。
+    四个入口均可显式配置 max_concurrency，额度按实际图祖先共同约束各语言动作。
     """
 
     root: NodeKind
@@ -208,10 +209,33 @@ class Execution:
             raise GraphError(f"unsupported graph mode: {mode}")
         return self.compile()
 
-    def run(
+    def _resolve_concurrency[LimitedNode: NodeKind](
+        self, requested: Mapping[LimitedNode, int] | None
+    ) -> dict[NodePath, int]:
+        from .model import Graph, Step
+
+        if not requested:
+            return {}
+        # 先复制请求，外部修改字典不会改变本次执行的额度。
+        snapshot = dict(requested)
+        for node, maximum in snapshot.items():
+            if not isinstance(node, (Step, Graph)):
+                raise GraphError("concurrency limits require declared Nodes")
+            if type(maximum) is not int or maximum < 1:
+                raise GraphError("concurrency limits must be positive integers")
+        mounted_paths = self._index_mounted_step_paths()
+        return {
+            self._require_unique_mounted_step_path(
+                node, mounted_step_paths=mounted_paths
+            ): maximum
+            for node, maximum in snapshot.items()
+        }
+
+    def run[LimitedNode: NodeKind](
         self,
         *,
         pool: ThreadPoolExecutor,
+        max_concurrency: Mapping[LimitedNode, int] | None = None,
         observer: GraphObserver | None = None,
         mode: GraphMode = "dynamic",
     ) -> ExecutionState:
@@ -226,6 +250,7 @@ class Execution:
         else:
             raise GraphError("use await execution.arun() inside a running event loop")
         target_graph = self._compile_for_run(mode)
+        limits = self._resolve_concurrency(max_concurrency)
         try:
             result = GraphExecutor(
                 self.execution_state,
@@ -234,6 +259,7 @@ class Execution:
                 observer=observer,
                 action_log=self.action_log,
                 record_composites_as_steps=mode == "dynamic",
+                max_concurrency=limits,
             ).execute(target_graph, pool=pool)
         except BaseException as execution_error:
             self._write_execution_output(mode=mode, execution_error=execution_error)
@@ -241,10 +267,11 @@ class Execution:
         self._write_execution_output(mode=mode)
         return result
 
-    async def arun(
+    async def arun[LimitedNode: NodeKind](
         self,
         *,
         pool: ThreadPoolExecutor,
+        max_concurrency: Mapping[LimitedNode, int] | None = None,
         observer: GraphObserver | None = None,
         mode: GraphMode = "dynamic",
     ) -> ExecutionState:
@@ -253,6 +280,7 @@ class Execution:
         from .runtime import GraphExecutor
 
         target_graph = self._compile_for_run(mode)
+        limits = self._resolve_concurrency(max_concurrency)
         try:
             result = await GraphExecutor(
                 self.execution_state,
@@ -261,6 +289,7 @@ class Execution:
                 observer=observer,
                 action_log=self.action_log,
                 record_composites_as_steps=mode == "dynamic",
+                max_concurrency=limits,
             ).aexecute(target_graph, pool=pool)
         except BaseException as execution_error:
             self._write_execution_output(mode=mode, execution_error=execution_error)
@@ -269,10 +298,11 @@ class Execution:
         return result
 
 
-def run(
+def run[LimitedNode: NodeKind](
     root: NodeKind | Execution,
     *,
     max_workers: int = 1,
+    max_concurrency: Mapping[LimitedNode, int] | None = None,
     observer: GraphObserver | None = None,
     mode: GraphMode = "dynamic",
 ) -> ExecutionState:
@@ -282,13 +312,16 @@ def run(
     with ThreadPoolExecutor(
         max_workers=max_workers, thread_name_prefix="GraphWorker"
     ) as pool:
-        return execution.run(pool=pool, observer=observer, mode=mode)
+        return execution.run(
+            pool=pool, max_concurrency=max_concurrency, observer=observer, mode=mode
+        )
 
 
-async def arun(
+async def arun[LimitedNode: NodeKind](
     root: NodeKind | Execution,
     *,
     max_workers: int = 1,
+    max_concurrency: Mapping[LimitedNode, int] | None = None,
     observer: GraphObserver | None = None,
     mode: GraphMode = "dynamic",
 ) -> ExecutionState:
@@ -298,4 +331,6 @@ async def arun(
     with ThreadPoolExecutor(
         max_workers=max_workers, thread_name_prefix="GraphWorker"
     ) as pool:
-        return await execution.arun(pool=pool, observer=observer, mode=mode)
+        return await execution.arun(
+            pool=pool, max_concurrency=max_concurrency, observer=observer, mode=mode
+        )

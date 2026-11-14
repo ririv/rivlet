@@ -1,5 +1,6 @@
 //! Pure graph models and algorithms used by every language adapter.
 
+pub mod concurrency;
 pub mod declaration;
 pub mod execution;
 pub mod failure;
@@ -8,6 +9,7 @@ pub mod lowering;
 pub mod ports;
 pub mod session;
 
+pub use concurrency::{ConcurrencyLimits, SessionConcurrency};
 pub use declaration::{
     DeclarationError, DeclarationNode, DeclarationPrerequisite, GraphCompilation, GraphDeclaration,
     NodeActivation,

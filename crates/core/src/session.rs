@@ -3,6 +3,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
 
+use crate::concurrency::SessionConcurrency;
 use crate::execution::{CompiledExecutionGraph, ConditionId, ExecutionNodeKind, Prerequisite};
 use crate::failure::{BlockCause, ConditionSite, FailureCause};
 use topology::NodeId;
@@ -155,6 +156,8 @@ impl ExecutionUpdate {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SessionError {
     InvalidCapacity,
+    InvalidConcurrencyBinding,
+    ConcurrencyAlreadyBound,
     AlreadyStarted,
     NotStarted,
     UnknownNode(NodeId),
@@ -170,6 +173,12 @@ impl Display for SessionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidCapacity => write!(formatter, "execution capacity must be >= 1"),
+            Self::InvalidConcurrencyBinding => {
+                write!(formatter, "concurrency binding must match execution nodes")
+            }
+            Self::ConcurrencyAlreadyBound => {
+                write!(formatter, "execution concurrency is already bound")
+            }
             Self::AlreadyStarted => write!(formatter, "execution session is already started"),
             Self::NotStarted => write!(formatter, "execution session is not started"),
             Self::UnknownNode(node) => {
@@ -228,6 +237,7 @@ pub struct ExecutionSession {
     pending_events: Vec<ExecutionEvent>,
     started: bool,
     remaining_children: Vec<usize>,
+    concurrency: Option<SessionConcurrency>,
 }
 
 impl ExecutionSession {
@@ -268,7 +278,44 @@ impl ExecutionSession {
             pending_events: Vec::new(),
             graph,
             started: false,
+            concurrency: None,
         })
+    }
+
+    /// Attaches explicit execution policy without modifying the compiled graph.
+    ///
+    /// # Errors
+    /// Returns an error if already started/bound or the binding has a different node count.
+    pub fn with_concurrency(
+        mut self,
+        concurrency: SessionConcurrency,
+    ) -> Result<Self, SessionError> {
+        if self.started {
+            return Err(SessionError::AlreadyStarted);
+        }
+        if self.concurrency.is_some() {
+            return Err(SessionError::ConcurrencyAlreadyBound);
+        }
+        if concurrency.node_count() != self.states.len() {
+            return Err(SessionError::InvalidConcurrencyBinding);
+        }
+        self.concurrency = Some(concurrency);
+        Ok(self)
+    }
+
+    /// Releases an action's admission while its returned subgraph is running.
+    ///
+    /// # Errors
+    /// Returns an error if the node is not a running action.
+    pub fn suspend_action(&mut self, node: NodeId) -> Result<Vec<usize>, SessionError> {
+        if self.state(node) != Some(NodeState::Running) {
+            return Err(SessionError::NodeNotRunning(node));
+        }
+        if let Some(concurrency) = &mut self.concurrency {
+            concurrency.release(node);
+            return Ok(concurrency.scopes(node).to_vec());
+        }
+        Ok(Vec::new())
     }
 
     /// Starts this session and returns the first dispatch batch.
@@ -335,6 +382,9 @@ impl ExecutionSession {
             if self.states[node.index()] != NodeState::Running {
                 return Err(SessionError::NodeNotRunning(node));
             }
+            if let Some(concurrency) = &mut self.concurrency {
+                concurrency.release(node);
+            }
             self.states[node.index()] = if outcome.is_ok() {
                 NodeState::Finished
             } else {
@@ -356,6 +406,9 @@ impl ExecutionSession {
 
     fn drive(&mut self, max_actions: usize) -> Result<ExecutionBatch, SessionError> {
         self.drain_evaluations();
+        if let Some(concurrency) = &mut self.concurrency {
+            concurrency.retry(&mut self.ready);
+        }
         let mut actions = Vec::new();
         while actions.len() < max_actions {
             let Some(node) = self.ready.pop_front() else {
@@ -368,6 +421,11 @@ impl ExecutionSession {
                 self.skip_node(node, false);
                 self.drain_evaluations();
                 continue;
+            }
+            if let Some(concurrency) = &mut self.concurrency {
+                if !concurrency.acquire(node) {
+                    continue;
+                }
             }
             self.states[node.index()] = NodeState::Running;
             actions.push(node);
@@ -384,6 +442,10 @@ impl ExecutionSession {
             && conditions.is_empty()
             && !self.states.contains(&NodeState::Running)
             && self.ready.is_empty()
+            && !self
+                .concurrency
+                .as_ref()
+                .is_some_and(SessionConcurrency::is_waiting)
         {
             return Err(SessionError::Unresolved(
                 self.states

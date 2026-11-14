@@ -7,6 +7,8 @@ from enum import Enum, auto
 from os import process_cpu_count
 from typing import TYPE_CHECKING, Protocol
 
+from .._native import _ConcurrencyLimits
+
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
@@ -18,6 +20,7 @@ if TYPE_CHECKING:
         _RustResult,
     )
     from ..model import NodePath
+    from .concurrency import SessionLimits
 
 
 type StepOutcome = DynamicSubgraph | None
@@ -59,6 +62,7 @@ class SessionDefinition:
     rust_contexts: list[tuple[int, str | None]]
     dispatch_limit: int
     async_nodes: frozenset[int] = frozenset()
+    limits: SessionLimits | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,7 +108,7 @@ class PythonWork:
 
 
 class SessionTree:
-    """Advance root and dynamic sessions without imposing an action quota."""
+    """Advance related sessions with optional, shared subtree admission limits."""
 
     def __init__(self, root: SessionDefinition) -> None:
         self.host = root.host
@@ -114,13 +118,33 @@ class SessionTree:
         self._active: set[SessionRun] = set()
         self.rust_runs: dict[SessionRun, None] = {}
         self._skip_revision = self.host.skip_revision()
+        self._limits = (
+            None
+            if root.limits is None
+            else _ConcurrencyLimits(list(root.limits.maxima))
+        )
+        self._limit_revision = 0
         self._add(root, RootSession())
 
     def _add(
-        self, definition: SessionDefinition, owner: RootSession | ChildSession
+        self,
+        definition: SessionDefinition,
+        owner: RootSession | ChildSession,
+        inherited_scopes: tuple[int, ...] = (),
     ) -> None:
         # 原生 session 保留独立 worker，默认取逻辑 CPU 数且最多 32 个；
-        # 这不是 Python 池大小，也不再参与全图动作额度。
+        # 这不是 Python 池大小；显式限额在真正派发前由公共调度器准入。
+        concurrency = None
+        if self._limits is not None:
+            if definition.limits is None:
+                raise RuntimeError("limited child session has no concurrency binding")
+            concurrency = (
+                self._limits,
+                [
+                    [*inherited_scopes, *scopes]
+                    for scopes in definition.limits.node_scopes
+                ],
+            )
         run = SessionRun(
             definition,
             definition.graph.mixed_session(
@@ -129,6 +153,7 @@ class SessionTree:
                 definition.rust_contexts,
                 min(32, process_cpu_count() or 1) if definition.rust_contexts else 1,
                 retain_results=definition.host.retains_rust_results(),
+                concurrency=concurrency,
             ),
             owner,
         )
@@ -152,8 +177,24 @@ class SessionTree:
         else:
             # 父动作已返回，不占用 worker；生命周期仍等待子图完成。
             self._add(
-                outcome.definition, ChildSession(run, work.node, outcome.complete)
+                outcome.definition,
+                ChildSession(run, work.node, outcome.complete),
+                inherited_scopes=(
+                    ()
+                    if self._limits is None
+                    else tuple(run.engine.suspend_action(work.node))
+                ),
             )
+
+    def _wake_limit_waiters(self) -> None:
+        if self._limits is None:
+            return
+        revision = self._limits.revision()
+        if revision != self._limit_revision:
+            self._limit_revision = revision
+            # 只在实际归还额度后唤醒活跃 session；O(S)，不重扫节点或轮询。
+            for run in self._active:
+                self.wake(run)
 
     def fail(self, work: PythonWork, error: Exception) -> None:
         run = work.session
@@ -172,6 +213,7 @@ class SessionTree:
                 for run in self._active:
                     self.wake(run)
         work: list[PythonWork] = []
+        self._wake_limit_waiters()
         # 通常只处理收到完成通知的 session；静态图始终只有一个 session。
         # 每批成本 O(Q + A + C + T)，Q 为本批需推进的 session 数，
         # 其余分别为新动作、条件请求和状态转换数，不扫描图中的所有节点。
@@ -226,6 +268,7 @@ class SessionTree:
                 self.rust_runs.pop(run, None)
             if finished:
                 self._finish(run)
+            self._wake_limit_waiters()
         return work
 
     def _finish(self, run: SessionRun) -> None:

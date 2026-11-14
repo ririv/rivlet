@@ -1,4 +1,5 @@
 use std::collections::{HashMap, HashSet};
+use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
 use action::{ActionContext, ActionExecutor, ActionHandle, CompletionWait, Value};
@@ -16,6 +17,33 @@ const RUST_ACTION_STARTED: u8 = 5;
 const RUST_ACTION_COMPLETED: u8 = 6;
 type ActionOutcome = (NodeId, Result<(), ()>);
 type RustFailure = (usize, String);
+
+/// Shared admission counters owned by one Python execution driver.
+#[pyclass(frozen, module = "rivlet._native", name = "_ConcurrencyLimits")]
+pub(crate) struct ConcurrencyLimits {
+    pub(crate) limits: rivlet::ConcurrencyLimits,
+}
+
+#[pymethods]
+impl ConcurrencyLimits {
+    #[new]
+    fn new(maxima: Vec<usize>) -> PyResult<Self> {
+        let maxima = maxima
+            .into_iter()
+            .map(|maximum| {
+                NonZeroUsize::new(maximum)
+                    .ok_or_else(|| PyValueError::new_err("concurrency limits must be positive"))
+            })
+            .collect::<PyResult<Vec<_>>>()?;
+        Ok(Self {
+            limits: rivlet::ConcurrencyLimits::new(maxima),
+        })
+    }
+
+    fn revision(&self) -> u64 {
+        self.limits.revision()
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct RustActionDeclaration {
@@ -407,6 +435,15 @@ impl MixedExecutionSession {
 
 #[pymethods]
 impl MixedExecutionSession {
+    fn suspend_action(&self, node: usize) -> PyResult<Vec<usize>> {
+        self.state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .session
+            .suspend_action(NodeId::new(node))
+            .map_err(|error| PyValueError::new_err(error.to_string()))
+    }
+
     fn start(&self, py: Python<'_>, capacity: usize) -> PyResult<MixedExecutionBatch> {
         let mut state = self
             .state

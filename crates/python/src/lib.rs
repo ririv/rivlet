@@ -354,7 +354,7 @@ impl CompiledExecutionGraph {
         })
     }
 
-    #[pyo3(signature = (initially_skipped, rust_actions, rust_contexts, workers, retain_results=false))]
+    #[pyo3(signature = (initially_skipped, rust_actions, rust_contexts, workers, retain_results=false, concurrency=None))]
     fn mixed_session(
         &self,
         initially_skipped: Vec<usize>,
@@ -362,17 +362,30 @@ impl CompiledExecutionGraph {
         rust_contexts: Vec<(usize, Option<String>)>,
         workers: usize,
         retain_results: bool,
+        concurrency: Option<(
+            PyRef<'_, mixed_execution::ConcurrencyLimits>,
+            Vec<Vec<usize>>,
+        )>,
     ) -> PyResult<mixed_execution::MixedExecutionSession> {
         let bindings = mixed_execution::MixedExecutionSession::bindings(
             self.graph.nodes().len(),
             rust_actions,
             rust_contexts,
         )?;
-        let session = CoreExecutionSession::new(
+        let mut session = CoreExecutionSession::new(
             Arc::clone(&self.graph),
             initially_skipped.into_iter().map(NodeId::new),
         )
         .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        if let Some((limits, memberships)) = concurrency {
+            let binding = limits
+                .limits
+                .bind(memberships)
+                .map_err(PyValueError::new_err)?;
+            session = session
+                .with_concurrency(binding)
+                .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        }
         mixed_execution::MixedExecutionSession::new(session, bindings, workers, retain_results)
     }
 }
@@ -405,6 +418,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     module.add_class::<mixed_execution::MixedExecutionBatch>()?;
     module.add_class::<mixed_execution::MixedExecutionSession>()?;
+    module.add_class::<mixed_execution::ConcurrencyLimits>()?;
     module.add_class::<rust_graph::RustGraphStructure>()?;
     Ok(())
 }
