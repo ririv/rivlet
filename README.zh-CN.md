@@ -38,16 +38,11 @@ Windows x64 的源码构建与安装后验收见
 ## 组合步骤与可复用子图
 
 ```python
-from rivlet import Graph, GraphWiring, Step, graph, run
+from rivlet import Graph, Step, run
 
-
-@graph
-def checks() -> GraphWiring:
-    validate = Step(lambda: print("validate"), label="validate")
-    test = Step(lambda: print("test"), label="test")
-    return validate | test
-
-
+validate = Step(lambda: print("validate"), label="validate")
+test = Step(lambda: print("test"), label="test")
+checks = (validate | test).graph(label="checks")
 prepare = Step(lambda: print("prepare"), label="prepare")
 finish = Step(lambda: print("finish"), label="finish")
 workflow = (prepare >> checks >> finish).graph(label="example")
@@ -57,8 +52,8 @@ run(workflow, max_workers=2)
 prepare 完成后，checks 中的 validate/test 可并发执行；finish 等待两者成功。
 `>>` 表示先后，`|` 不添加依赖。`max_workers` 限制同步 Python 线程数，不限制协程数量。
 
-`@graph` 会立即调用一次无参构图函数，将其返回的接线声明构造成以函数名为 label
-的 Graph；步骤动作仍只在执行时运行。节点既可以定义在函数内部，也可以引用外层声明。
+`.graph()` 将接线声明物化成图；步骤动作仍只在执行时运行。
+需要参数化组合时，使用返回 Graph 的普通函数。
 
 Step 是执行函数的节点，Graph 是包含子结构的节点。二者都持有身份、label 和
 condition，并支持相同的 wire/DSL 操作。Node 只是共同协议，不需要手动包装；

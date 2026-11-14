@@ -87,10 +87,14 @@ wait only when its predicate is true, without skipping either endpoint. Cross-gr
 connections use explicit ports. Rust validates the final resolved DAG; a cycle
 drawn between components is not necessarily a cycle between their actual leaves.
 
-## Graph declaration decorator
+## Parameterized composition
+
+Use an ordinary function returning Graph when construction needs parameters or
+local declarations. Each call explicitly creates its nodes; only actions are
+executed later. Existing outer nodes can be passed in without replacing their identities.
 
 ```python
-from rivlet import Execution, GraphWiring, graph, run, step
+from rivlet import Graph, Step, run, step
 
 
 @step
@@ -98,34 +102,18 @@ def prepare() -> None:
     print("prepare")
 
 
-@graph
-def pipeline() -> GraphWiring:
-    @step
-    def build() -> None:
-        print("build")
-
-    return prepare >> build
+def make_pipeline(prepare: Step, *, label: str) -> Graph:
+    build = Step(lambda: print("build"), label="build")
+    return (prepare >> build).graph(label=label)
 
 
+pipeline = make_pipeline(prepare, label="pipeline")
 run(pipeline)
 ```
 
-`@graph` immediately calls its zero-argument declaration once and passes the
-returned GraphWiring to `Graph.from_wiring`, using the function name as the label.
-After decoration, `pipeline` is a Graph, not a callable. This differs from `@step`,
-which wraps a callable without running the action. Declaration errors propagate;
-there is no retry or execution-time reconstruction.
-
-The decorator does not discover local variables: only nodes in the returned wiring
-are included. Outer Steps and Graphs are ordinary operands, retaining their
-identities and interfaces. The resulting Graph supports the same DSL, `wire`,
-compilation and structure reuse as a directly constructed Graph.
-
-The declaration returns GraphWiring, not a prebuilt Graph, and does not call
-`.graph()` itself. For parameterized construction, explicit graph metadata,
-interfaces or static rules, keep using ordinary functions and the existing
-`Graph` / `Graph.from_wiring` / `.graph(...)` constructors. `@graph` adds no new
-template, lazy factory or execution semantics.
+The function is ordinary Python, with no implicit invocation, wiring discovery or
+execution-time reconstruction. Set graph metadata and interfaces explicitly using
+Graph, Graph.from_wiring or the DSL's .graph() method.
 
 ## Results and runtime context
 

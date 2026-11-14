@@ -18,7 +18,6 @@ def test_model_and_root_exports_identify_the_same_declarations():
         "NodeWiring",
         "Results",
         "Step",
-        "graph",
         "step",
         "ConditionInput",
         "NodeKind",

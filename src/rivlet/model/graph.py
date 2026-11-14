@@ -10,8 +10,6 @@ from .graph_structure import GraphMode, GraphObservationMessages, GraphStructure
 from .metadata import _NodeMeta
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from .._native import RustGraphStructure
     from ..interface import GraphInterfaceInput
     from ..static import StaticSelection
@@ -95,16 +93,4 @@ class Graph:
         return _parallel_wiring(self, other)
 
 
-def graph(declaration: Callable[[], GraphWiring]) -> Graph:
-    """Build a graph immediately from a zero-argument wiring declaration.
-
-    Only the declaration is called here; step actions remain deferred until
-    execution. A named declaration supplies the graph's presentation label.
-    """
-
-    name = getattr(declaration, "__name__", None)
-    label = name if isinstance(name, str) and name != "<lambda>" else None
-    return Graph.from_wiring(declaration(), label=label)
-
-
-__all__ = ["Graph", "GraphStructure", "GraphMode", "GraphObservationMessages", "graph"]
+__all__ = ["Graph", "GraphStructure", "GraphMode", "GraphObservationMessages"]

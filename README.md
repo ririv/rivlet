@@ -45,16 +45,11 @@ For Windows x64 source builds and installed-wheel validation, see
 ## Compose steps and reusable subgraphs
 
 ```python
-from rivlet import Graph, GraphWiring, Step, graph, run
+from rivlet import Graph, Step, run
 
-
-@graph
-def checks() -> GraphWiring:
-    validate = Step(lambda: print("validate"), label="validate")
-    test = Step(lambda: print("test"), label="test")
-    return validate | test
-
-
+validate = Step(lambda: print("validate"), label="validate")
+test = Step(lambda: print("test"), label="test")
+checks = (validate | test).graph(label="checks")
 prepare = Step(lambda: print("prepare"), label="prepare")
 finish = Step(lambda: print("finish"), label="finish")
 workflow = (prepare >> checks >> finish).graph(label="example")
@@ -65,9 +60,8 @@ After prepare, validate and test can run concurrently; finish waits for both.
 `>>` orders nodes, while `|` adds no dependency. `max_workers` limits synchronous Python
 threads, not the number of coroutine tasks.
 
-`@graph` calls a zero-argument wiring declaration once, immediately, and replaces
-it with a Graph labeled after the function. Step actions still run only during
-execution. Nodes may be declared inside the function or referenced from outside.
+`.graph()` materializes the wiring declaration; step actions run only during
+execution. Use ordinary functions returning Graph for parameterized composition.
 
 Step executes a callable; Graph contains a substructure. Both own identity, label
 and condition and support the same wire/DSL operations. Node is their common
