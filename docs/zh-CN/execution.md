@@ -91,7 +91,7 @@ None，之后返回该对象。编译异常不提交半成品。重新求静态�
 
 ## 托管与借用执行资源
 
-不再区分线程模式和异步模式，也不设置全图动作额度。`run` 阻塞调用方；`arun`
+不再区分线程模式和异步模式，也不隐式设置全图动作额度。`run` 阻塞调用方；`arun`
 允许调用方异步等待同一类混合工作流。`dynamic` / `compiled` 只控制展示记录。
 
 ```python
@@ -136,9 +136,51 @@ Rust 批次完成通知不占用 Python 动作线程，池已满也不会阻止�
 Rust 结果。
 
 运行时返回的子图复用父执行的 Python 池和事件循环。父动作返回子图后释放线程，
-不在线程里递归等待子图；独立分支不保证先后顺序。不设全图额度，也就不会自动限制
+不在线程里递归等待子图；独立分支不保证先后顺序。不传 `max_concurrency` 时，不自动限制
 在途协程数或等待线程池的提交数量。下载、API、内存等预算由业务显式限制，例如
 在网络请求周围组合 asyncio semaphore，不能把 `max_workers` 当作这些资源的预算。
+
+## 可选的子图并发上限
+
+限额属于执行策略，不写进 Graph 声明。四个执行入口都接受同一种平铺
+`max_concurrency` 字典，key 是已声明的 Step 或 Graph，value 是正整数：
+
+```python
+downloads = (download_a | download_b | download_c).graph()
+processing = (process_a | process_b).graph()
+workflow = (downloads | processing).graph()
+
+run(
+    workflow,
+    max_workers=8,
+    max_concurrency={workflow: 4, downloads: 2, processing: 3},
+)
+```
+
+借用池时，将同一字典传给 `Execution(workflow).run(pool=pool, max_concurrency=limits)`；
+两个 `arun` 入口的参数一致。图与已经缓存的编译实例不变，不为子图额外创建 Python
+线程池，已有的 Rust worker 所有权也不变。包含关系完全来自真实图，不重复声明配置树。
+
+并发上限指“已经获准派发、尚未完成或失败”的 action 数量，包含排在线程池队列中的
+任务，以及等待 I/O 的协程。同步 Python、异步和 Rust action 共用所在范围的额度。
+每个 action 必须同时满足所有受限祖先和自身的上限。上例中，下载最多 2 个、处理最多
+3 个，合计最多 4 个。它只是上限，不预留名额，不保证启动数量，也不保证独立分支公平。
+
+Rust 在派发前一次性检查并占用所有相关额度。没有名额的动作留在调度器，不占线程，
+也不先占一部分额度再等待。Graph 生命周期和运行时 predicate 不算 action，不占名额。
+action 返回运行时子图后，归还自己的额度，子图 action 跨 session 继续受原有祖先约束。
+普通失败归还名额，只阻断相关下游；取消停止新派发，等待已经提交的工作收尾，不关闭
+借入的池，也不强制中断已经开始的动作。
+
+配置中的 Node 必须在根声明内且只有一个挂载位置。复用结构时可以分别配置
+`Graph(shared_structure)` 实例，不能用两处挂载共享的内部 Step 作为歧义 key。
+未知引用、歧义引用及非正整数在 action 开始前报错。已声明但被静态裁剪的节点允许配置，
+只是没有工作可执行。运行时才创建、未在根声明中出现的节点不能提前配置，继承生产它的
+action 所在范围。不传或传空字典时不限流；派发前会对配置取快照。
+
+只统计图内 action，不统计 action 内自行创建的线程、请求或子进程。若一个 action
+阻塞等待另一个被相同额度挡住的 action，使用者仍可能制造死锁；依赖应通过图上的边
+表达，不要在 action 内等待同组的其它 action。这不是请求速率、优先级或特定资源预算。
 
 ## 执行控制
 
@@ -347,7 +389,7 @@ Rust compiler 会转换所有声明期已知子图：
 - 已经开始执行的同步 worker 或异步 task 不会被 Graph 强制取消
 - 运行期返回图使用独立 Rust session，由同一驱动推进
 - 等待子图的父步骤不占线程；Python 子图共用线程池和事件循环
-- 不提供 Python / Rust / 协程合计的全图动作额度
+- 不隐式设置 Python / Rust / 协程合计额度；显式 `max_concurrency` 跨 session 生效
 - 节点 ready 判定仍在 Rust，串行嵌套 session 使用显式栈推进
 - action 对宿主共享状态的并发写入安全由宿主负责
 

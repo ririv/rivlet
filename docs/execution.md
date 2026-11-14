@@ -81,7 +81,7 @@ receive the actual root Node and derive its name; they do not accept a second `r
 
 ## Managed and borrowed execution resources
 
-There is no thread-versus-async execution mode or graph-wide action quota.
+There is no thread-versus-async execution mode or implicit graph-wide action quota.
 `run` blocks its caller; `arun` allows its caller to await the same mixed workflow.
 The `dynamic` / `compiled` argument only controls presentation records.
 
@@ -134,10 +134,59 @@ Rust result.
 Runtime-generated subgraphs use the same Python pool and event loop as their
 parent execution. Returning a child graph releases the parent worker rather than
 waiting recursively inside it. Independent branches have no promised order.
-Removing a graph-wide quota also means no automatic bound on outstanding coroutine
+Without explicit `max_concurrency`, there is no automatic bound on outstanding coroutine
 tasks or queued synchronous submissions. Apply resource-specific limits explicitly,
 for example an asyncio semaphore around network requests; never assume `max_workers`
 is a download/API/memory budget.
+
+## Optional subtree concurrency limits
+
+Keep limits outside the graph declaration. All four entry points accept the same flat
+`max_concurrency` mapping from a declared Step or Graph to a positive integer:
+
+```python
+downloads = (download_a | download_b | download_c).graph()
+processing = (process_a | process_b).graph()
+workflow = (downloads | processing).graph()
+
+run(
+    workflow,
+    max_workers=8,
+    max_concurrency={workflow: 4, downloads: 2, processing: 3},
+)
+```
+
+For a borrowed pool, pass the same mapping to
+`Execution(workflow).run(pool=pool, max_concurrency=limits)`; the `arun` variants
+accept it identically. The graph and its cached compilation do not change. No extra
+Python pools are created for subgraphs. Existing Rust worker ownership is unchanged.
+
+An action is in flight from admission until completion or failure, including time
+queued in a worker pool and time awaiting I/O. Synchronous Python, coroutine and Rust
+actions consume the same scoped allowance. A step must have room in every configured
+ancestor scope as well as its own scope. In this example, downloads can use at most 2
+slots and processing at most 3, with at most 4 in total. Limits are ceilings, not
+reservations or promises of parallelism; independent branches have no fairness guarantee.
+
+Rust checks all allowances before dispatch; waiting actions do not occupy workers or
+partially acquire scopes. Graph lifecycle nodes and runtime predicates do not consume
+action slots. A step returning a runtime subgraph releases its own slots while waiting
+for the child; child actions inherit those scopes across sessions. Ordinary failures
+return slots and block only related dependents. Cancellation stops new admission and
+drains submitted work, without closing a borrowed pool or forcibly interrupting actions.
+
+Node references must be declared in the execution root and uniquely mounted there.
+For shared structures, configure distinct `Graph(shared_structure)` instances, not an
+ambiguous internal Step mounted in both. Unknown or ambiguous references and non-positive
+limits are errors before any action starts. Limits for declared nodes removed by static
+pruning are valid but perform no work. Dynamically created, undeclared nodes cannot be
+preconfigured; they inherit the producing step's scopes. Omitting the mapping (or passing
+an empty mapping) means no admission limits. The mapping is snapshotted before dispatch.
+
+Only graph actions are counted, not threads, requests or subprocesses spawned inside
+one action. A limit can deadlock application code that waits for another action excluded
+by that same limit; express dependencies as graph edges rather than blocking inside an
+action waiting for a peer. This policy is not a resource-specific rate limit or priority.
 
 ## Execution control
 
@@ -320,7 +369,9 @@ unrelated ready nodes continue. Explicit cancellation stops new dispatch.
 Already-running workers/tasks are not forcibly cancelled by Graph.
 
 Runtime-returned subgraphs use nested Rust sessions coordinated by one driver.
-Python sessions share one pool and event loop without a root-wide action quota.
+Python sessions share one pool and event loop, with no implicit root-wide action quota.
+Explicit subtree limits are shared across those sessions; see
+[concurrency limits](#optional-subtree-concurrency-limits).
 Waiting parents retain their dependency boundary without occupying a worker.
 Per-node readiness remains in Rust. Safety of concurrent host-state writes and
 limits on work spawned inside individual actions remain the host's responsibility.

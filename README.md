@@ -112,10 +112,14 @@ with ThreadPoolExecutor(max_workers=4) as pool:
 ```
 
 Use `await execution.arun(pool=pool)` in an async function. Rivlet waits for its own
-work to exit but never closes a borrowed pool. There is no graph-wide coroutine
-quota; apply business limits explicitly. Process and isolated-interpreter pools
+work to exit but never closes a borrowed pool. There is no implicit graph-wide coroutine
+quota. To bound in-flight actions in a subtree without creating another pool, pass
+`max_concurrency={workflow: 4, checks: 2}` to either managed or borrowed execution.
+The limits cover Python, coroutine and Rust actions using the graph's actual nesting.
+Process and isolated-interpreter pools
 are not interchangeable with this shared-memory execution model. See
-[execution resources](https://github.com/ririv/rivlet/blob/main/docs/execution.md#managed-and-borrowed-execution-resources).
+[execution resources](https://github.com/ririv/rivlet/blob/main/docs/execution.md#managed-and-borrowed-execution-resources)
+and [subtree limits](https://github.com/ririv/rivlet/blob/main/docs/execution.md#optional-subtree-concurrency-limits).
 
 ## Connect subgraphs through input and output ports
 
