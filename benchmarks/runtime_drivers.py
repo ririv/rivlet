@@ -9,13 +9,15 @@ from __future__ import annotations
 import argparse
 import statistics
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 from rivlet import Graph, GraphStructure, Step
 from rivlet._native import _experimental_run_tokio_callbacks
 from rivlet.compile import compile_graph
-from rivlet.runtime.batch_driver import run_threaded_session
+from rivlet.runtime.batch_driver import run_session
 from rivlet.runtime.compiled import CompiledExecutionHost
+from rivlet.runtime.session_tree import SessionDefinition
 from rivlet.runtime.state import ExecutionState
 
 if TYPE_CHECKING:
@@ -53,6 +55,18 @@ def _measure(operation: Callable[[], None], repeats: int) -> list[float]:
     return durations
 
 
+def _batch(compilation: GraphCompilation, workers: int) -> None:
+    definition = SessionDefinition(
+        compilation._execution_graph,
+        _host(compilation),
+        compilation._rust_actions,
+        [],
+        max(1, len(compilation._execution_nodes)),
+    )
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        run_session(definition, pool)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--nodes", type=int, default=10_000)
@@ -62,13 +76,7 @@ def main() -> None:
     compilation = _compilation(args.nodes)
 
     batch = _measure(
-        lambda: run_threaded_session(
-            compilation._execution_graph,
-            _host(compilation),
-            workers=args.workers,
-            rust_actions=compilation._rust_actions,
-            rust_contexts=[],
-        ),
+        lambda: _batch(compilation, args.workers),
         args.repeats,
     )
     tokio = _measure(
