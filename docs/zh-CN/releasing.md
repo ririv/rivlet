@@ -24,8 +24,33 @@ macOS arm64（macOS 11 起）与 Windows x86_64（`win_amd64`，MSVC）。同时
 `0.2.0.post1`。Python 发行号与标签 `v0.2.0.post1` 带后缀，Rust crate 保持基础版本
 `0.2.0`。这是一次新发行，不覆盖已有的 0.2.0。真正的软件修复应提升修订版本或
 次版本，不使用后发行号。执行 `python scripts/check_release.py` 检查当前 manifest；
-加上 `--tag v0.3.0` 可验证当前准备创建的标签。脚本支持正式版及其规范的 `.postN`
+加上 `--tag v0.4.0` 可验证当前准备创建的标签。脚本支持正式版及其规范的 `.postN`
 形式，不接受其它未支持的版本写法。
+
+### 0.4.0
+
+本版包含公开 API 变更，不能作为 0.3.0 的无修改替换。
+
+- Step 是动作节点，Graph 是子图节点，二者实现共同的 Node 协议；GraphStructure
+  保存可复用拓扑。Execution 可以直接执行这两种根节点，不再把图包装成动作步骤。
+- 图实例拥有明确归属的出入口引用，支持就绪边与结果边。字符串具名端点可以与
+  `None` 匿名端点共存；`.interface.input` / `.output` 只选择显式声明的匿名端点，
+  不自动选择唯一具名端点。见[图接口](./interfaces.md)。
+- 通过 `Edge.results(...)` 或 wiring 中的 `Results(...)` 声明位置结果传递；
+  运行时条件使用 `condition=(predicate, producer, ...)`。动作上下文不再提供任意
+  跨节点结果查询，结果参数仍是 Option。见[核心模型](./core_model.md)。
+- `run` / `arun` 托管执行资源，低阶 `Execution.run` / `arun` 借用线程池。
+  `max_workers` 限制阻塞 Python worker；可选的执行级 `max_concurrency` 按真实子图
+  层级约束后代动作，同时覆盖同步、异步和 Rust 工作。见[执行模型](./execution.md)。
+- Rust 图声明、强类型原生结果传递和 Rust 执行与 Python 共用同一个图内核，
+  Python 值转换在适配边界显式处理。见[Rust 图](./rust-graphs.md)与
+  [Rust 结果](./rust-results.md)。
+
+`@step` 仍声明实际 Step；本版没有函数调用式构图前端。构图继续使用构造器、
+wiring/DSL 和返回 Graph 的普通函数。已移除的无参 `@graph` 不保留别名。
+本版不包含 JavaScript、Swift 或 Java 绑定。
+
+### 0.3.0
 
 0.3.0 新增图声明内的静态选择：`static.select()` 与 `Case(condition, component)`。
 所有候选仍保留在声明中供检查；编译要求每个活跃选择恰好一个条件成立，不按分支顺序
@@ -33,7 +58,7 @@ macOS arm64（macOS 11 起）与 Windows x86_64（`win_amd64`，MSVC）。同时
 [静态选择](./static_selection.md)。原有绑定 evaluator 的 `StaticConditions` 规则继续保留。
 
 本版同时增加 `export_graph()` 版本化 JSON 结构导出，区分声明和编译视图，保留边类型来源、
-挂载身份、端口端口及静态排除项。Execution 首次成功编译后由 compile/run/arun
+挂载身份、端口及静态排除项。Execution 首次成功编译后由 compile/run/arun
 复用，声明与宿主绑定不可替换；需要重新求静态条件时创建新实例。见[结构导出](./graph_export.md)。
 
 本版不包含 JavaScript、Swift、Java 绑定、跨语言 Action 编排或浏览器支持。

@@ -30,8 +30,38 @@ a PEP 440 post-release, such as `0.2.0.post1`. The Python distribution and tag
 This is a new distribution, not an overwrite of 0.2.0. Actual software fixes must
 use a new patch or minor version instead of a post-release. Run
 `python scripts/check_release.py` to validate the current manifests, or pass
-`--tag v0.3.0` to check the proposed current tag. The script supports final releases
+`--tag v0.4.0` to check the proposed current tag. The script supports final releases
 and their canonical `.postN` forms; it rejects unsupported version forms.
+
+### Version 0.4.0
+
+This release changes public APIs; it is not a drop-in replacement for 0.3.0.
+
+- `Step` is an action node and `Graph` is a composite node. Both implement the
+  common Node protocol; `GraphStructure` owns reusable topology. Execute either
+  node through `Execution`, rather than wrapping a graph in an action step.
+- Graph-owned input/output references support explicit readiness and result
+  connections. String names and anonymous `None` endpoints can coexist;
+  `.interface.input` / `.output` select only the explicitly anonymous endpoint.
+  See [interfaces](./interfaces.md).
+- Declare positional result transport with `Edge.results(...)` or `Results(...)`
+  in wiring. Runtime predicates accept `condition=(predicate, producer, ...)`;
+  action context no longer provides arbitrary cross-node result lookup. Results
+  remain `Option` values. See [core model](./core_model.md).
+- `run` / `arun` own their execution resources; low-level `Execution.run` / `arun`
+  borrow a thread pool. `max_workers` limits blocking Python workers, while
+  optional execution-level `max_concurrency` scopes constrain descendant actions
+  across synchronous, asynchronous, and Rust work. See [execution](./execution.md).
+- Rust graph declarations, typed native result transport, and Rust execution
+  share the same graph core with Python. Python conversion is explicit at the
+  adapter boundary. See [Rust graphs](./rust-graphs.md) and [Rust results](./rust-results.md).
+
+`@step` still declares an actual Step; a function-call graph frontend is not part
+of this release. Use constructors, wiring/DSL, and ordinary graph factory functions.
+The removed zero-argument `@graph` decorator is not retained as an alias.
+JavaScript, Swift, and Java bindings are not included.
+
+### Version 0.3.0
 
 Version 0.3.0 adds graph-declared static selection with `static.select()` and
 `Case(condition, component)`. All candidates remain inspectable in the declaration;

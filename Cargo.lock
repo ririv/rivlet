@@ -4,11 +4,11 @@ version = 4
 
 [[package]]
 name = "action"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "execution"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "action",
  "graph",
@@ -17,7 +17,7 @@ dependencies = [
 
 [[package]]
 name = "graph"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "action",
  "rivlet",
@@ -121,7 +121,7 @@ dependencies = [
 
 [[package]]
 name = "python"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "action",
  "graph",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "rivlet"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "topology",
 ]
@@ -174,7 +174,7 @@ dependencies = [
 
 [[package]]
 name = "tokio-runtime"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "rivlet",
  "tokio",
@@ -182,7 +182,7 @@ dependencies = [
 
 [[package]]
 name = "topology"
-version = "0.3.0"
+version = "0.4.0"
 
 [[package]]
 name = "unicode-ident"
