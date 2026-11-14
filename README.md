@@ -130,70 +130,94 @@ completion of an entire upstream subgraph. A port names that readiness
 contract. Its output identifies the step that makes it ready; its input identifies
 where the consumer starts needing it.
 
-This complete example connects two otherwise independent subgraphs:
+Graph A and B can even collaborate in both directions: A publishes a plan,
+B prepares an SDK, then A continues. Graph C consumes A's installed result.
+The arrows below connect specific steps, not whole-graph completion:
+
+![Nine steps in three subgraphs: A1 sends a plan to B1, B2 supplies an SDK to A2, and A3 enables C2; C1 prepares independently, A2 need not wait for B3, and C2 need not wait for A4](https://raw.githubusercontent.com/ririv/rivlet/main/docs/assets/subgraph-ports.svg)
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step, run
+from rivlet import Edge, Graph, GraphInterface, GraphStructure, Step, run
 
-data_ready = "validated-data"
+plan_ready = "plan-ready"
+sdk_ready = "sdk-ready"
+install_ready = "install-ready"
 
-fetch = Step(lambda: print("fetch data"), label="fetch")
-validate = Step(lambda: print("validate data"), label="validate")
-archive = Step(lambda: print("archive data"), label="archive")
-producer = (fetch >> validate >> archive).graph(
-    label="producer",
-    interface=GraphInterface(outputs={data_ready: validate}),
+plan = Step(lambda: print("A1: publish plan"), label="A1")
+configure = Step(lambda: print("A2: use SDK"), label="A2")
+install = Step(lambda: print("A3: install"), label="A3")
+app_report = Step(lambda: print("A4: write report"), label="A4")
+app = (plan >> configure >> install >> app_report).graph(
+    label="Graph A",
+    interface=GraphInterface(
+        inputs={sdk_ready: configure},
+        outputs={plan_ready: plan, install_ready: install},
+    ),
 )
 
-prepare = Step(lambda: print("prepare consumer"), label="prepare")
-process = Step(lambda: print("process data"), label="process")
-report = Step(lambda: print("report results"), label="report")
-consumer = (prepare >> process >> report).graph(
-    label="consumer",
-    interface=GraphInterface(inputs={data_ready: process}),
+receive = Step(lambda: print("B1: receive plan"), label="B1")
+prepare_sdk = Step(lambda: print("B2: prepare SDK"), label="B2")
+sdk_report = Step(lambda: print("B3: record metadata"), label="B3")
+sdk = (receive >> prepare_sdk >> sdk_report).graph(
+    label="Graph B",
+    interface=GraphInterface(
+        inputs={plan_ready: receive},
+        outputs={sdk_ready: prepare_sdk},
+    ),
+)
+
+prepare_environment = Step(lambda: print("C1: prepare environment"), label="C1")
+consume = Step(lambda: print("C2: use installed result"), label="C2")
+consumer = (prepare_environment >> consume).graph(
+    label="Graph C",
+    interface=GraphInterface(inputs={install_ready: consume}),
 )
 
 pipeline = Graph(
     GraphStructure(
-        nodes=(producer, consumer),
-        edges=(Edge(producer, consumer, ports=data_ready),),
+        nodes=(sdk, app, consumer),
+        edges=(
+            Edge(app, sdk, ports=plan_ready),
+            Edge(sdk, app, ports=sdk_ready),
+            Edge(app, consumer, ports=install_ready),
+        ),
     ),
     label="pipeline",
 )
 run(pipeline, max_workers=3)
 ```
 
-```text
-producer: fetch → validate [output] → archive
-                     │ validated-data
-                     ▼
-consumer: prepare → process [input] → report
-```
+The cross-graph chain is `A1 → B1 → B2 → A2 → A3 → C2`; the full workflow is
+not one sequential chain:
 
-The consumer can prepare immediately. Once validation succeeds, `process` can run
-without waiting for `archive`, provided its own preparation has also completed.
-The overall execution still waits for both subgraphs to finish.
+- C1 can prepare independently, while C2 waits for both C1 and A3.
+- A2 needs B2's SDK, not B3's metadata: A2 and B3 can run concurrently.
+- C2 needs A3's installed result, not A4's report: C2 and A4 can run concurrently.
+
+A4 and B3 do not modify the already-published artifacts. Graph-level collaboration
+goes both ways, but the actual step dependencies are acyclic. The overall run
+still waits for all three subgraphs, including their reporting steps, to finish.
 
 Matching port names do **not** create dependencies: `Edge` explicitly
-connects this producer and consumer. An ordinary port edge synchronizes readiness without passing values.
+connects the selected subgraphs. An ordinary port edge synchronizes readiness without passing values.
 Use result edges with typed interface endpoints for argument passing, and publish an output only when later steps will no longer
 invalidate what the consumer reads.
 
-This is different from `producer >> consumer`, which waits for the
-entire producer before starting any consumer step. For selecting among providers,
+This is different from `app >> sdk`, which would wait for all of A before
+starting B and is not interchangeable with the plan port edge. For selecting among providers,
 multiple inputs, and failure behavior, see
 [interface ports](https://github.com/ririv/rivlet/blob/main/docs/interfaces.md).
 
 ### Forward an interface when wrapping a subgraph
 
-Using `producer` from the previous example:
+Using `app` from the previous example:
 
 ```python
 setup = Step(lambda: print("set up producer"), label="setup")
-wrapped = (setup >> producer).graph(interface=producer)
+wrapped = (setup >> app).graph(interface=app)
 ```
 
-`interface=producer` explicitly exposes the child's input and output
+`interface=app` explicitly exposes the child's input and output
 ports on the wrapper. Omit it and the wrapper exposes no ports. You can forward
 only one direction or declare a new interface with `GraphInterface`.
 

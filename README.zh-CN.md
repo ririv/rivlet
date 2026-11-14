@@ -115,67 +115,89 @@ Rust action 根据真实图的嵌套关系共同计数。进程池和独立
 端口（`str`）为这项就绪契约命名：出口指向让它就绪的步骤，入口指向消费者
 开始需要它的步骤。
 
-下面是连接两个原本独立子图的完整示例：
+Graph A、B 还可以双向协作：A 先公开计划，B 准备 SDK，再让 A 继续；Graph C
+消费 A 的安装结果。图中的箭头连接具体步骤，而不是等待整个子图完成：
+
+![三个子图共九个步骤：A1 向 B1 提供计划，B2 向 A2 提供 SDK，A3 就绪后 C2 执行；C1 可独立准备，A2 不等 B3，C2 不等 A4](https://raw.githubusercontent.com/ririv/rivlet/main/docs/assets/subgraph-ports.svg)
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step, run
+from rivlet import Edge, Graph, GraphInterface, GraphStructure, Step, run
 
-data_ready = "validated-data"
+plan_ready = "plan-ready"
+sdk_ready = "sdk-ready"
+install_ready = "install-ready"
 
-fetch = Step(lambda: print("fetch data"), label="fetch")
-validate = Step(lambda: print("validate data"), label="validate")
-archive = Step(lambda: print("archive data"), label="archive")
-producer = (fetch >> validate >> archive).graph(
-    label="producer",
-    interface=GraphInterface(outputs={data_ready: validate}),
+plan = Step(lambda: print("A1: publish plan"), label="A1")
+configure = Step(lambda: print("A2: use SDK"), label="A2")
+install = Step(lambda: print("A3: install"), label="A3")
+app_report = Step(lambda: print("A4: write report"), label="A4")
+app = (plan >> configure >> install >> app_report).graph(
+    label="Graph A",
+    interface=GraphInterface(
+        inputs={sdk_ready: configure},
+        outputs={plan_ready: plan, install_ready: install},
+    ),
 )
 
-prepare = Step(lambda: print("prepare consumer"), label="prepare")
-process = Step(lambda: print("process data"), label="process")
-report = Step(lambda: print("report results"), label="report")
-consumer = (prepare >> process >> report).graph(
-    label="consumer",
-    interface=GraphInterface(inputs={data_ready: process}),
+receive = Step(lambda: print("B1: receive plan"), label="B1")
+prepare_sdk = Step(lambda: print("B2: prepare SDK"), label="B2")
+sdk_report = Step(lambda: print("B3: record metadata"), label="B3")
+sdk = (receive >> prepare_sdk >> sdk_report).graph(
+    label="Graph B",
+    interface=GraphInterface(
+        inputs={plan_ready: receive},
+        outputs={sdk_ready: prepare_sdk},
+    ),
+)
+
+prepare_environment = Step(lambda: print("C1: prepare environment"), label="C1")
+consume = Step(lambda: print("C2: use installed result"), label="C2")
+consumer = (prepare_environment >> consume).graph(
+    label="Graph C",
+    interface=GraphInterface(inputs={install_ready: consume}),
 )
 
 pipeline = Graph(
     GraphStructure(
-        nodes=(producer, consumer),
-        edges=(Edge(producer, consumer, ports=data_ready),),
+        nodes=(sdk, app, consumer),
+        edges=(
+            Edge(app, sdk, ports=plan_ready),
+            Edge(sdk, app, ports=sdk_ready),
+            Edge(app, consumer, ports=install_ready),
+        ),
     ),
     label="pipeline",
 )
 run(pipeline, max_workers=3)
 ```
 
-```text
-producer: fetch → validate [output] → archive
-                     │ validated-data
-                     ▼
-consumer: prepare → process [input] → report
-```
+跨图主链是 `A1 → B1 → B2 → A2 → A3 → C2`，但完整工作流不是一条串行链：
 
-消费者的 `prepare` 可以立即开始。`validate` 成功且消费者自己的准备也完成后，
-`process` 就可以运行，不需要等待 `archive`。整次执行仍会等待两个子图结束。
+- C1 可以独立准备，C2 同时等待 C1 和 A3。
+- A2 只需要 B2 的 SDK，不需要 B3 的元数据，所以 A2 与 B3 可以并行。
+- C2 只需要 A3 的安装结果，不需要 A4 的报告，所以 C2 与 A4 可以并行。
+
+A4、B3 不会再修改已经公开的产物。子图之间虽然有往返协作，具体步骤依赖仍然无环。
+整次执行仍会等待三个子图及其报告步骤全部结束。
 
 端口名称相同**不会自动建立依赖**，示例用 `Edge` 显式连接提供方与消费者。
 普通端口边只同步就绪；跨图传参使用结果边和实际 interface 端点。
 声明出口时，必须保证后续步骤不会再使消费者读取的内容失效。
 
-这与 `producer >> consumer` 不同：后者会等整个提供方完成后才开始
-消费者的任何步骤。多个提供方的选择、多个入口和失败行为见
+这与 `app >> sdk` 不同：后者会等整个 A 完成后才开始 B，不能用它替换计划端口边。
+多个提供方的选择、多个入口和失败行为见
 [端口依赖与子图端口](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/interfaces.md)。
 
 ### 包装子图时转发接口
 
-沿用上例的 `producer`：
+沿用上例的 `app`：
 
 ```python
 setup = Step(lambda: print("set up producer"), label="setup")
-wrapped = (setup >> producer).graph(interface=producer)
+wrapped = (setup >> app).graph(interface=app)
 ```
 
-`interface=producer` 显式把内部子图的出入口公开到外层；不写时，外层不公开
+`interface=app` 显式把内部子图的出入口公开到外层；不写时，外层不公开
 任何端口。需要时也可以通过 `GraphInterface` 只转发一个方向，或声明新接口。
 
 ## 按条件执行与等待
