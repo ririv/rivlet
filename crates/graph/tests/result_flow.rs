@@ -3,7 +3,8 @@ use std::sync::{Arc, Mutex};
 
 use action::{Action, ActionContext, ActionError, ActionExecutor, ActionHandle, Value};
 use graph::{
-    Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, ProjectedKind, Step,
+    Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, PortName, ProjectedKind,
+    Step,
 };
 use rivlet::{ExecutionEvent, ExecutionSession, ExecutionUpdate, NodeId, NodeState, SessionStatus};
 
@@ -95,6 +96,72 @@ impl Action for Consume {
             None => Ok(0),
         }
     }
+}
+
+#[test]
+fn anonymous_results_cross_forwarded_graph_interfaces() {
+    let pointers = Arc::new(Mutex::new(Vec::new()));
+    let produce = Step::new("produce", ActionHandle::new(Produce)).unwrap();
+    let inner = Graph::new(
+        "inner",
+        Arc::new(
+            GraphStructure::with_interface(
+                [produce.clone().into()],
+                [],
+                GraphInterface::default()
+                    .output(PortName::Anonymous, &produce)
+                    .unwrap(),
+            )
+            .unwrap(),
+        ),
+    )
+    .unwrap();
+    let source = Graph::new(
+        "source",
+        Arc::new(
+            GraphStructure::with_interface(
+                [inner.clone().into()],
+                [],
+                GraphInterface::default()
+                    .output(
+                        PortName::Anonymous,
+                        inner.interface().output(PortName::Anonymous).unwrap(),
+                    )
+                    .unwrap(),
+            )
+            .unwrap(),
+        ),
+    )
+    .unwrap();
+    let consume = Step::new("consume", ActionHandle::new(Consume(Arc::clone(&pointers)))).unwrap();
+    let target = Graph::new(
+        "target",
+        Arc::new(
+            GraphStructure::with_interface(
+                [consume.clone().into()],
+                [],
+                GraphInterface::default()
+                    .input(PortName::Anonymous, [&consume])
+                    .unwrap(),
+            )
+            .unwrap(),
+        ),
+    )
+    .unwrap();
+    let compilation = GraphStructure::new(
+        [source.clone().into(), target.clone().into()],
+        [Edge::results(
+            [source.interface().output(PortName::Anonymous).unwrap()],
+            target.interface().input(PortName::Anonymous).unwrap(),
+        )
+        .unwrap()],
+    )
+    .unwrap()
+    .compile_structure()
+    .unwrap();
+    let (status, _) = run(&compilation, vec![]);
+    assert_eq!(status, SessionStatus::Finished);
+    assert_eq!(pointers.lock().unwrap().len(), 1);
 }
 
 #[test]

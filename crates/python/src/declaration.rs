@@ -55,8 +55,8 @@ struct GraphRecord {
 enum PortDefinitions {
     Python,
     Rust {
-        inputs: BTreeMap<String, Vec<usize>>,
-        outputs: BTreeMap<String, usize>,
+        inputs: BTreeMap<Option<String>, Vec<usize>>,
+        outputs: BTreeMap<Option<String>, usize>,
     },
 }
 
@@ -570,7 +570,7 @@ impl<'py> Collector<'py> {
                         .iter()
                         .map(|(name, nodes)| {
                             (
-                                name.clone(),
+                                name.as_option().map(str::to_owned),
                                 nodes.iter().map(|id| first_node + id.index()).collect(),
                             )
                         })
@@ -578,7 +578,9 @@ impl<'py> Collector<'py> {
                     outputs: scope
                         .outputs()
                         .iter()
-                        .map(|(name, id)| (name.clone(), first_node + id.index()))
+                        .map(|(name, id)| {
+                            (name.as_option().map(str::to_owned), first_node + id.index())
+                        })
                         .collect(),
                 },
             });
@@ -683,10 +685,14 @@ impl<'py> Collector<'py> {
         let provider_component = self.require_local_node(graph_index, &edge.getattr("source")?)?;
         let consumer_component = self.require_local_node(graph_index, &edge.getattr("target")?)?;
         let ports = edge.getattr("ports")?;
-        let provider = self
-            .resolve_named_output(provider_component, &ports.get_item(0)?.extract::<String>()?)?;
-        let consumers = self
-            .resolve_named_inputs(consumer_component, &ports.get_item(1)?.extract::<String>()?)?;
+        let provider = self.resolve_port_output(
+            provider_component,
+            ports.get_item(0)?.extract::<Option<String>>()?,
+        )?;
+        let consumers = self.resolve_port_inputs(
+            consumer_component,
+            ports.get_item(1)?.extract::<Option<String>>()?,
+        )?;
         let declared_condition = edge.getattr("condition")?;
         let condition = if declared_condition.is_none() {
             None
@@ -709,13 +715,13 @@ impl<'py> Collector<'py> {
         Ok(())
     }
 
-    fn resolve_named_output(&self, component: usize, name: &str) -> PyResult<usize> {
+    fn resolve_port_output(&self, component: usize, name: Option<String>) -> PyResult<usize> {
         let graph = self.require_child_graph(component)?;
         match &self.graphs[graph].ports {
             PortDefinitions::Rust { outputs, .. } => outputs
-                .get(name)
+                .get(&name)
                 .copied()
-                .ok_or_else(|| PyValueError::new_err(format!("unknown output port: {name}"))),
+                .ok_or_else(|| PyValueError::new_err(format!("unknown output port: {name:?}"))),
             PortDefinitions::Python => {
                 let name = name.into_pyobject(self.py)?;
                 let definition = require_interface_port(
@@ -728,13 +734,13 @@ impl<'py> Collector<'py> {
         }
     }
 
-    fn resolve_named_inputs(&self, component: usize, name: &str) -> PyResult<Vec<usize>> {
+    fn resolve_port_inputs(&self, component: usize, name: Option<String>) -> PyResult<Vec<usize>> {
         let graph = self.require_child_graph(component)?;
         match &self.graphs[graph].ports {
             PortDefinitions::Rust { inputs, .. } => inputs
-                .get(name)
+                .get(&name)
                 .cloned()
-                .ok_or_else(|| PyValueError::new_err(format!("unknown input port: {name}"))),
+                .ok_or_else(|| PyValueError::new_err(format!("unknown input port: {name:?}"))),
             PortDefinitions::Python => {
                 let name = name.into_pyobject(self.py)?;
                 let definitions = require_interface_port(
@@ -758,7 +764,7 @@ impl<'py> Collector<'py> {
     ) -> PyResult<usize> {
         if value.is_instance(&self.types.output_port)? {
             let child = self.require_descendant_node(owner, &value.getattr("graph")?)?;
-            self.resolve_named_output(child, &value.getattr("name")?.extract::<String>()?)
+            self.resolve_port_output(child, value.getattr("name")?.extract::<Option<String>>()?)
         } else {
             self.require_descendant_node(owner, value)
         }
@@ -771,7 +777,7 @@ impl<'py> Collector<'py> {
     ) -> PyResult<Vec<usize>> {
         if value.is_instance(&self.types.input_port)? {
             let child = self.require_descendant_node(owner, &value.getattr("graph")?)?;
-            self.resolve_named_inputs(child, &value.getattr("name")?.extract::<String>()?)
+            self.resolve_port_inputs(child, value.getattr("name")?.extract::<Option<String>>()?)
         } else {
             Ok(vec![self.require_descendant_node(owner, value)?])
         }
@@ -780,7 +786,7 @@ impl<'py> Collector<'py> {
     fn resolve_result_source(&self, scope: usize, value: &Bound<'py, PyAny>) -> PyResult<usize> {
         if value.is_instance(&self.types.output_port)? {
             let owner = self.require_local_node(scope, &value.getattr("graph")?)?;
-            self.resolve_named_output(owner, &value.getattr("name")?.extract::<String>()?)
+            self.resolve_port_output(owner, value.getattr("name")?.extract::<Option<String>>()?)
         } else {
             self.require_local_node(scope, value)
         }
@@ -793,7 +799,7 @@ impl<'py> Collector<'py> {
     ) -> PyResult<Vec<usize>> {
         if value.is_instance(&self.types.input_port)? {
             let owner = self.require_local_node(scope, &value.getattr("graph")?)?;
-            self.resolve_named_inputs(owner, &value.getattr("name")?.extract::<String>()?)
+            self.resolve_port_inputs(owner, value.getattr("name")?.extract::<Option<String>>()?)
         } else {
             Ok(vec![self.require_local_node(scope, value)?])
         }

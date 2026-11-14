@@ -6,7 +6,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, overload
 
 from ..errors import GraphError
-from ..interface import InputPort, OutputEndpoint, OutputPort, _validate_port_name
+from ..interface import (
+    InputPort,
+    OutputEndpoint,
+    OutputPort,
+    PortName,
+    _validate_port_name,
+)
 from .condition import _normalize_condition, _RuntimeCondition
 from .step import Step
 
@@ -55,6 +61,15 @@ class Edge:
 
     @overload
     def __init__(
+        self,
+        source: OutputPort,
+        target: InputPort,
+        *,
+        condition: ConditionInput | None = None,
+    ) -> None: ...
+
+    @overload
+    def __init__(
         self, source: Node, target: Node, *, condition: ConditionInput | None = None
     ) -> None: ...
 
@@ -64,19 +79,25 @@ class Edge:
         source: Graph,
         target: Graph,
         *,
-        ports: str | tuple[str, str],
+        ports: str | tuple[PortName, PortName],
         condition: ConditionInput | None = None,
     ) -> None: ...
 
     def __init__(
         self,
-        source: Node,
-        target: Node,
+        source: Node | OutputPort,
+        target: Node | InputPort,
         *,
-        ports: str | tuple[str, str] | None = None,
+        ports: str | tuple[PortName, PortName] | None = None,
         condition: ConditionInput | None = None,
     ) -> None:
         names = (ports, ports) if isinstance(ports, str) else ports
+        if isinstance(source, OutputPort) or isinstance(target, InputPort):
+            if not isinstance(source, OutputPort) or not isinstance(target, InputPort):
+                raise GraphError("port connection requires an output and an input port")
+            if ports is not None:
+                raise GraphError("port references already specify their endpoint names")
+            names = (source.name, target.name)
         if names is not None:
             output_name, input_name = names
             _validate_port_name(output_name)
@@ -134,7 +155,7 @@ class Edge:
         return self._target
 
     @property
-    def ports(self) -> tuple[str, str] | None:
+    def ports(self) -> tuple[PortName, PortName] | None:
         match self._connection:
             case _ExecutionConnection(ports=ports):
                 return ports
@@ -160,7 +181,7 @@ class Edge:
 
 @dataclass(frozen=True, slots=True)
 class _ExecutionConnection:
-    ports: tuple[str, str] | None
+    ports: tuple[PortName, PortName] | None
     condition: _RuntimeCondition | None
 
 

@@ -51,6 +51,17 @@ def make_workflow(body: RustGraphStructure) -> Graph:
 `ProcessAction`；否则同一个原生 action 会同时拥有“Rust 直接执行”和“Python 逐项提交”
 两套入口，重新产生跨语言往返和重复事实来源。
 
+## 匿名与具名端口
+
+Rust 使用 `graph::PortName::Anonymous` 与 `PortName::Named(String)` 区分端点身份，
+原有字符串参数仍表示具名端口。同一接口可以同时声明
+`.input(PortName::Anonymous, [&task])?` 和 `.input("apply", [&task])?`，
+输出同样支持 `.output(PortName::Anonymous, &task)?` 与具名形式共存。
+通过 `node.interface().input(PortName::Anonymous)?` 或
+`.output(PortName::Anonymous)?` 显式查找；不自动选择唯一具名端口。
+这些引用可以继续转发，或交给 `Edge::ports` / `Edge::results` 接线。
+Python 使用 `None` 表示同一匿名身份，原生 Rust 图的只读接口也遵循相同规则。
+
 ## 执行与结果
 
 同一 execution session 按叶子所有权分发：

@@ -133,6 +133,11 @@ def render_selection_suffix(graph: GraphStructure, step: Node) -> str:
     return f" [select: {case.condition}]"
 
 
+def port_label(name: str | None) -> str:
+    """Render anonymous identity without inventing a user-defined name."""
+    return "(anonymous)" if name is None else name
+
+
 def render_graph_port_suffix(graph: GraphStructure, step: Node) -> str:
     bindings = tuple(
         edge
@@ -142,7 +147,7 @@ def render_graph_port_suffix(graph: GraphStructure, step: Node) -> str:
     if not bindings:
         return ""
     requirements = ", ".join(
-        f"{edge.ports[1]} <- {edge.ports[0]} @ "
+        f"{port_label(edge.ports[1])} <- {port_label(edge.ports[0])} @ "
         f"{'<unlabeled>' if edge.source.label is None else edge.source.label}"
         + (
             ""
@@ -169,7 +174,7 @@ def format_graph_edge(
         return f"{dep_id} (条件边: {condition_name(edge.condition)})"
     if edge._result_index is not None:
         if isinstance(edge.result_source, OutputPort):
-            dep_id += f".{edge.result_source.name}"
+            dep_id += f".{port_label(edge.result_source.name)}"
         return f"{dep_id} ({result_edge_label(edge)})"
     return dep_id
 
@@ -179,9 +184,9 @@ def result_edge_label(edge: Edge) -> str:
 
     label = f"action input: {edge._result_index}"
     if isinstance(edge.result_source, OutputPort):
-        label += f" from {edge.result_source.name}"
+        label += f" from {port_label(edge.result_source.name)}"
     if isinstance(edge.result_target, InputPort):
-        label += f" to {edge.result_target.name}"
+        label += f" to {port_label(edge.result_target.name)}"
     return label
 
 

@@ -82,7 +82,7 @@ class DeclarationIndex:
             return self.output_port_node(child, endpoint.name)
         return scope.require_descendant(endpoint)
 
-    def output_port_node(self, scope: Scope, name: str) -> str:
+    def output_port_node(self, scope: Scope, name: str | None) -> str:
         if isinstance(scope.graph, RustGraphStructure):
             return scope.mounted_path(scope.graph.output_path(name))
         return self.output_node(scope, scope.graph.interface.outputs[name])
@@ -96,7 +96,7 @@ class DeclarationIndex:
             return self.input_port_nodes(child, endpoint.name)
         return [scope.require_descendant(endpoint)]
 
-    def input_port_nodes(self, scope: Scope, name: str) -> list[str]:
+    def input_port_nodes(self, scope: Scope, name: str | None) -> list[str]:
         if isinstance(scope.graph, RustGraphStructure):
             return [scope.mounted_path(path) for path in scope.graph.input_paths(name)]
         return [
@@ -315,7 +315,7 @@ def index_declaration(
                         "condition": None,
                     }
                 elif len(rust_edge) == 5:
-                    _, _, argument, output_name, input_name = rust_edge
+                    _, _, argument, output_port, input_port = rust_edge
                     item = {
                         "kind": "result",
                         "id": edge_id(owner, i),
@@ -324,12 +324,14 @@ def index_declaration(
                         "target": str(ids[target]),
                         "argument_index": argument,
                     }
-                    if output_name is not None:
+                    if output_port is not None:
+                        (output_name,) = output_port
                         item["source_port"] = output_name
                         item["provider_node"] = index.output_port_node(
                             index.scopes[scope_id(ids[source])], output_name
                         )
-                    if input_name is not None:
+                    if input_port is not None:
+                        (input_name,) = input_port
                         item["target_port"] = input_name
                         item["consumer_nodes"] = index.input_port_nodes(
                             index.scopes[scope_id(ids[target])], input_name

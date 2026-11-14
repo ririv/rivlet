@@ -1,4 +1,4 @@
-# 图接口与具名端口
+# 图接口与端口
 
 [English](../interfaces.md) | 简体中文
 
@@ -76,6 +76,59 @@ graph = prepared_wiring.graph(
 ```
 
 端口接口属于 Graph 的结构契约，不提供在 Graph 物化后覆盖、合并或补充端口的入口。
+
+## 匿名端点与具名端点
+
+`None` 表示匿名端点身份，不是 `"default"` 这样的普通名字。每个方向可以有一个
+匿名端点，并与多个具名端点共存。`graph.interface.input` 等价于
+`graph.interface.inputs[None]`；`.output` 等价于 `.outputs[None]`。
+未声明匿名端点时统一抛出 `KeyError(None)`，不会自动挑选唯一的具名端点。
+一个匿名入口仍可同时约束多个内部节点。
+
+下面是混用两种端点的完整例子，只同步就绪状态，不传递动作结果：
+
+```python
+from rivlet import Edge, Graph, GraphInterface, GraphStructure, Step, run
+
+compile_code = Step(lambda: print("compile"))
+install = Step(lambda: print("install"))
+write_report = Step(lambda: print("report"))
+producer = (compile_code >> (install | write_report)).graph(
+    interface=GraphInterface(outputs={None: install, "report": write_report}),
+)
+configure = Step(lambda: print("configure"))
+check_report = Step(lambda: print("check report"))
+launch = Step(lambda: print("launch"))
+consumer = ((configure | check_report) >> launch).graph(
+    interface=GraphInterface(
+        inputs={None: configure, "report": check_report},
+        outputs=launch,
+    ),
+)
+workflow = Graph(GraphStructure(
+    nodes=(producer, consumer),
+    edges=(
+        Edge(producer.interface.output, consumer.interface.input),
+        Edge(producer.interface.outputs["report"], consumer.interface.inputs["report"]),
+    ),
+))
+run(workflow, max_workers=2)
+```
+
+`GraphInterface(inputs=configure, outputs=launch)` 是
+`GraphInterface(inputs={None: configure}, outputs={None: launch})` 的简写。
+`inputs=(configure, check_report)` 表示一个匿名入口约束两个节点。
+如果要把整个子图作为匿名端点，应显式写 `{None: child}`；`inputs=child` 和
+`outputs=child` 保留原有的接口转发语义，同时转发匿名与具名键，不改变子图边界。
+
+端口引用可以用于带 `condition` 的 `Edge`，也可以通过
+`Edge.results((producer.interface.output,), consumer.interface.input)` 传递结果。
+原有图对写法同样支持 `ports=(None, None)`，也支持 `ports=(None, "apply")`
+这样的匿名与具名混接。不传 `ports` 或使用 `a >> b`，仍等待整个来源节点完成，
+不会隐式接通匿名端点。结果传递仍使用原有的位置参数和 `Option` 语义。
+
+符号化 provider requirement 仍表达具名契约；匿名出口不参与按名称发现提供者，
+需要显式接线。
 
 ## 转发与复用
 

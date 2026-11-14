@@ -1,6 +1,7 @@
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
+use crate::PortName;
 use rivlet::NodeIdentity;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -10,11 +11,11 @@ pub enum GraphError {
     UnknownNode(NodeIdentity),
     ExpectedGraph(NodeIdentity),
     InvalidPortName(String),
-    DuplicatePort(String),
-    EmptyInputPort(String),
-    DuplicateInput(String),
-    UnknownInputPort(String),
-    UnknownOutputPort(String),
+    DuplicatePort(PortName),
+    EmptyInputPort(PortName),
+    DuplicateInput(PortName),
+    UnknownInputPort(PortName),
+    UnknownOutputPort(PortName),
     EmptyResults,
     DuplicateResults(NodeIdentity),
     ResultTargetNotStep(NodeIdentity),

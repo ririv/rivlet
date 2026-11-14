@@ -1,4 +1,4 @@
-# Graph interfaces and named ports
+# Graph interfaces and ports
 
 English | [简体中文](./zh-CN/interfaces.md)
 
@@ -73,6 +73,61 @@ graph = prepared_wiring.graph(
 ```
 
 There is no API to overwrite, merge, or append ports after Graph construction.
+
+## Anonymous and named endpoints
+
+`None` is an anonymous endpoint identity, not a name such as `"default"`.
+Each direction may have one anonymous endpoint alongside any number of named ones.
+`graph.interface.input` equals `graph.interface.inputs[None]`; `.output` equals
+`.outputs[None]`. A missing anonymous endpoint raises `KeyError(None)`, even if
+there is exactly one named endpoint. An input can still fan out to several nodes.
+
+This complete example uses both kinds without passing action results:
+
+```python
+from rivlet import Edge, Graph, GraphInterface, GraphStructure, Step, run
+
+compile_code = Step(lambda: print("compile"))
+install = Step(lambda: print("install"))
+write_report = Step(lambda: print("report"))
+producer = (compile_code >> (install | write_report)).graph(
+    interface=GraphInterface(outputs={None: install, "report": write_report}),
+)
+configure = Step(lambda: print("configure"))
+check_report = Step(lambda: print("check report"))
+launch = Step(lambda: print("launch"))
+consumer = ((configure | check_report) >> launch).graph(
+    interface=GraphInterface(
+        inputs={None: configure, "report": check_report},
+        outputs=launch,
+    ),
+)
+workflow = Graph(GraphStructure(
+    nodes=(producer, consumer),
+    edges=(
+        Edge(producer.interface.output, consumer.interface.input),
+        Edge(producer.interface.outputs["report"], consumer.interface.inputs["report"]),
+    ),
+))
+run(workflow, max_workers=2)
+```
+
+`GraphInterface(inputs=configure, outputs=launch)` is shorthand for
+`GraphInterface(inputs={None: configure}, outputs={None: launch})`.
+`inputs=(configure, check_report)` declares one anonymous fan-out input.
+Use `{None: child}` to expose a whole child graph as one anonymous endpoint;
+`inputs=child` and `outputs=child` keep their existing meaning: forward the
+child's interface in that direction. Forwarding preserves anonymous and named keys.
+
+Direct port references work with `Edge(..., condition=...)` and with
+`Edge.results((producer.interface.output,), consumer.interface.input)` for result
+transport. Explicit graph pairs also work: `Edge(producer, consumer, ports=(None, None))`
+or mixed names such as `ports=(None, "apply")`. Omitting `ports` (or using
+`a >> b`) still waits for the complete source node; it never implicitly routes
+anonymous endpoints. Results keep their existing positional `Option` semantics.
+
+Symbolic provider requirements remain named contracts. Anonymous outputs are not
+candidates for name-based provider discovery; connect them explicitly.
 
 ## Forwarding and reuse
 

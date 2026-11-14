@@ -188,6 +188,24 @@ A4、B3 不会再修改已经公开的产物。子图之间虽然有往返协作
 多个提供方的选择、多个入口和失败行为见
 [端口依赖与子图端口](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/interfaces.md)。
 
+### 常见场景使用匿名端点
+
+每个方向只公开一个端点时，可以不命名：
+
+```python
+from rivlet import Edge, GraphInterface, Step
+
+compile_code, install = Step(lambda: print("compile")), Step(lambda: print("install"))
+configure, launch = Step(lambda: print("configure")), Step(lambda: print("launch"))
+source = (compile_code >> install).graph(interface=GraphInterface(outputs=install))
+target = (configure >> launch).graph(interface=GraphInterface(inputs=configure))
+edge = Edge(source.interface.output, target.interface.input)
+```
+
+匿名与具名端点可以共存，例如
+`outputs={None: install, "report": write_report}`。`.output` 就是 `.outputs[None]`，
+不是自动选择唯一具名出口。参见[完整混用示例](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/interfaces.md#匿名端点与具名端点)。
+
 ### 包装子图时转发接口
 
 沿用上例的 `app`：

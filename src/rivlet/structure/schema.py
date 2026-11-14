@@ -29,8 +29,8 @@ class ResultEdgeDocument(TypedDict):
     source: str
     target: str
     argument_index: int
-    source_port: NotRequired[str]
-    target_port: NotRequired[str]
+    source_port: NotRequired[str | None]
+    target_port: NotRequired[str | None]
     provider_node: NotRequired[str]
     consumer_nodes: NotRequired[list[str]]
 
@@ -41,8 +41,8 @@ class PortEdgeDocument(TypedDict):
     graph: str
     source: str
     target: str
-    source_port: str
-    target_port: str
+    source_port: str | None
+    target_port: str | None
     condition: str | None
     provider_node: str
     consumer_nodes: list[str]
@@ -81,13 +81,13 @@ type NodeDocument = StepDocument | SubgraphDocument
 
 class InputPortDocument(TypedDict):
     kind: Literal["input"]
-    port: str
+    port: str | None
     nodes: list[str]
 
 
 class OutputPortDocument(TypedDict):
     kind: Literal["output"]
-    port: str
+    port: str | None
     node: str
 
 

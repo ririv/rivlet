@@ -46,6 +46,7 @@ pub use edge::{Edge, ResultSources, ResultTarget};
 pub use error::GraphError;
 pub use interface::{
     GraphInterface, GraphInterfaceView, InputEndpoint, InputPort, OutputEndpoint, OutputPort,
+    PortName,
 };
 pub use node::{Graph, Node, NodeKind, Step};
 pub use projection::{Compilation, ProjectedKind, ProjectedNode, ProjectedScope, Projection};

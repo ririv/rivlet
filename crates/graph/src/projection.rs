@@ -10,7 +10,7 @@ use rivlet::{
 
 use crate::{
     Edge, GraphError, GraphStructure, InputEndpoint, InputPort, Node, NodeKind, OutputEndpoint,
-    OutputPort, ResultTarget,
+    OutputPort, PortName, ResultTarget,
 };
 
 /// Action ownership and composite membership are mutually exclusive.
@@ -70,8 +70,8 @@ pub struct ProjectedScope {
     owner: Option<NodeId>,
     nodes: Vec<NodeId>,
     local: HashMap<NodeIdentity, NodeId>,
-    inputs: BTreeMap<String, Vec<NodeId>>,
-    outputs: BTreeMap<String, NodeId>,
+    inputs: BTreeMap<PortName, Vec<NodeId>>,
+    outputs: BTreeMap<PortName, NodeId>,
 }
 
 impl ProjectedScope {
@@ -88,11 +88,11 @@ impl ProjectedScope {
         &self.nodes
     }
     #[must_use]
-    pub const fn inputs(&self) -> &BTreeMap<String, Vec<NodeId>> {
+    pub const fn inputs(&self) -> &BTreeMap<PortName, Vec<NodeId>> {
         &self.inputs
     }
     #[must_use]
-    pub const fn outputs(&self) -> &BTreeMap<String, NodeId> {
+    pub const fn outputs(&self) -> &BTreeMap<PortName, NodeId> {
         &self.outputs
     }
 

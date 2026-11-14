@@ -208,6 +208,25 @@ starting B and is not interchangeable with the plan port edge. For selecting amo
 multiple inputs, and failure behavior, see
 [interface ports](https://github.com/ririv/rivlet/blob/main/docs/interfaces.md).
 
+### Use an anonymous endpoint for the common case
+
+No name is required when a direction exposes only one endpoint:
+
+```python
+from rivlet import Edge, GraphInterface, Step
+
+compile_code, install = Step(lambda: print("compile")), Step(lambda: print("install"))
+configure, launch = Step(lambda: print("configure")), Step(lambda: print("launch"))
+source = (compile_code >> install).graph(interface=GraphInterface(outputs=install))
+target = (configure >> launch).graph(interface=GraphInterface(inputs=configure))
+edge = Edge(source.interface.output, target.interface.input)
+```
+
+Anonymous and named endpoints can coexist,
+for example `outputs={None: install, "report": write_report}`. `.output` is exactly
+`.outputs[None]`, not an automatic choice of a sole named output. See the
+[complete mixed example](https://github.com/ririv/rivlet/blob/main/docs/interfaces.md#anonymous-and-named-endpoints).
+
 ### Forward an interface when wrapping a subgraph
 
 Using `app` from the previous example:

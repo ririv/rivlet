@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use action::{ActionHandle, ProcessAction};
-use graph::{Edge, Graph, GraphInterface, GraphStructure, Node, NodeKind, Projection, Step};
+use graph::{
+    Edge, Graph, GraphInterface, GraphStructure, Node, NodeKind, PortName, Projection, Step,
+};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::GraphId;
@@ -14,14 +16,15 @@ use crate::result_values::ValueCodecs;
 
 type ProcessDeclaration = (String, String, Vec<String>, String, HashMap<String, String>);
 type NodeMetadata = (u64, String, Option<RustGraphStructure>);
-type InputDeclaration = (String, Vec<(usize, String)>);
-type OutputDeclaration = (String, usize, String);
+type PortReference = (usize, Option<String>);
+type InputDeclaration = (Option<String>, Vec<PortReference>);
+type OutputDeclaration = (Option<String>, usize, Option<String>);
 
 #[derive(FromPyObject)]
 pub(crate) enum EdgeDeclaration {
     Completion((usize, usize)),
-    Ports((usize, usize, String, String)),
-    Results((Vec<(usize, String)>, (usize, String))),
+    Ports((usize, usize, Option<String>, Option<String>)),
+    Results((Vec<PortReference>, PortReference)),
 }
 
 fn invalid(error: impl std::fmt::Display) -> PyErr {
@@ -150,8 +153,8 @@ impl RustGraphStructure {
                     (
                         indexes[&output.owner()],
                         target,
-                        output.name(),
-                        input.name(),
+                        output.name().as_option(),
+                        input.name().as_option(),
                     )
                         .into_pyobject(py)?
                         .into_any()
@@ -161,14 +164,17 @@ impl RustGraphStructure {
                     sources,
                     target: receiver,
                 } => {
+                    // None 表示直连节点；Some((None,)) 表示经过匿名端口，不可合并。
                     let input = match receiver {
                         graph::ResultTarget::Step(_) => None,
-                        graph::ResultTarget::Port(port) => Some(port.name()),
+                        graph::ResultTarget::Port(port) => Some((port.name().as_option(),)),
                     };
                     for (index, source) in sources.iter().enumerate() {
                         let (owner, output) = match source {
                             graph::OutputEndpoint::Node(id) => (*id, None),
-                            graph::OutputEndpoint::Port(port) => (port.owner(), Some(port.name())),
+                            graph::OutputEndpoint::Port(port) => {
+                                (port.owner(), Some((port.name().as_option(),)))
+                            }
                         };
                         edges.push(
                             (indexes[&owner], target, index, output, input)
@@ -183,37 +189,56 @@ impl RustGraphStructure {
         Ok(edges)
     }
 
-    fn input_ports(&self) -> Vec<String> {
-        self.graph().interface().inputs().keys().cloned().collect()
+    fn input_ports(&self) -> Vec<Option<String>> {
+        self.graph()
+            .interface()
+            .inputs()
+            .keys()
+            .map(|name| name.as_option().map(str::to_owned))
+            .collect()
     }
-    fn has_input_port(&self, name: &str) -> bool {
-        self.graph().interface().inputs().contains_key(name)
+    fn has_input_port(&self, name: Option<String>) -> bool {
+        self.graph()
+            .interface()
+            .inputs()
+            .contains_key(&PortName::from(name))
     }
-    fn has_output_port(&self, name: &str) -> bool {
-        self.graph().interface().outputs().contains_key(name)
+    fn has_output_port(&self, name: Option<String>) -> bool {
+        self.graph()
+            .interface()
+            .outputs()
+            .contains_key(&PortName::from(name))
     }
-    fn output_ports(&self) -> Vec<String> {
-        self.graph().interface().outputs().keys().cloned().collect()
+    fn output_ports(&self) -> Vec<Option<String>> {
+        self.graph()
+            .interface()
+            .outputs()
+            .keys()
+            .map(|name| name.as_option().map(str::to_owned))
+            .collect()
     }
-    fn input_paths(&self, name: &str) -> PyResult<Vec<Vec<usize>>> {
+    fn input_paths(&self, name: Option<String>) -> PyResult<Vec<Vec<usize>>> {
+        let name = PortName::from(name);
         self.projection.scopes()[self.scope.index()]
             .inputs()
-            .get(name)
+            .get(&name)
             .map(|nodes| nodes.iter().map(|node| self.relative_path(*node)).collect())
             .ok_or_else(|| invalid(format!("unknown input port: {name}")))
     }
-    fn output_path(&self, name: &str) -> PyResult<Vec<usize>> {
+    fn output_path(&self, name: Option<String>) -> PyResult<Vec<usize>> {
+        let name = PortName::from(name);
         self.projection.scopes()[self.scope.index()]
             .outputs()
-            .get(name)
+            .get(&name)
             .map(|node| self.relative_path(*node))
             .ok_or_else(|| invalid(format!("unknown output port: {name}")))
     }
 
-    fn input_arities(&self, name: &str) -> PyResult<Vec<usize>> {
+    fn input_arities(&self, name: Option<String>) -> PyResult<Vec<usize>> {
+        let name = PortName::from(name);
         let nodes = self.projection.scopes()[self.scope.index()]
             .inputs()
-            .get(name)
+            .get(&name)
             .ok_or_else(|| invalid(format!("unknown input port: {name}")))?;
         nodes
             .iter()
@@ -232,8 +257,8 @@ impl RustGraphStructure {
 pub(crate) fn rust_process_graph(
     processes: Vec<ProcessDeclaration>,
     arcs: Vec<(usize, usize)>,
-    inputs: Vec<(String, Vec<usize>)>,
-    outputs: Vec<(String, usize)>,
+    inputs: Vec<(Option<String>, Vec<usize>)>,
+    outputs: Vec<(Option<String>, usize)>,
 ) -> PyResult<RustGraphStructure> {
     let nodes = processes
         .into_iter()
@@ -276,7 +301,7 @@ pub(crate) fn rust_process_graph(
     )
 }
 
-/// Composes complete Rust graph bodies and their explicitly named interfaces.
+/// Composes complete Rust graph bodies and their explicit interfaces.
 #[pyfunction(name = "_compose_rust_graph")]
 pub(crate) fn compose_rust_graph(
     components: Vec<(String, PyRef<'_, RustGraphStructure>)>,
@@ -306,23 +331,28 @@ pub(crate) fn compose_rust_graph(
             EdgeDeclaration::Ports((source, target, output, input)) => Ok(Edge::ports(
                 require(source)?
                     .interface()
-                    .output(&output)
+                    .output(PortName::from(output))
                     .map_err(invalid)?,
                 require(target)?
                     .interface()
-                    .input(&input)
+                    .input(PortName::from(input))
                     .map_err(invalid)?,
             )),
             EdgeDeclaration::Results((sources, (target, input))) => {
                 let sources = sources
                     .into_iter()
-                    .map(|(index, port)| require(index)?.interface().output(&port).map_err(invalid))
+                    .map(|(index, port)| {
+                        require(index)?
+                            .interface()
+                            .output(PortName::from(port))
+                            .map_err(invalid)
+                    })
                     .collect::<PyResult<Vec<_>>>()?;
                 Edge::results(
                     sources,
                     require(target)?
                         .interface()
-                        .input(&input)
+                        .input(PortName::from(input))
                         .map_err(invalid)?,
                 )
                 .map_err(invalid)
@@ -333,7 +363,12 @@ pub(crate) fn compose_rust_graph(
     for (name, targets) in inputs {
         let targets = targets
             .into_iter()
-            .map(|(index, port)| require(index)?.interface().input(&port).map_err(invalid))
+            .map(|(index, port)| {
+                require(index)?
+                    .interface()
+                    .input(PortName::from(port))
+                    .map_err(invalid)
+            })
             .collect::<PyResult<Vec<_>>>()?;
         interface = interface.input(name, targets).map_err(invalid)?;
     }
@@ -341,7 +376,10 @@ pub(crate) fn compose_rust_graph(
         interface = interface
             .output(
                 name,
-                require(index)?.interface().output(&port).map_err(invalid)?,
+                require(index)?
+                    .interface()
+                    .output(PortName::from(port))
+                    .map_err(invalid)?,
             )
             .map_err(invalid)?;
     }

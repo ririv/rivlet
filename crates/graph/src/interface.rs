@@ -1,15 +1,65 @@
 use std::collections::{BTreeMap, HashSet};
-use std::sync::Arc;
 
 use rivlet::NodeIdentity;
 
 use crate::{Graph, GraphError, Node};
 
+/// An anonymous endpoint is distinct from every user-defined name.
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum PortName {
+    Anonymous,
+    Named(String),
+}
+
+impl PortName {
+    #[must_use]
+    pub fn as_option(&self) -> Option<&str> {
+        match self {
+            Self::Anonymous => None,
+            Self::Named(name) => Some(name),
+        }
+    }
+}
+
+impl From<String> for PortName {
+    fn from(name: String) -> Self {
+        Self::Named(name)
+    }
+}
+impl From<&str> for PortName {
+    fn from(name: &str) -> Self {
+        Self::Named(name.to_owned())
+    }
+}
+impl From<&String> for PortName {
+    fn from(name: &String) -> Self {
+        Self::Named(name.clone())
+    }
+}
+impl From<&PortName> for PortName {
+    fn from(name: &PortName) -> Self {
+        name.clone()
+    }
+}
+impl From<Option<String>> for PortName {
+    fn from(name: Option<String>) -> Self {
+        name.map_or(Self::Anonymous, Self::Named)
+    }
+}
+impl std::fmt::Display for PortName {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Anonymous => f.write_str("<anonymous>"),
+            Self::Named(name) => f.write_str(name),
+        }
+    }
+}
+
 /// Input reference bound to one actual graph declaration.
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct InputPort {
     owner: NodeIdentity,
-    name: Arc<str>,
+    name: PortName,
 }
 
 impl InputPort {
@@ -18,7 +68,7 @@ impl InputPort {
         self.owner
     }
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub const fn name(&self) -> &PortName {
         &self.name
     }
 }
@@ -27,7 +77,7 @@ impl InputPort {
 #[derive(Clone, Debug, Eq, Hash, PartialEq)]
 pub struct OutputPort {
     owner: NodeIdentity,
-    name: Arc<str>,
+    name: PortName,
 }
 
 impl OutputPort {
@@ -36,7 +86,7 @@ impl OutputPort {
         self.owner
     }
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub const fn name(&self) -> &PortName {
         &self.name
     }
 }
@@ -79,8 +129,8 @@ impl From<OutputPort> for OutputEndpoint {
 /// Immutable interface declarations; chaining rejects duplicate names, never overwrites.
 #[derive(Clone, Debug, Default)]
 pub struct GraphInterface {
-    inputs: BTreeMap<String, Vec<InputEndpoint>>,
-    outputs: BTreeMap<String, OutputEndpoint>,
+    inputs: BTreeMap<PortName, Vec<InputEndpoint>>,
+    outputs: BTreeMap<PortName, OutputEndpoint>,
 }
 
 impl GraphInterface {
@@ -90,7 +140,7 @@ impl GraphInterface {
     /// Returns an error for invalid/duplicate names, empty or duplicate consumers.
     pub fn input<T: Into<InputEndpoint>>(
         mut self,
-        name: impl Into<String>,
+        name: impl Into<PortName>,
         targets: impl IntoIterator<Item = T>,
     ) -> Result<Self, GraphError> {
         let name = checked_name(name.into())?;
@@ -114,7 +164,7 @@ impl GraphInterface {
     /// Returns an error for invalid or duplicate names.
     pub fn output(
         mut self,
-        name: impl Into<String>,
+        name: impl Into<PortName>,
         source: impl Into<OutputEndpoint>,
     ) -> Result<Self, GraphError> {
         let name = checked_name(name.into())?;
@@ -126,18 +176,20 @@ impl GraphInterface {
     }
 
     #[must_use]
-    pub const fn inputs(&self) -> &BTreeMap<String, Vec<InputEndpoint>> {
+    pub const fn inputs(&self) -> &BTreeMap<PortName, Vec<InputEndpoint>> {
         &self.inputs
     }
     #[must_use]
-    pub const fn outputs(&self) -> &BTreeMap<String, OutputEndpoint> {
+    pub const fn outputs(&self) -> &BTreeMap<PortName, OutputEndpoint> {
         &self.outputs
     }
 }
 
-fn checked_name(name: String) -> Result<String, GraphError> {
-    if name.is_empty() || name.trim() != name {
-        return Err(GraphError::InvalidPortName(name));
+fn checked_name(name: PortName) -> Result<PortName, GraphError> {
+    if let PortName::Named(value) = &name {
+        if value.is_empty() || value.trim() != value {
+            return Err(GraphError::InvalidPortName(value.clone()));
+        }
     }
     Ok(name)
 }
@@ -156,19 +208,20 @@ impl<'a> GraphInterfaceView<'a> {
     ///
     /// # Errors
     /// Returns an error if this input is not declared.
-    pub fn input(&self, name: &str) -> Result<InputPort, GraphError> {
+    pub fn input(&self, name: impl Into<PortName>) -> Result<InputPort, GraphError> {
+        let name = name.into();
         if !self
             .graph
             .structure()
             .interface()
             .inputs()
-            .contains_key(name)
+            .contains_key(&name)
         {
-            return Err(GraphError::UnknownInputPort(name.to_owned()));
+            return Err(GraphError::UnknownInputPort(name));
         }
         Ok(InputPort {
             owner: self.graph.id(),
-            name: name.into(),
+            name,
         })
     }
 
@@ -176,19 +229,20 @@ impl<'a> GraphInterfaceView<'a> {
     ///
     /// # Errors
     /// Returns an error if this output is not declared.
-    pub fn output(&self, name: &str) -> Result<OutputPort, GraphError> {
+    pub fn output(&self, name: impl Into<PortName>) -> Result<OutputPort, GraphError> {
+        let name = name.into();
         if !self
             .graph
             .structure()
             .interface()
             .outputs()
-            .contains_key(name)
+            .contains_key(&name)
         {
-            return Err(GraphError::UnknownOutputPort(name.to_owned()));
+            return Err(GraphError::UnknownOutputPort(name));
         }
         Ok(OutputPort {
             owner: self.graph.id(),
-            name: name.into(),
+            name,
         })
     }
 }

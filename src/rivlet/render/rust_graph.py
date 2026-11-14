@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from .formatting import escape_label
+from .formatting import escape_label, port_label
 
 if TYPE_CHECKING:
     from .._native import RustGraphStructure
@@ -21,7 +21,7 @@ def append_rust_tree(
         source, target = edge[:2]
         text = nodes[source][1]
         if len(edge) == 4:
-            text += f" ({edge[2]} -> {edge[3]})"
+            text += f" ({port_label(edge[2])} -> {port_label(edge[3])})"
         elif len(edge) == 5:
             text += f" (action input: {edge[2]})"
         incoming.setdefault(target, []).append(text)
@@ -60,7 +60,11 @@ def append_rust_mermaid(
         source, target = edge[:2]
         link = " --> "
         if len(edge) == 4:
-            label = edge[2] if edge[2] == edge[3] else f"{edge[2]} -> {edge[3]}"
+            label = (
+                port_label(edge[2])
+                if edge[2] == edge[3]
+                else f"{port_label(edge[2])} -> {port_label(edge[3])}"
+            )
             link = f' -->|"{escape_label(label)}"| '
         elif len(edge) == 5:
             link = f' -->|"action input {edge[2]}"| '

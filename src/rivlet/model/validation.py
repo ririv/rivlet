@@ -16,7 +16,7 @@ from .node import Node, resolve_node_label
 from .step import Step
 
 if TYPE_CHECKING:
-    from ..interface import GraphInterface, InputEndpoint
+    from ..interface import GraphInterface, InputEndpoint, PortName
     from .edge import _ResultGroup
 
 
@@ -175,7 +175,7 @@ def _validate_port_interface(
 
 
 def _require_unique_port_node(
-    counts: dict[Node, int], node: Node, port: str, direction: str
+    counts: dict[Node, int], node: Node, port: PortName, direction: str
 ) -> None:
     count = counts.get(node, 0)
     if not count:

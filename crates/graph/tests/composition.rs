@@ -2,7 +2,8 @@ use std::sync::{Arc, Mutex};
 
 use action::{Action, ActionContext, ActionError, ActionHandle};
 use graph::{
-    Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, ProjectedKind, Step,
+    Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, PortName, ProjectedKind,
+    Step,
 };
 use rivlet::{ExecutionSession, ExecutionUpdate, NodeState, SessionStatus};
 
@@ -97,6 +98,89 @@ fn nested_shared_structure_preserves_identity_paths_and_real_composites() {
     assert_eq!(nodes[4].path(), &[0, 1, 0]);
     assert_eq!(run(&compilation).0, SessionStatus::Finished);
     assert_eq!(*events.lock().unwrap(), ["task", "task"]);
+}
+
+#[test]
+fn anonymous_and_named_ports_coexist_without_name_inference() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let ready = step("ready", &events);
+    let report = step("report", &events);
+    let producer = Graph::new(
+        "producer",
+        Arc::new(
+            GraphStructure::with_interface(
+                [ready.clone().into(), report.clone().into()],
+                [Edge::new(&ready, &report)],
+                GraphInterface::default()
+                    .output(PortName::Anonymous, &ready)
+                    .unwrap()
+                    .output("default", &report)
+                    .unwrap(),
+            )
+            .unwrap(),
+        ),
+    )
+    .unwrap();
+    let first = step("first", &events);
+    let second = step("second", &events);
+    let consumer = Graph::new(
+        "consumer",
+        Arc::new(
+            GraphStructure::with_interface(
+                [first.clone().into(), second.clone().into()],
+                [],
+                GraphInterface::default()
+                    .input(PortName::Anonymous, [&first, &second])
+                    .unwrap()
+                    .input("named", [&first])
+                    .unwrap(),
+            )
+            .unwrap(),
+        ),
+    )
+    .unwrap();
+    let anonymous = producer.interface().output(PortName::Anonymous).unwrap();
+    assert_eq!(anonymous.name(), &PortName::Anonymous);
+    assert_ne!(anonymous, producer.interface().output("default").unwrap());
+    let root = GraphStructure::new(
+        [producer.into(), consumer.clone().into()],
+        [Edge::ports(
+            anonymous,
+            consumer.interface().input(PortName::Anonymous).unwrap(),
+        )],
+    )
+    .unwrap()
+    .compile_structure()
+    .unwrap();
+    assert_eq!(root.projection().port_connections().len(), 2);
+    assert_eq!(run(&root).0, SessionStatus::Finished);
+    let events = events.lock().unwrap();
+    assert_eq!(events.len(), 4);
+    assert_eq!(events[0], "ready");
+
+    let named_only = Graph::new(
+        "named-only",
+        Arc::new(
+            GraphStructure::with_interface(
+                [first.clone().into()],
+                [],
+                GraphInterface::default().output("default", &first).unwrap(),
+            )
+            .unwrap(),
+        ),
+    )
+    .unwrap();
+    assert!(matches!(
+        named_only.interface().output(PortName::Anonymous),
+        Err(GraphError::UnknownOutputPort(PortName::Anonymous))
+    ));
+    assert!(matches!(
+        GraphInterface::default()
+            .output(PortName::Anonymous, &first)
+            .unwrap()
+            .output(PortName::Anonymous, &second),
+        Err(GraphError::DuplicatePort(PortName::Anonymous))
+    ));
 }
 
 #[test]

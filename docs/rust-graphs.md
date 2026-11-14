@@ -53,6 +53,17 @@ RustGraphStructure is the smallest native unit exposed to Python. There is no pu
 Python Action or ProcessAction API that would create a second per-action
 submission path.
 
+## Anonymous and named ports
+
+Rust uses `graph::PortName::Anonymous` and `PortName::Named(String)` as distinct
+identities. Existing string arguments remain named ports. The same interface can
+declare `.input(PortName::Anonymous, [&task])?` alongside `.input("apply", [&task])?`,
+and `.output(PortName::Anonymous, &task)?` alongside named outputs.
+Lookup is explicit: `node.interface().input(PortName::Anonymous)?` and
+`.output(PortName::Anonymous)?`. A sole named port is never selected implicitly.
+Forward these references or pass them to `Edge::ports` / `Edge::results` as usual.
+Python exposes the same identity as `None`, including opaque Rust graph interfaces.
+
 ## Execution and results
 
 Within one execution session:

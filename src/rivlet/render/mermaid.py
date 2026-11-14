@@ -23,6 +23,7 @@ from .formatting import (
     escape_label,
     mermaid_graph_node_id,
     mermaid_step_node_id,
+    port_label,
     render_compiled_step_label,
     render_selection_suffix,
     render_step_label,
@@ -162,9 +163,9 @@ def append_graph_mermaid(
             )
         elif isinstance(edge, Edge) and edge.ports is not None:
             label = (
-                edge.ports[0]
+                port_label(edge.ports[0])
                 if edge.ports[0] == edge.ports[1]
-                else f"{edge.ports[0]} -> {edge.ports[1]}"
+                else f"{port_label(edge.ports[0])} -> {port_label(edge.ports[1])}"
             )
             if edge.condition is not None:
                 label += " (conditional)"

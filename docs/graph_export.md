@@ -138,6 +138,11 @@ revision, run ID, or fingerprint. Hosts should store their own run/revision iden
 alongside it. Do not regenerate an old history's topology from today's source graph,
 add nodes that never existed, or relabel unknown historical work as executed.
 
+Anonymous endpoint identity is JSON `null` in scope `port` and edge
+`source_port` / `target_port` fields. On a result edge, an absent field means
+that side is a direct node reference; a present field with `null` means an
+explicit anonymous port. Do not conflate the two or replace `null` with `"default"`.
+
 Version 2 uses edge kind `port`, separate `source_port` and `target_port` names,
 and a `condition` field that is null for an unconditional port connection. Scope
 port declarations still use a single `port` name. Version 1 used `capability`

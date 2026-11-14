@@ -11,7 +11,10 @@ from .errors import GraphError
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
 
-    from .model import Edge, Graph, Node
+    from .model import Edge, Graph, Node, Step
+
+
+type PortName = str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,7 +22,7 @@ class InputPort:
     """An input port belonging to one concrete graph node."""
 
     graph: Graph
-    name: str
+    name: PortName
 
     @property
     def nodes(self) -> tuple[Node, ...]:
@@ -37,18 +40,26 @@ class OutputPort:
     """An output port belonging to one concrete graph node."""
 
     graph: Graph
-    name: str
+    name: PortName
 
 
 type InputEndpoint = Node | InputPort
 type OutputEndpoint = Node | OutputPort
-type InterfaceInputs = Mapping[str, InputEndpoint | tuple[InputEndpoint, ...]] | Graph
-type InterfaceOutputs = Mapping[str, OutputEndpoint] | Graph
+type InterfaceInputs[Name: PortName] = (
+    Mapping[Name, InputEndpoint | tuple[InputEndpoint, ...]]
+    | Graph
+    | Step
+    | InputPort
+    | tuple[InputEndpoint, ...]
+)
+type InterfaceOutputs[Name: PortName] = (
+    Mapping[Name, OutputEndpoint] | Graph | Step | OutputPort
+)
 type GraphInterfaceInput = GraphInterface | Graph
 
 
-def _validate_port_name(name: str) -> None:
-    if not name or name != name.strip():
+def _validate_port_name(name: PortName) -> None:
+    if name is not None and (not name or name != name.strip()):
         raise GraphError("port name must be non-empty and stripped")
 
 
@@ -56,22 +67,33 @@ def _validate_port_name(name: str) -> None:
 class GraphInterface:
     """An immutable public interface with explicit input and output forwarding."""
 
-    inputs: Mapping[str, tuple[InputEndpoint, ...]]
-    outputs: Mapping[str, OutputEndpoint]
+    inputs: Mapping[PortName, tuple[InputEndpoint, ...]]
+    outputs: Mapping[PortName, OutputEndpoint]
 
-    def __init__(
+    def __init__[InputName: PortName, OutputName: PortName](
         self,
         *,
-        inputs: InterfaceInputs = MappingProxyType({}),
-        outputs: InterfaceOutputs = MappingProxyType({}),
+        inputs: InterfaceInputs[InputName] = MappingProxyType({}),
+        outputs: InterfaceOutputs[OutputName] = MappingProxyType({}),
     ) -> None:
         from .model import Graph
 
-        input_mapping = inputs.interface.inputs if isinstance(inputs, Graph) else inputs
-        output_mapping = (
-            outputs.interface.outputs if isinstance(outputs, Graph) else outputs
+        # Graph 仍表示接口转发；把子图本体作为匿名端点时显式写 {None: child}。
+        input_mapping = (
+            inputs.interface.inputs
+            if isinstance(inputs, Graph)
+            else inputs
+            if isinstance(inputs, Mapping)
+            else {None: inputs}
         )
-        normalized_inputs = {}
+        output_mapping = (
+            outputs.interface.outputs
+            if isinstance(outputs, Graph)
+            else outputs
+            if isinstance(outputs, Mapping)
+            else {None: outputs}
+        )
+        normalized_inputs: dict[PortName, tuple[InputEndpoint, ...]] = {}
         # O(P + R)：P 为端口数，R 为全部输入步骤引用数；复制映射隔离调用方修改。
         for port, value in input_mapping.items():
             _validate_port_name(port)
@@ -81,10 +103,12 @@ class GraphInterface:
             if len(set(steps)) != len(steps):
                 raise GraphError(f"port input contains duplicate steps: {port}")
             normalized_inputs[port] = steps
-        for port in output_mapping:
+        normalized_outputs: dict[PortName, OutputEndpoint] = {}
+        for port, target in output_mapping.items():
             _validate_port_name(port)
+            normalized_outputs[port] = target
         object.__setattr__(self, "inputs", MappingProxyType(normalized_inputs))
-        object.__setattr__(self, "outputs", MappingProxyType(dict(output_mapping)))
+        object.__setattr__(self, "outputs", MappingProxyType(normalized_outputs))
 
     @classmethod
     def resolve(cls, value: GraphInterfaceInput) -> GraphInterface:
@@ -97,11 +121,11 @@ class GraphInterface:
         )
 
 
-class _Inputs(Mapping[str, InputPort]):
+class _Inputs(Mapping[PortName, InputPort]):
     def __init__(self, graph: Graph) -> None:
         self._graph = graph
 
-    def __getitem__(self, key: str) -> InputPort:
+    def __getitem__(self, key: PortName) -> InputPort:
         from ._native import RustGraphStructure
 
         body = self._graph.structure
@@ -115,7 +139,7 @@ class _Inputs(Mapping[str, InputPort]):
         return InputPort(self._graph, key)
 
     @property
-    def _names(self) -> Mapping[str, tuple[InputEndpoint, ...]] | list[str]:
+    def _names(self) -> Mapping[PortName, tuple[InputEndpoint, ...]] | list[PortName]:
         from ._native import RustGraphStructure
 
         body = self._graph.structure
@@ -128,15 +152,15 @@ class _Inputs(Mapping[str, InputPort]):
     def __len__(self) -> int:
         return len(self._names)
 
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self) -> Iterator[PortName]:
         return iter(self._names)
 
 
-class _Outputs(Mapping[str, OutputPort]):
+class _Outputs(Mapping[PortName, OutputPort]):
     def __init__(self, graph: Graph) -> None:
         self._graph = graph
 
-    def __getitem__(self, key: str) -> OutputPort:
+    def __getitem__(self, key: PortName) -> OutputPort:
         from ._native import RustGraphStructure
 
         body = self._graph.structure
@@ -150,7 +174,7 @@ class _Outputs(Mapping[str, OutputPort]):
         return OutputPort(self._graph, key)
 
     @property
-    def _names(self) -> Mapping[str, OutputEndpoint] | list[str]:
+    def _names(self) -> Mapping[PortName, OutputEndpoint] | list[PortName]:
         from ._native import RustGraphStructure
 
         body = self._graph.structure
@@ -163,7 +187,7 @@ class _Outputs(Mapping[str, OutputPort]):
     def __len__(self) -> int:
         return len(self._names)
 
-    def __iter__(self) -> Iterator[str]:
+    def __iter__(self) -> Iterator[PortName]:
         return iter(self._names)
 
 
@@ -174,12 +198,22 @@ class GraphInterfaceView:
     graph: Graph
 
     @property
-    def inputs(self) -> Mapping[str, InputPort]:
+    def inputs(self) -> Mapping[PortName, InputPort]:
         return _Inputs(self.graph)
 
     @property
-    def outputs(self) -> Mapping[str, OutputPort]:
+    def outputs(self) -> Mapping[PortName, OutputPort]:
         return _Outputs(self.graph)
+
+    @property
+    def input(self) -> InputPort:
+        """Return the explicitly declared anonymous input, without name inference."""
+        return self.inputs[None]
+
+    @property
+    def output(self) -> OutputPort:
+        """Return the explicitly declared anonymous output, without name inference."""
+        return self.outputs[None]
 
 
 def _declared_interface(graph: Graph) -> GraphInterface:
@@ -248,7 +282,8 @@ def resolve_port_requirements(
     ports: dict[str, int] = {}
     for graph in component_graphs:
         for port in graph.interface.outputs:
-            ports.setdefault(port, len(ports))
+            if port is not None:
+                ports.setdefault(port, len(ports))
     for requirement in declared_requirements:
         ports.setdefault(requirement.port, len(ports))
 
@@ -293,7 +328,8 @@ def resolve_port_requirements(
         for selection in declared_selections
     ]
     component_outputs = [
-        [ports[port] for port in graph.interface.outputs] for graph in component_graphs
+        [ports[port] for port in graph.interface.outputs if port is not None]
+        for graph in component_graphs
     ]
     try:
         resolved = resolve_port_connections(
@@ -352,7 +388,7 @@ def _require_component_graph(component: Node) -> Graph:
 
 def _require_declared_port_input(
     component: Node,
-    port: str,
+    port: PortName,
 ) -> None:
     graph = _require_component_graph(component)
     if port in graph.interface.inputs:
@@ -362,7 +398,7 @@ def _require_declared_port_input(
 
 def _require_port_output(
     component: Node,
-    port: str,
+    port: PortName,
 ) -> OutputPort:
     graph = _require_component_graph(component)
     if port in graph.interface.outputs:
