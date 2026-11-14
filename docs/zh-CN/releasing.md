@@ -7,7 +7,7 @@
 
 ## 交付范围
 
-发行矩阵覆盖 CPython 3.13、3.14、3.15，以及 Linux x86_64（glibc 2.28 起）、
+发行矩阵覆盖 CPython 3.12、3.13、3.14、3.15，以及 Linux x86_64（glibc 2.28 起）、
 macOS arm64（macOS 11 起）与 Windows x86_64（`win_amd64`，MSVC）。同时提供源码包。
 其它平台需要兼容的 Rust 工具链自行编译源码，不能据此声称这些平台已经通过 wheel 验收。
 此矩阵不包含 Windows ARM64 或自由线程 Python。
@@ -30,6 +30,9 @@ macOS arm64（macOS 11 起）与 Windows x86_64（`win_amd64`，MSVC）。同时
 ### 0.4.0
 
 本版包含公开 API 变更，不能作为 0.3.0 的无修改替换。
+
+最低支持 Python 3.12。Rust worker 默认容量由 Rust 托管 session 决定，
+不再依赖 Python 3.13 的 CPU 查询 API。
 
 - Step 是动作节点，Graph 是子图节点，二者实现共同的 Node 协议；GraphStructure
   保存可复用拓扑。Execution 可以直接执行这两种根节点，不再把图包装成动作步骤。

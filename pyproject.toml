@@ -9,7 +9,7 @@ description = "Explicit, composable workflows with a Python API and a Rust execu
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = []
 authors = [{name = "ririv"}]
 keywords = ["dag", "workflow", "task-graph", "concurrency", "rust"]
@@ -17,6 +17,7 @@ classifiers = [
     "Development Status :: 3 - Alpha",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: 3.15",
@@ -51,7 +52,7 @@ testpaths = ["tests"]
 addopts = ["-ra", "--strict-markers", "-q"]
 
 [tool.ruff]
-target-version = "py313"
+target-version = "py312"
 
 [tool.ruff.lint]
 select = [
@@ -98,7 +99,7 @@ select = [
 ]
 
 [tool.pyright]
-pythonVersion = "3.13"
+pythonVersion = "3.12"
 extraPaths = ["src"]
 typeCheckingMode = "standard"
 reportMissingParameterType = "warning"

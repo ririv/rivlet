@@ -34,7 +34,7 @@ def resolve_action_result(result: object) -> object:
 
 
 async def _await_result(result: Awaitable[object]) -> object:
-    # Python 3.13 的 asyncio.run 接受 coroutine；包装后也能支持自定义 awaitable。
+    # Python 3.12/3.13 的 asyncio.run 要求 coroutine；包装后也支持自定义 awaitable。
     return await result
 
 

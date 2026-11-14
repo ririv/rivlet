@@ -8,7 +8,7 @@ The public repository is <https://github.com/ririv/rivlet>. The previous
 
 ## Supported distributions
 
-The release matrix targets CPython 3.13, 3.14, and 3.15 on Linux x86_64
+The release matrix targets CPython 3.12, 3.13, 3.14, and 3.15 on Linux x86_64
 (glibc 2.28 or later), macOS arm64 (macOS 11 or later), and Windows x86_64
 (`win_amd64`, MSVC). It also provides a source distribution. Other platforms
 require a compatible Rust toolchain and a source build; they are not claimed as
@@ -36,6 +36,9 @@ and their canonical `.postN` forms; it rejects unsupported version forms.
 ### Version 0.4.0
 
 This release changes public APIs; it is not a drop-in replacement for 0.3.0.
+
+Python 3.12 is the minimum supported version. Default Rust worker capacity is
+selected by the managed Rust session, without importing Python 3.13 CPU APIs.
 
 - `Step` is an action node and `Graph` is a composite node. Both implement the
   common Node protocol; `GraphStructure` owns reusable topology. Execute either

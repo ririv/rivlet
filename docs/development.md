@@ -8,7 +8,7 @@ published package with `pip install rivlet` and start with the
 
 ## Local setup
 
-Use Python 3.13 or later and a Rust toolchain compatible with the locked
+Use Python 3.12 or later and a Rust toolchain compatible with the locked
 dependencies. The release workflow currently validates Rust 1.95.0.
 
 ```bash
@@ -26,7 +26,7 @@ Python-only execution fallback.
 
 ## Windows setup
 
-Use x64 CPython 3.13–3.15 and the Rust `x86_64-pc-windows-msvc` toolchain.
+Use x64 CPython 3.12–3.15 and the Rust `x86_64-pc-windows-msvc` toolchain.
 Building from source also requires Visual Studio Build Tools with the C++ toolset
 and a Windows SDK; installing a wheel does not require these build tools.
 In PowerShell, use the environment's executables directly; activation is optional:

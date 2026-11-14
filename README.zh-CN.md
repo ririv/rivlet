@@ -23,13 +23,13 @@ Rivlet 是一个用于组合和执行任务图的 Python 库，执行核心由 R
 
 ## 安装
 
-需要 Python 3.13 或更高版本：
+需要 Python 3.12 或更高版本：
 
 ```bash
 pip install rivlet
 ```
 
-CPython 3.13–3.15 在 Linux x86_64（glibc 2.28+）、macOS arm64（macOS 11+）和
+CPython 3.12–3.15 在 Linux x86_64（glibc 2.28+）、macOS arm64（macOS 11+）和
 Windows x64 上提供预编译 wheel，安装这些 wheel 不需要 Rust 工具链。其它平台需要从源码构建，见
 [交付范围](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/releasing.md)。
 Windows x64 的源码构建与安装后验收见

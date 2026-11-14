@@ -7,7 +7,7 @@
 
 ## 本地环境
 
-需要 Python 3.13 或更高版本，以及兼容锁定依赖的 Rust 工具链。当前发行流程使用
+需要 Python 3.12 或更高版本，以及兼容锁定依赖的 Rust 工具链。当前发行流程使用
 Rust 1.95.0 验证。
 
 ```bash
@@ -24,7 +24,7 @@ maturin develop --release --locked
 
 ## Windows 环境
 
-使用 x64 CPython 3.13–3.15 与 Rust `x86_64-pc-windows-msvc` 工具链。
+使用 x64 CPython 3.12–3.15 与 Rust `x86_64-pc-windows-msvc` 工具链。
 源码构建还需要带 C++ 工具集和 Windows SDK 的 Visual Studio Build Tools；安装已有
 wheel 不需要这些构建工具。PowerShell 可以直接调用虚拟环境中的程序，不要求激活：
 

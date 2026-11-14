@@ -29,13 +29,13 @@ application; it is not a distributed workflow service.
 
 ## Install
 
-Requires Python 3.13 or later:
+Requires Python 3.12 or later:
 
 ```bash
 pip install rivlet
 ```
 
-Prebuilt wheels are available for CPython 3.13–3.15 on Linux x86_64 (glibc 2.28+),
+Prebuilt wheels are available for CPython 3.12–3.15 on Linux x86_64 (glibc 2.28+),
 macOS arm64 (macOS 11+), and Windows x64. These installations need no Rust toolchain.
 Other platforms require a source build; see
 [distribution support](https://github.com/ririv/rivlet/blob/main/docs/releasing.md).
