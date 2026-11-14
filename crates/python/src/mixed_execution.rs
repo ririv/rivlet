@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use action::{ActionContext, ActionExecutor, ActionHandle, Value};
+use action::{ActionContext, ActionExecutor, ActionHandle, CompletionWait, Value};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use rivlet::{
@@ -127,6 +127,22 @@ impl MixedExecutionBatch {
 }
 
 impl MixedExecutionSession {
+    fn completion_wait(&self) -> PyResult<Option<CompletionWait>> {
+        let state = self
+            .state
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if state.rust_running == 0 {
+            return Ok(None);
+        }
+        match &self.actions {
+            ActionDispatch::PythonOnly => Err(PyRuntimeError::new_err(
+                "Python-only session contains native work",
+            )),
+            ActionDispatch::Mixed { executor, .. } => Ok(Some(executor.prepare_wait())),
+        }
+    }
+
     pub(crate) fn new(
         session: ExecutionSession,
         bindings: Vec<Option<RustActionBinding>>,
@@ -466,24 +482,33 @@ impl MixedExecutionSession {
 
     /// Waits for actual Rust completion without retaining the Python interpreter.
     fn wait_rust(&self, py: Python<'_>) -> PyResult<()> {
-        let wait = {
-            let state = self
-                .state
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if state.rust_running == 0 {
-                return Ok(());
-            }
-            match &self.actions {
-                ActionDispatch::PythonOnly => {
-                    return Err(PyRuntimeError::new_err(
-                        "Python-only session contains native work",
-                    ));
-                }
-                ActionDispatch::Mixed { executor, .. } => executor.prepare_wait(),
-            }
+        if let Some(wait) = self.completion_wait()? {
+            py.detach(move || wait.wait());
+        }
+        Ok(())
+    }
+
+    /// Delivers one completion notification without borrowing a Python action worker.
+    fn notify_rust(&self, py: Python<'_>, callback: Py<PyAny>) -> PyResult<()> {
+        let Some(wait) = self.completion_wait()? else {
+            callback.call0(py)?;
+            return Ok(());
         };
-        py.detach(move || wait.wait());
+        // 这里等待的是批次完成信号，不执行 action。不能占用调用方的 Python
+        // 动作线程，否则满池可能阻止依赖 Rust 结果的协程继续运行。
+        std::thread::Builder::new()
+            .name("GraphCompletion".to_owned())
+            .spawn(move || {
+                wait.wait();
+                Python::attach(|py| {
+                    if let Err(error) = callback.call0(py) {
+                        error.write_unraisable(py, Some(callback.bind(py)));
+                    }
+                });
+            })
+            .map_err(|error| {
+                PyRuntimeError::new_err(format!("failed to start completion notification: {error}"))
+            })?;
         Ok(())
     }
 }

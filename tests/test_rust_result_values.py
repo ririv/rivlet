@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import json
+from functools import partial
 from typing import Literal
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     Edge,
     Execution,
     ExecutionState,
@@ -21,11 +22,11 @@ from rivlet import (
     ResultStore,
     SerialGraphExecutor,
     Step,
-    ThreadRunOptions,
     export_graph,
     render_graph,
     render_graph_mermaid,
 )
+from rivlet import run as run_execution
 from rivlet._native import (
     _compose_rust_graph,
     _rust_result_fixture,
@@ -41,11 +42,11 @@ def run(execution: Execution, backend: Backend) -> None:
     if backend == "serial":
         SerialGraphExecutor(execution.execution_state).execute(execution.compile())
     else:
-        execution.run(
-            ThreadRunOptions(workers=3)
+        (
+            partial(run_execution, max_workers=3)
             if backend == "thread"
-            else AsyncRunOptions(concurrency=3)
-        )
+            else partial(run_async_execution, max_workers=3)
+        )(execution)
 
 
 CASES = (

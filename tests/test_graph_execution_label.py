@@ -11,6 +11,7 @@ from rivlet import (
     TreeFileExecutionOutput,
     render_execution_structure,
 )
+from rivlet import run as run_execution
 
 
 @pytest.mark.parametrize(
@@ -38,7 +39,7 @@ def test_graph_name_is_shared_by_compilation_rendering_and_output(
         plan, options=GraphRenderOptions(fmt="mermaid")
     )
 
-    plan.run()
+    run_execution(plan)
 
     output = tmp_path / f"graph-execution.{filename}.dynamic.tree"
     assert display in output.read_text()

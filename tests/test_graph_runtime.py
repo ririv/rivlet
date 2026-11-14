@@ -8,14 +8,15 @@ import threading
 import time
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 
 import pytest
 from _pytest.logging import LogCaptureFixture
+from execution_support import Invoke, run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     ConditionalPrerequisite,
     Execution,
     ExecutionControl,
@@ -36,11 +37,11 @@ from rivlet import (
     StaticConditionEvaluator,
     StaticConditions,
     Step,
-    ThreadRunOptions,
     TreeFileExecutionOutput,
     render_execution,
     render_live_execution,
 )
+from rivlet import run as run_execution
 from rivlet._native import RustGraphStructure, _rust_process_graph
 from rivlet.compile import compile_graph
 from rivlet.runtime.compiled import CompiledExecutionHost
@@ -146,7 +147,7 @@ def test_execution_rejects_pre_stopped_execution_control() -> None:
     )
 
     with pytest.raises(ExecutionStopped):
-        plan.run()
+        run_execution(plan)
 
     assert calls == []
 
@@ -177,7 +178,7 @@ def test_execution_executes_python_and_native_actions_in_one_graph(
         execution_state=ExecutionState(results=ResultStore()),
     )
 
-    state = plan.run(ThreadRunOptions(workers=2))
+    state = run_execution(plan, max_workers=2)
 
     assert plan.require_result(verify).value == ["python", "rust"]
     assert state.completed_steps == {NodePath((0,))} | frozenset(
@@ -226,7 +227,7 @@ def test_native_action_writes_to_bound_component_log(tmp_path: Path) -> None:
         node_log_paths={component: log_path},
     )
 
-    plan.run()
+    run_execution(plan)
 
     assert log_path.read_text().splitlines() == ["native stdout", "native stderr"]
 
@@ -281,11 +282,13 @@ def test_native_action_failure_is_a_graph_action_failure(tmp_path: Path) -> None
     )
 
     with pytest.raises(RuntimeError, match=r"exited with status .*7"):
-        Execution(
-            root=Graph(
-                structure=GraphStructure(nodes=(native,)), label="native-failure"
+        run_execution(
+            Execution(
+                root=Graph(
+                    structure=GraphStructure(nodes=(native,)), label="native-failure"
+                )
             )
-        ).run()
+        )
 
 
 def test_async_graph_executor_runs_native_action_without_blocking_model_changes(
@@ -306,9 +309,12 @@ def test_async_graph_executor_runs_native_action_without_blocking_model_changes(
         label="native",
     )
 
-    Execution(
-        root=Graph(structure=GraphStructure(nodes=(native,)), label="async-native")
-    ).run(AsyncRunOptions(concurrency=1))
+    run_async_execution(
+        Execution(
+            root=Graph(structure=GraphStructure(nodes=(native,)), label="async-native")
+        ),
+        max_workers=1,
+    )
 
     assert output.read_text() == "async"
 
@@ -332,10 +338,13 @@ def test_execution_run_executes_nested_graphs_in_topological_order() -> None:
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=root.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1))
+    state = run_execution(
+        Execution(
+            root=Graph(structure=root.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+    )
 
     assert calls == ["prepare", "configure", "build"]
     assert state.executed_steps == [
@@ -360,10 +369,10 @@ def test_execution_run_executes_nested_graphs_in_topological_order() -> None:
 def test_execution_state_cannot_be_reused() -> None:
     plan = Execution(root=Graph(structure=GraphStructure(), label="root"))
 
-    plan.run()
+    run_execution(plan)
 
     with pytest.raises(RuntimeError, match="graph execution state cannot be reused"):
-        plan.run()
+        run_execution(plan)
 
 
 def test_step_action_preserves_default_argument_capture() -> None:
@@ -372,14 +381,16 @@ def test_step_action_preserves_default_argument_capture() -> None:
     def _capture(value: str = "captured") -> None:
         captured.append(value)
 
-    Execution(
-        root=Graph(
-            structure=Graph.from_wiring(
-                wiring=(Step(_capture, label="capture").wire(),)
-            ).structure,
-            label="root",
-        ),
-    ).run()
+    run_execution(
+        Execution(
+            root=Graph(
+                structure=Graph.from_wiring(
+                    wiring=(Step(_capture, label="capture").wire(),)
+                ).structure,
+                label="root",
+            ),
+        )
+    )
 
     assert captured == ["captured"]
 
@@ -406,10 +417,13 @@ def test_execution_run_skips_marked_steps() -> None:
         },
         results=ResultStore(),
     )
-    Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=state,
-    ).run(options=ThreadRunOptions(workers=1))
+    run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=state,
+        ),
+        max_workers=1,
+    )
 
     assert calls == ["prepare"]
     assert state.executed_steps == [
@@ -435,19 +449,22 @@ def test_execution_rejects_unknown_initial_skip_request() -> None:
     graph = Graph(structure=GraphStructure(nodes=(Step(lambda: None, label="build"),)))
 
     with pytest.raises(RuntimeError, match="unknown graph skip requests: 0.1"):
-        Execution(
-            root=Graph(structure=graph.structure),
-            execution_state=ExecutionState(
-                initial_skip_requests={
-                    NodePath(
-                        (
-                            0,
-                            1,
+        run_execution(
+            Execution(
+                root=Graph(structure=graph.structure),
+                execution_state=ExecutionState(
+                    initial_skip_requests={
+                        NodePath(
+                            (
+                                0,
+                                1,
+                            )
                         )
-                    )
-                }
+                    }
+                ),
             ),
-        ).run(options=ThreadRunOptions(workers=1))
+            max_workers=1,
+        )
 
 
 def test_execution_state_rejects_skip_after_step_start() -> None:
@@ -465,10 +482,12 @@ def test_execution_run_uses_provided_state() -> None:
         wiring=(Step(lambda _ctx: calls.append("build"), label=("build")).wire(),),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run()
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        )
+    )
 
     assert calls == ["build"]
     assert state.executed_steps == [
@@ -492,10 +511,13 @@ def test_execution_run_records_sync_step_results() -> None:
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1))
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+    )
 
     assert state.results is not None
     assert (
@@ -541,10 +563,13 @@ def test_execution_run_records_async_step_results() -> None:
         wiring=(Step(_build, label=("build")).wire(),),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1))
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+    )
 
     assert state.results is not None
     assert (
@@ -565,10 +590,12 @@ def test_execution_run_records_none_result() -> None:
         wiring=(Step(lambda _ctx: None, label=("build")).wire(),),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run()
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        )
+    )
 
     assert state.results is not None
     assert state.results.has(
@@ -608,10 +635,12 @@ def test_execution_run_does_not_record_results_for_skipped_steps() -> None:
         results=ResultStore(),
     )
 
-    Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=state,
-    ).run()
+    run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=state,
+        )
+    )
 
     assert state.results is not None
     assert not state.results.has(
@@ -634,10 +663,12 @@ def test_execution_run_does_not_record_results_for_failed_steps() -> None:
 
     state = ExecutionState(results=ResultStore())
     try:
-        Execution(
-            root=Graph(structure=graph.structure, label="root"),
-            execution_state=state,
-        ).run()
+        run_execution(
+            Execution(
+                root=Graph(structure=graph.structure, label="root"),
+                execution_state=state,
+            )
+        )
     except RuntimeError as exc:
         assert str(exc) == "boom"
     else:
@@ -674,11 +705,14 @@ def test_parallel_graph_failure_does_not_request_global_stop() -> None:
     )
 
     with pytest.raises(RuntimeError, match="boom"):
-        Execution(
-            root=Graph(structure=graph.structure, label="root"),
-            execution_state=ExecutionState(results=ResultStore()),
-            execution_control=execution_control,
-        ).run(options=ThreadRunOptions(workers=2))
+        run_execution(
+            Execution(
+                root=Graph(structure=graph.structure, label="root"),
+                execution_state=ExecutionState(results=ResultStore()),
+                execution_control=execution_control,
+            ),
+            max_workers=2,
+        )
 
     assert survivor_completed.is_set()
     assert not execution_control.stop_requested()
@@ -707,7 +741,7 @@ def test_async_graph_failure_waits_for_started_steps() -> None:
 
     plan = Execution(root=Graph(structure=graph.structure, label="root"))
     with pytest.raises(RuntimeError, match="boom"):
-        plan.run(options=AsyncRunOptions(concurrency=2))
+        run_async_execution(plan, max_workers=2)
 
     assert survivor_completed
     assert not plan.execution_control.stop_requested()
@@ -716,13 +750,13 @@ def test_async_graph_failure_waits_for_started_steps() -> None:
 @pytest.mark.parametrize(
     "options",
     [
-        ThreadRunOptions(workers=1),
-        AsyncRunOptions(concurrency=1),
+        partial(run_execution, max_workers=1),
+        partial(run_async_execution, max_workers=1),
     ],
     ids=["thread", "async"],
 )
 def test_execution_stop_does_not_dispatch_ready_successor(
-    options: ThreadRunOptions | AsyncRunOptions,
+    options: Invoke,
 ) -> None:
     calls: list[str] = []
     execution_control = ExecutionControl()
@@ -741,10 +775,12 @@ def test_execution_stop_does_not_dispatch_ready_successor(
     )
 
     with pytest.raises(ExecutionStopped):
-        Execution(
-            root=Graph(structure=graph.structure),
-            execution_control=execution_control,
-        ).run(options=options)
+        (options)(
+            Execution(
+                root=Graph(structure=graph.structure),
+                execution_control=execution_control,
+            )
+        )
 
     assert calls == ["first"]
 
@@ -774,8 +810,8 @@ def test_step_failure_does_not_cancel_shared_execution_control() -> None:
     )
 
     with pytest.raises(RuntimeError, match="boom"):
-        first_plan.run()
-    second_plan.run()
+        run_execution(first_plan)
+    run_execution(second_plan)
 
     assert calls == ["package"]
 
@@ -797,7 +833,7 @@ def test_execution_reads_nested_result_by_step_ref() -> None:
         root=Graph(structure=root.structure, label="root"),
         execution_state=ExecutionState(results=ResultStore()),
     )
-    plan.run()
+    run_execution(plan)
 
     assert plan.require_result(nested_step).value == "nested-value"
 
@@ -820,10 +856,7 @@ def test_reused_subgraph_mounts_have_distinct_step_instances(
         execution_state=ExecutionState(results=ResultStore()),
     )
 
-    state = plan.run(
-        options=ThreadRunOptions(workers=1),
-        mode=mode,
-    )
+    state = run_execution(plan, max_workers=1, mode=mode)
 
     assert state.results is not None
     assert state.results.require(NodePath((0, 0, 0))).value == "0.0.0"
@@ -852,10 +885,12 @@ def test_dynamic_subgraph_captures_explicit_result_input() -> None:
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=root.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run()
+    state = run_execution(
+        Execution(
+            root=Graph(structure=root.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        )
+    )
 
     assert state.results is not None
     assert state.results.require(NodePath((0, 1, 0))).value == "nested:prepared"
@@ -889,10 +924,14 @@ def test_runtime_condition_true_waits_for_source_step(mode: GraphMode) -> None:
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1), mode=mode)
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+        mode=mode,
+    )
 
     assert state.results is not None
     assert (
@@ -955,8 +994,9 @@ def test_runtime_step_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
         ),
     )
 
-    Execution(root=Graph(structure=graph.structure, label="root")).run(
-        options=ThreadRunOptions(workers=1),
+    run_execution(
+        Execution(root=Graph(structure=graph.structure, label="root")),
+        max_workers=1,
         mode=mode,
     )
 
@@ -997,8 +1037,9 @@ def test_runtime_edge_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
         ),
     )
 
-    Execution(root=Graph(structure=graph.structure, label="root")).run(
-        options=ThreadRunOptions(workers=1),
+    run_execution(
+        Execution(root=Graph(structure=graph.structure, label="root")),
+        max_workers=1,
         mode=mode,
     )
 
@@ -1018,7 +1059,7 @@ def test_execution_render_does_not_reevaluate_runtime_condition() -> None:
     )
     plan = Execution(root=Graph(structure=graph.structure, label="root"))
 
-    state = plan.run()
+    state = run_execution(plan)
     rendered = render_execution(
         Graph(structure=graph.structure, label="root"),
         state,
@@ -1058,10 +1099,14 @@ def test_runtime_condition_false_does_not_require_source_result(
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1), mode=mode)
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+        mode=mode,
+    )
 
     assert state.results is not None
     assert (
@@ -1114,11 +1159,12 @@ def test_runtime_condition_false_does_not_wait_for_source(mode: GraphMode) -> No
         ),
     )
 
-    Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(
-        options=ThreadRunOptions(workers=3),
+    run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=3,
         mode=mode,
     )
 
@@ -1163,8 +1209,9 @@ def test_parent_waits_for_all_steps_in_conditionally_connected_child(
         ),
     )
 
-    Execution(root=Graph(structure=graph.structure, label="root")).run(
-        options=ThreadRunOptions(workers=4),
+    run_execution(
+        Execution(root=Graph(structure=graph.structure, label="root")),
+        max_workers=4,
         mode=mode,
     )
 
@@ -1207,8 +1254,9 @@ def test_parent_prerequisite_blocks_all_conditionally_connected_child_steps(
         ),
     )
 
-    Execution(root=Graph(structure=graph.structure, label="root")).run(
-        options=ThreadRunOptions(workers=4),
+    run_execution(
+        Execution(root=Graph(structure=graph.structure, label="root")),
+        max_workers=4,
         mode=mode,
     )
 
@@ -1236,18 +1284,22 @@ def test_empty_child_graph_preserves_parent_dependency_boundary(
         prepare = Step(_prepare, label=("prepare"))
         empty_stage = Graph(structure=GraphStructure(), label="empty_stage")
         package = Step(_package, label=("package"))
-        Execution(
-            root=Graph(
-                structure=Graph.from_wiring(
-                    wiring=(
-                        prepare.wire(),
-                        empty_stage.wire(after=(prepare,)),
-                        package.wire(after=(empty_stage,)),
-                    )
-                ).structure,
-                label="root",
+        run_execution(
+            Execution(
+                root=Graph(
+                    structure=Graph.from_wiring(
+                        wiring=(
+                            prepare.wire(),
+                            empty_stage.wire(after=(prepare,)),
+                            package.wire(after=(empty_stage,)),
+                        )
+                    ).structure,
+                    label="root",
+                ),
             ),
-        ).run(options=ThreadRunOptions(workers=2), mode=mode)
+            max_workers=2,
+            mode=mode,
+        )
     finally:
         timer.cancel()
 
@@ -1275,20 +1327,21 @@ def test_compiled_skipped_composite_preserves_prerequisite_boundary() -> None:
             package.wire(after=(stage,)),
         ),
     )
-    Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(
-            initial_skip_requests={
-                NodePath(
-                    (
-                        0,
-                        1,
+    run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(
+                initial_skip_requests={
+                    NodePath(
+                        (
+                            0,
+                            1,
+                        )
                     )
-                )
-            }
+                }
+            ),
         ),
-    ).run(
-        options=ThreadRunOptions(workers=2),
+        max_workers=2,
         mode="compiled",
     )
 
@@ -1326,8 +1379,9 @@ def test_parent_waits_for_all_steps_in_child_with_disabled_step(
         ),
     )
 
-    Execution(root=Graph(structure=graph.structure, label="root")).run(
-        options=ThreadRunOptions(workers=4),
+    run_execution(
+        Execution(root=Graph(structure=graph.structure, label="root")),
+        max_workers=4,
         mode=mode,
     )
 
@@ -1336,13 +1390,13 @@ def test_parent_waits_for_all_steps_in_child_with_disabled_step(
 @pytest.mark.parametrize(
     "options",
     [
-        ThreadRunOptions(workers=1),
-        AsyncRunOptions(concurrency=1),
+        partial(run_execution, max_workers=1),
+        partial(run_async_execution, max_workers=1),
     ],
 )
 def test_child_graph_observation_is_preserved(
     mode: GraphMode,
-    options: ThreadRunOptions | AsyncRunOptions,
+    options: Invoke,
 ) -> None:
     events: list[tuple[str, tuple[str, ...], str]] = []
 
@@ -1365,8 +1419,9 @@ def test_child_graph_observation_is_preserved(
         ),
     )
 
-    Execution(root=Graph(structure=graph.structure, label="root")).run(
-        options=replace(options, observer=_Observer()),
+    options(
+        Execution(root=Graph(structure=graph.structure, label="root")),
+        observer=_Observer(),
         mode=mode,
     )
 
@@ -1423,11 +1478,12 @@ def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(
-        options=ThreadRunOptions(workers=1),
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
         mode=mode,
     )
 
@@ -1448,10 +1504,11 @@ def test_live_render_uses_runtime_path_for_action_returned_graph(
     graph = Graph.from_wiring(wiring=(stage.wire(),))
     state = ExecutionState(results=ResultStore())
 
-    Execution(
-        root=Graph(structure=graph.structure, label="root"), execution_state=state
-    ).run(
-        options=ThreadRunOptions(workers=1),
+    run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"), execution_state=state
+        ),
+        max_workers=1,
         mode=mode,
     )
 
@@ -1497,11 +1554,12 @@ def test_async_runtime_condition_false_does_not_wait_for_source(
         ),
     )
 
-    Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(
-        options=AsyncRunOptions(concurrency=3),
+    run_async_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=3,
         mode=mode,
     )
 
@@ -1528,8 +1586,9 @@ def test_async_executor_runs_independent_sync_steps_concurrently(
         ),
     )
 
-    Execution(root=Graph(structure=graph.structure, label="root")).run(
-        options=AsyncRunOptions(concurrency=2),
+    run_async_execution(
+        Execution(root=Graph(structure=graph.structure, label="root")),
+        max_workers=2,
         mode=mode,
     )
 
@@ -1540,14 +1599,14 @@ def test_async_executor_runs_independent_sync_steps_concurrently(
 @pytest.mark.parametrize(
     "options",
     [
-        ThreadRunOptions(workers=1),
-        AsyncRunOptions(concurrency=1),
+        partial(run_execution, max_workers=1),
+        partial(run_async_execution, max_workers=1),
     ],
 )
 def test_returned_graph_inherits_step_log_path(
     tmp_path: Path,
     mode: GraphMode,
-    options: ThreadRunOptions | AsyncRunOptions,
+    options: Invoke,
 ) -> None:
     step_log_path = tmp_path / "component.log"
     observed_paths: list[Path | None] = []
@@ -1572,7 +1631,7 @@ def test_returned_graph_inherits_step_log_path(
         action_log=action_log,
         node_log_paths={component: step_log_path},
     )
-    plan.run(options=options, mode=mode)
+    (options)(plan, mode=mode)
 
     assert observed_paths == [step_log_path]
 
@@ -1604,7 +1663,7 @@ def test_static_component_graph_inherits_bound_log_path(
         node_log_paths={component: step_log_path},
     )
 
-    plan.run(mode=mode)
+    run_execution(plan, mode=mode)
 
     assert observed_paths == [step_log_path]
 
@@ -1632,10 +1691,14 @@ def test_run_freezes_static_conditions_before_execution(mode: GraphMode) -> None
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1), mode=mode)
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+        mode=mode,
+    )
 
     assert state.results is not None
     assert state.results.require(
@@ -1669,10 +1732,14 @@ def test_step_when_false_skips_step_and_allows_downstream_continue(
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1), mode=mode)
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+        mode=mode,
+    )
 
     assert state.executed_steps == ([NodePath((0,))] if mode == "dynamic" else []) + [
         NodePath(
@@ -1730,10 +1797,13 @@ def test_dynamic_step_when_false_skips_graph_step() -> None:
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1))
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+    )
 
     assert nested_calls == []
     assert state.executed_steps == [
@@ -1785,10 +1855,14 @@ def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1), mode="compiled")
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+        mode="compiled",
+    )
 
     assert state.executed_steps == [
         NodePath(
@@ -1836,10 +1910,14 @@ def test_compiled_runtime_when_true_activates_composite() -> None:
         ),
     )
 
-    state = Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1), mode="compiled")
+    state = run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+        mode="compiled",
+    )
 
     assert state.executed_steps == [
         NodePath(
@@ -1889,10 +1967,13 @@ def test_execution_run_logs_step_skip_by_condition(
         ),
     )
 
-    Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(options=ThreadRunOptions(workers=1))
+    run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+        ),
+        max_workers=1,
+    )
 
     assert "Condition: skip root.build (inputs=(0, 0); value=false)" in caplog.text
 
@@ -1915,11 +1996,14 @@ def test_execution_run_writes_execution_render_to_run_log_dir(
         ),
     )
 
-    Execution(
-        root=Graph(structure=graph.structure, label="root"),
-        execution_state=ExecutionState(results=ResultStore()),
-        execution_output=TreeFileExecutionOutput(tmp_path),
-    ).run(options=ThreadRunOptions(workers=1))
+    run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"),
+            execution_state=ExecutionState(results=ResultStore()),
+            execution_output=TreeFileExecutionOutput(tmp_path),
+        ),
+        max_workers=1,
+    )
 
     text = (tmp_path / "graph-execution.root.dynamic.tree").read_text(encoding="utf-8")
     assert "execution: root (mode=dynamic)" in text

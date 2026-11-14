@@ -4,14 +4,15 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from functools import partial
 from pathlib import Path
 from typing import Literal
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
     ActionFailed,
-    AsyncRunOptions,
     Execution,
     ExecutionState,
     Graph,
@@ -26,10 +27,11 @@ from rivlet import (
     SerialGraphExecutor,
     Step,
     SubgraphFailed,
-    ThreadRunOptions,
     export_graph,
     render_execution,
 )
+from rivlet import arun as arun_execution
+from rivlet import run as run_execution
 
 type Backend = Literal["serial", "thread", "async"]
 
@@ -41,12 +43,11 @@ def execute(execution: Execution, backend: Backend, mode: GraphMode) -> None:
             record_composites_as_steps=mode == "dynamic",
         ).execute(execution.compile())
     else:
-        execution.run(
-            AsyncRunOptions(concurrency=2)
+        (
+            partial(run_async_execution, max_workers=2)
             if backend == "async"
-            else ThreadRunOptions(workers=2),
-            mode=mode,
-        )
+            else partial(run_execution, max_workers=2)
+        )(execution, mode=mode)
 
 
 class Events:
@@ -179,7 +180,7 @@ def test_async_step_root_runs_in_the_callers_loop() -> None:
         execution = Execution(
             root, execution_state=ExecutionState(results=ResultStore())
         )
-        await execution.arun()
+        await arun_execution(execution)
         assert execution.require_result(root).unwrap() is loop
 
     asyncio.run(scenario())
@@ -196,7 +197,7 @@ def test_runtime_graph_returned_by_step_root_keeps_the_same_root_identity() -> N
     execution = Execution(root, events=events)
     assert len(execution.compile().steps) == 1
     assert execution.compile().composites == ()
-    execution.run()
+    run_execution(execution)
     assert contexts[0].node_id == child.id
     assert contexts[0].node_path == NodePath((0, 0))
     assert contexts[0].node_path.labels == ("expand", "child")
@@ -233,7 +234,7 @@ def test_native_graph_root_uses_the_outer_steps_condition_and_label(
     execution = Execution(root)
     assert execution.compile().composites[0].id == root.id
     assert execution.compile().composites[0].graph_label == "native root"
-    execution.run()
+    run_execution(execution)
     assert output.exists() is enabled
 
 

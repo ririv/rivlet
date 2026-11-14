@@ -9,7 +9,6 @@ from ..compile import (
     CompiledStep,
     GraphCompilation,
 )
-from ..errors import GraphError
 from ..results import GraphScope, NodeControl, NodeRunContext
 
 if TYPE_CHECKING:
@@ -23,36 +22,10 @@ if TYPE_CHECKING:
         NodeLabelPath,
         NodePath,
     )
-    from ..observe import GraphObserver
     from .control import ExecutionControl
     from .state import ExecutionState
 
 
-@dataclass(frozen=True, slots=True)
-class ThreadRunOptions:
-    """使用线程池执行同步或可等待 action 的运行参数。"""
-
-    workers: int = 1
-    observer: GraphObserver | None = None
-
-    def __post_init__(self) -> None:
-        if self.workers < 1:
-            raise GraphError("graph run workers must be >= 1")
-
-
-@dataclass(frozen=True, slots=True)
-class AsyncRunOptions:
-    """使用 asyncio 调度 action 的运行参数。"""
-
-    concurrency: int = 1
-    observer: GraphObserver | None = None
-
-    def __post_init__(self) -> None:
-        if self.concurrency < 1:
-            raise GraphError("graph run concurrency must be >= 1")
-
-
-type RunOptions = ThreadRunOptions | AsyncRunOptions
 type ExecutableGraph = GraphCompilation
 
 

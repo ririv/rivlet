@@ -14,10 +14,10 @@ from rivlet import (
     StaticCondition,
     StaticConditions,
     Step,
-    ThreadRunOptions,
     compile_graph,
     export_graph,
 )
+from rivlet import run as run_execution
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -32,8 +32,10 @@ def test_flat_condition_accepts_many_ordered_sources(mode):
     consumer = Step(
         lambda: seen.append("action"), condition=((predicate, sources[0], *sources[1:]))
     )
-    Execution(Graph(structure=GraphStructure(nodes=(*sources, consumer)))).run(
-        ThreadRunOptions(workers=4), mode=mode
+    run_execution(
+        Execution(Graph(structure=GraphStructure(nodes=(*sources, consumer)))),
+        max_workers=4,
+        mode=mode,
     )
     assert seen == [*range(128), "action"]
 
@@ -49,9 +51,7 @@ def test_external_condition_source_does_not_remove_dsl_sequence_edge(mode):
     )
     graph = (probe >> prepare >> consumer).graph()
     assert Edge(prepare, consumer) in graph.structure.edges
-    Execution(Graph(structure=graph.structure)).run(
-        ThreadRunOptions(workers=3), mode=mode
-    )
+    run_execution(Execution(Graph(structure=graph.structure)), max_workers=3, mode=mode)
     assert calls == ["prepare", "consume"]
 
 
@@ -109,7 +109,7 @@ def test_excluded_edge_does_not_keep_or_resolve_its_condition_inputs():
         )
     )
     execution = Execution(Graph(structure=graph.structure))
-    execution.run()
+    run_execution(execution)
     document = export_graph(execution.compile())
     assert document["conditions"] == []
     assert document["edges"] == []

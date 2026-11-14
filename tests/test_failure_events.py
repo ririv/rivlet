@@ -7,10 +7,10 @@ from pathlib import Path
 from typing import Never
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
     ActionFailed,
-    AsyncRunOptions,
     BlockedByCondition,
     BlockedByConditionInput,
     BlockedByDependency,
@@ -32,9 +32,9 @@ from rivlet import (
     SerialGraphExecutor,
     Step,
     SubgraphFailed,
-    ThreadRunOptions,
     resolve_port_requirements,
 )
+from rivlet import run as run_execution
 from rivlet._native import _rust_process_graph
 
 
@@ -72,9 +72,9 @@ def execute(request: pytest.FixtureRequest) -> Execute:
                         record_composites_as_steps=mode == "dynamic",
                     ).execute(execution.compile())
                 case "threaded":
-                    execution.run(ThreadRunOptions(workers=3), mode=mode)
+                    run_execution(execution, max_workers=3, mode=mode)
                 case "async":
-                    execution.run(AsyncRunOptions(concurrency=3), mode=mode)
+                    run_async_execution(execution, max_workers=3, mode=mode)
                 case _:
                     pytest.fail("unknown test driver")
         return execution

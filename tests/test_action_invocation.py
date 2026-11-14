@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Generator
+from concurrent.futures import ThreadPoolExecutor
 from contextvars import ContextVar
 from typing import Literal, Never
 
@@ -18,7 +19,7 @@ from rivlet import (
     SerialGraphExecutor,
     Step,
 )
-from rivlet.runtime import ParallelGraphExecutor
+from rivlet.runtime import GraphExecutor
 
 
 def _execute(graph: Graph, workers: int) -> ResultStore:
@@ -28,9 +29,10 @@ def _execute(graph: Graph, workers: int) -> ResultStore:
     if workers == 0:
         SerialGraphExecutor(state).execute(compilation)
     else:
-        ParallelGraphExecutor(state, execution_control=ExecutionControl()).execute(
-            compilation, workers=workers
-        )
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            GraphExecutor(state, execution_control=ExecutionControl()).execute(
+                compilation, pool=pool
+            )
     return results
 
 

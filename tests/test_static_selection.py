@@ -5,7 +5,6 @@ import asyncio
 import pytest
 
 from rivlet import (
-    AsyncRunOptions,
     Case,
     CompiledPythonStep,
     Edge,
@@ -23,12 +22,13 @@ from rivlet import (
     StaticConditions,
     StaticSelection,
     Step,
-    ThreadRunOptions,
     compile_graph,
     render_graph,
     render_graph_mermaid,
     static,
 )
+from rivlet import arun as arun_execution
+from rivlet import run as run_execution
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -57,9 +57,7 @@ def test_selection_preserves_sequence_and_captures_conditions(
     assert graph.structure.nodes == (prepare, modern, legacy, linux, finish)
     assert len(graph.structure.static_selections[0].cases) == 3
     assert len(compile_graph(graph.structure, root_label="root").steps) == 3
-    Execution(Graph(structure=graph.structure)).run(
-        ThreadRunOptions(workers=4), mode=mode
-    )
+    run_execution(Execution(Graph(structure=graph.structure)), max_workers=4, mode=mode)
     assert calls == ["prepare", "modern" if version >= 3 else "legacy", "finish"]
 
 
@@ -127,7 +125,7 @@ def test_invalid_selection_prevents_all_actions(mode: GraphMode) -> None:
     prepare = Step(lambda: calls.append("prepare"))
     graph = (prepare >> static.select(cases=())).graph()
     with pytest.raises(NoStaticBranchSelectedError):
-        Execution(Graph(structure=graph.structure)).run(mode=mode)
+        run_execution(Execution(Graph(structure=graph.structure)), mode=mode)
     assert not calls
 
 
@@ -184,7 +182,7 @@ def test_graph_can_be_mounted_twice_without_sharing_step_paths() -> None:
     ).graph()
     compiled = compile_graph(graph.structure, root_label="root")
     assert len({step.path for step in compiled.steps}) == 2
-    Execution(Graph(structure=graph.structure)).run(ThreadRunOptions(workers=2))
+    run_execution(Execution(Graph(structure=graph.structure)), max_workers=2)
     assert calls == ["chosen", "chosen"]
 
 
@@ -216,7 +214,7 @@ def test_runtime_condition_and_result_binding_remain_independent() -> None:
         (source.wire(), selected.wire(after=(Results(source),))),
         static_selections=choice.static_selections,
     )
-    Execution(Graph(structure=graph.structure)).run()
+    run_execution(Execution(Graph(structure=graph.structure)))
     assert calls == [42]
 
 
@@ -260,7 +258,7 @@ def test_selected_subgraph_retains_its_interface_ports() -> None:
             static_selections=(StaticSelection((case,)),),
         )
     )
-    Execution(Graph(structure=graph.structure)).run(ThreadRunOptions(workers=2))
+    run_execution(Execution(Graph(structure=graph.structure)), max_workers=2)
     assert calls == ["produce", "consume"]
 
 
@@ -300,7 +298,7 @@ def test_selected_empty_subgraph_preserves_composite_ordering() -> None:
         >> static.select(cases=(Case(True, Graph(structure=GraphStructure())),))
         >> last
     ).graph()
-    Execution(Graph(structure=graph.structure)).run(ThreadRunOptions(workers=2))
+    run_execution(Execution(Graph(structure=graph.structure)), max_workers=2)
     assert calls == ["first", "last"]
 
 
@@ -319,7 +317,9 @@ def test_runtime_created_graph_uses_the_same_static_selection() -> None:
             .structure
         )
 
-    Execution(Graph(structure=GraphStructure(nodes=(Step(create_graph),)))).run()
+    run_execution(
+        Execution(Graph(structure=GraphStructure(nodes=(Step(create_graph),))))
+    )
     assert calls == ["selected"]
 
 
@@ -337,6 +337,6 @@ def test_async_driver_executes_only_the_selected_case() -> None:
         ),
     ).graph()
     asyncio.run(
-        Execution(Graph(structure=graph.structure)).arun(AsyncRunOptions(concurrency=2))
+        arun_execution(Execution(Graph(structure=graph.structure)), max_workers=2)
     )
     assert calls == ["selected"]

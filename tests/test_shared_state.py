@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 from typing import Literal, assert_type
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     Execution,
     Graph,
     GraphMode,
@@ -18,8 +18,8 @@ from rivlet import (
     NodeRunContext,
     SerialGraphExecutor,
     Step,
-    ThreadRunOptions,
 )
+from rivlet import run as run_execution
 
 
 @dataclass
@@ -66,9 +66,9 @@ def test_shared_object_reaches_parallel_and_nested_actions(
             case "serial":
                 SerialGraphExecutor(shared=progress).execute(execution.compile())
             case "threads":
-                execution.run(ThreadRunOptions(workers=4), mode=mode)
+                run_execution(execution, max_workers=4, mode=mode)
             case "async":
-                execution.run(AsyncRunOptions(concurrency=4), mode=mode)
+                run_async_execution(execution, max_workers=4, mode=mode)
         assert progress.completed == {
             *(f"0.{index}" for index in range(12)),
             "0.12.0",

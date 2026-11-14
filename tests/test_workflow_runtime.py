@@ -4,11 +4,12 @@ import asyncio
 import threading
 import time
 from dataclasses import dataclass, field
+from functools import partial
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     EventDeliveryError,
     Execution,
     ExecutionControl,
@@ -23,8 +24,9 @@ from rivlet import (
     ResultStore,
     SerialGraphExecutor,
     Step,
-    ThreadRunOptions,
 )
+from rivlet import arun as arun_execution
+from rivlet import run as run_execution
 
 
 @dataclass
@@ -49,7 +51,9 @@ class Activity:
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 @pytest.mark.parametrize("limit", [1, 3])
 @pytest.mark.parametrize("asynchronous", [False, True])
-def test_dynamic_subgraphs_share_one_action_budget(mode, limit, asynchronous) -> None:
+def test_dynamic_subgraph_sync_actions_share_one_thread_pool(
+    mode, limit, asynchronous
+) -> None:
     activity = Activity()
 
     def branch(depth: int) -> Graph:
@@ -68,11 +72,11 @@ def test_dynamic_subgraphs_share_one_action_budget(mode, limit, asynchronous) ->
     graph = branch(2)
     execution = Execution(Graph(structure=graph.structure))
     options = (
-        AsyncRunOptions(concurrency=limit)
+        partial(run_async_execution, max_workers=limit)
         if asynchronous
-        else ThreadRunOptions(workers=limit)
+        else partial(run_execution, max_workers=limit)
     )
-    execution.run(options, mode=mode)
+    (options)(execution, mode=mode)
     assert activity.completed == 36
     assert activity.active == 0
     assert 1 <= activity.peak <= limit
@@ -94,7 +98,7 @@ def test_arun_uses_the_callers_event_loop() -> None:
             Graph(structure=GraphStructure(nodes=(step,))),
             execution_state=ExecutionState(results=ResultStore()),
         )
-        await execution.arun(AsyncRunOptions(concurrency=2))
+        await arun_execution(execution, max_workers=2)
         assert seen == [loop]
         assert execution.require_result(step).value == "done"
 
@@ -118,7 +122,7 @@ def test_events_report_committed_transitions_without_reclassifying_sink_failure(
         events=Sink(),
     )
     with pytest.raises(EventDeliveryError, match="step event delivery failed"):
-        execution.run()
+        run_execution(execution)
     assert [event.state for event in events] == [
         NodeExecutionState.STARTED,
         NodeExecutionState.STARTED,
@@ -151,11 +155,11 @@ def test_events_and_failure_propagation_cross_dynamic_boundaries(asynchronous) -
     )
     execution = Execution(Graph(structure=graph.structure), events=Sink())
     with pytest.raises(ValueError, match="action failed"):
-        execution.run(
-            AsyncRunOptions(concurrency=2)
+        (
+            partial(run_async_execution, max_workers=2)
             if asynchronous
-            else ThreadRunOptions(workers=2)
-        )
+            else partial(run_execution, max_workers=2)
+        )(execution)
     assert calls == ["independent"]
     terminal = {event.node_path.labels: event.state for event in events}
     assert terminal[("0",)] is NodeExecutionState.FAILED
@@ -214,7 +218,7 @@ def test_skip_event_has_a_label_without_running_the_action() -> None:
         ),
         events=Sink(),
     )
-    execution.run()
+    run_execution(execution)
     assert [(event.node_path.labels, event.state) for event in events] == [
         (("0",), NodeExecutionState.STARTED),
         (
@@ -243,7 +247,7 @@ def test_arun_cancellation_waits_for_cooperative_action_cleanup() -> None:
                 cleaned.set()
 
         execution = Execution(Graph(structure=GraphStructure(nodes=(Step(action),))))
-        task = asyncio.create_task(execution.arun())
+        task = asyncio.create_task(arun_execution(execution))
         await entered.wait()
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -276,10 +280,12 @@ def test_threaded_action_observes_external_stop() -> None:
     thread.start()
     try:
         with pytest.raises(ExecutionStopped):
-            Execution(
-                Graph(structure=GraphStructure(nodes=(Step(action),))),
-                execution_control=control,
-            ).run()
+            run_execution(
+                Execution(
+                    Graph(structure=GraphStructure(nodes=(Step(action),))),
+                    execution_control=control,
+                )
+            )
     finally:
         thread.join(timeout=2)
     assert cleaned.is_set()
@@ -300,7 +306,7 @@ def test_no_subscription_constructs_no_events(monkeypatch) -> None:
         pytest.fail("disabled event delivery must not construct events")
 
     monkeypatch.setattr(state, "NodeExecutionEvent", unexpected)
-    Execution(Graph(structure=GraphStructure(nodes=(Step(lambda: 1),)))).run()
+    run_execution(Execution(Graph(structure=GraphStructure(nodes=(Step(lambda: 1),)))))
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -312,14 +318,17 @@ def test_composite_events_are_independent_of_presentation_mode(mode) -> None:
             events.append(event)
 
     child = Graph(structure=GraphStructure(nodes=(Step(lambda: None, label="leaf"),)))
-    Execution(
-        Graph(
-            structure=GraphStructure(
-                nodes=(Graph(structure=child.structure, label="child"),)
-            )
+    run_execution(
+        Execution(
+            Graph(
+                structure=GraphStructure(
+                    nodes=(Graph(structure=child.structure, label="child"),)
+                )
+            ),
+            events=Sink(),
         ),
-        events=Sink(),
-    ).run(mode=mode)
+        mode=mode,
+    )
     assert [(event.node_path.labels, event.state) for event in events] == [
         (("0",), NodeExecutionState.STARTED),
         (

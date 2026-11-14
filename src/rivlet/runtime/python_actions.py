@@ -76,6 +76,13 @@ class PythonActionRuntime:
             host,
             compilation._rust_actions,
             run.rust_action_contexts(self.state),
+            max(1, len(compilation._execution_nodes)),
+            frozenset(
+                index
+                for index, node in enumerate(compilation._execution_nodes)
+                if isinstance(node, CompiledPythonStep)
+                and inspect.iscoroutinefunction(node.action.action)
+            ),
         )
 
     def after_success(

@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+from functools import partial
 from typing import Literal
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     ConditionalPrerequisite,
     Edge,
     Execution,
@@ -21,9 +22,9 @@ from rivlet import (
     SerialGraphExecutor,
     Some,
     Step,
-    ThreadRunOptions,
     compile_graph,
 )
+from rivlet import run as run_execution
 
 type Backend = Literal["serial", "thread", "async"]
 
@@ -35,11 +36,11 @@ def execute(graph: Graph, backend: Backend) -> None:
         )
     else:
         options = (
-            ThreadRunOptions(workers=2)
+            partial(run_execution, max_workers=2)
             if backend == "thread"
-            else AsyncRunOptions(concurrency=2)
+            else partial(run_async_execution, max_workers=2)
         )
-        Execution(Graph(structure=graph.structure)).run(options)
+        (options)(Execution(Graph(structure=graph.structure)))
 
 
 def test_option_preserves_none_and_false_values() -> None:
@@ -180,7 +181,7 @@ def test_repeated_input_preserves_arguments_without_rewrapping() -> None:
             ).structure
         )
     )
-    execution.run()
+    run_execution(execution)
     assert len(seen) == 1
     first, second = seen[0]
     assert first is second
@@ -361,7 +362,7 @@ def test_false_node_condition_does_not_wait_for_other_receiver_inputs() -> None:
             ),
         )
     )
-    Execution(Graph(structure=graph.structure)).run(AsyncRunOptions(concurrency=4))
+    run_async_execution(Execution(Graph(structure=graph.structure)), max_workers=4)
     assert decided.is_set()
 
 

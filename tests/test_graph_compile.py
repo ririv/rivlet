@@ -24,7 +24,6 @@ from rivlet import (
     StaticConditionEvaluator,
     StaticConditions,
     Step,
-    ThreadRunOptions,
     all_,
     any_,
     compile_graph,
@@ -35,6 +34,7 @@ from rivlet import (
     render_graph_mermaid,
     render_live_execution,
 )
+from rivlet import run as run_execution
 
 
 @dataclass(frozen=True, slots=True)
@@ -245,8 +245,8 @@ def test_run_compiled_matches_dynamic_run_and_preserves_local_step_lookup() -> N
         execution_state=compiled_state,
     )
 
-    dynamic_plan.run(options=ThreadRunOptions(workers=1))
-    compiled_plan.run(options=ThreadRunOptions(workers=1), mode="compiled")
+    run_execution(dynamic_plan, max_workers=1)
+    run_execution(compiled_plan, max_workers=1, mode="compiled")
 
     assert dynamic_state.executed_steps == [
         NodePath((0,)),
@@ -356,7 +356,7 @@ def test_run_compiled_skips_composite_step_by_prefix() -> None:
         root=Graph(structure=_make_value_graph().structure), execution_state=state
     )
 
-    plan.run(options=ThreadRunOptions(workers=1), mode="compiled")
+    run_execution(plan, max_workers=1, mode="compiled")
 
     assert state.executed_steps == [
         NodePath(
@@ -566,9 +566,12 @@ def test_render_execution_overlays_runtime_status() -> None:
     )
     state = ExecutionState(results=ResultStore())
 
-    Execution(
-        root=Graph(structure=graph.structure, label="root"), execution_state=state
-    ).run(options=ThreadRunOptions(workers=1))
+    run_execution(
+        Execution(
+            root=Graph(structure=graph.structure, label="root"), execution_state=state
+        ),
+        max_workers=1,
+    )
 
     rendered = render_execution(
         Graph(structure=graph.structure, label="root"),

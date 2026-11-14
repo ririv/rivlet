@@ -36,7 +36,7 @@ if TYPE_CHECKING:
         NodeFailureCause,
         SubgraphFailed,
     )
-    from .execution import Execution
+    from .execution import Execution, arun, run
     from .execution_output import (
         NO_EXECUTION_OUTPUT,
         ExecutionOutput,
@@ -100,15 +100,12 @@ if TYPE_CHECKING:
     from .runtime import (
         NO_ACTION_LOG,
         ActionLog,
-        AsyncRunOptions,
         ExecutionControl,
         ExecutionState,
         ExecutionStopped,
         GraphNodeFailure,
         NoActionLog,
-        RunOptions,
         SerialGraphExecutor,
-        ThreadRunOptions,
     )
     from .selection import (
         MultipleStaticBranchesSelectedError,
@@ -231,7 +228,7 @@ _EXPORT_GROUPS = (
         ),
     ),
     (".observe", ("GraphObservationEvent", "GraphObserver")),
-    (".execution", ("Execution",)),
+    (".execution", ("Execution", "run", "arun")),
     (
         ".render",
         (
@@ -265,12 +262,9 @@ _EXPORT_GROUPS = (
             "ExecutionStopped",
             "GraphNodeFailure",
             "SerialGraphExecutor",
-            "RunOptions",
             "ActionLog",
             "NoActionLog",
             "NO_ACTION_LOG",
-            "ThreadRunOptions",
-            "AsyncRunOptions",
         ),
     ),
     (
@@ -386,6 +380,8 @@ __all__ = [
     "GraphRenderFormat",
     "GraphRenderOptions",
     "Execution",
+    "run",
+    "arun",
     "ExecutionOutput",
     "NoExecutionOutput",
     "NO_EXECUTION_OUTPUT",
@@ -395,12 +391,9 @@ __all__ = [
     "ExecutionStopped",
     "GraphNodeFailure",
     "SerialGraphExecutor",
-    "RunOptions",
     "ActionLog",
     "NoActionLog",
     "NO_ACTION_LOG",
-    "ThreadRunOptions",
-    "AsyncRunOptions",
     "StaticBranch",
     "StaticSelectionError",
     "NoStaticBranchSelectedError",

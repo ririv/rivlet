@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import statistics
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
 from rivlet import Graph, Node, Step
@@ -12,7 +13,7 @@ from rivlet.compile import compile_graph
 from rivlet.runtime import (
     ExecutionControl,
     ExecutionState,
-    ParallelGraphExecutor,
+    GraphExecutor,
 )
 
 if TYPE_CHECKING:
@@ -80,10 +81,11 @@ def _compile_samples(
 
 
 def _run(compilation: GraphCompilation, *, workers: int) -> None:
-    ParallelGraphExecutor(
-        ExecutionState(),
-        execution_control=ExecutionControl(),
-    ).execute(compilation, workers=workers)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        GraphExecutor(
+            ExecutionState(),
+            execution_control=ExecutionControl(),
+        ).execute(compilation, pool=pool)
 
 
 def _positive(parser: argparse.ArgumentParser, name: str, value: int) -> int:

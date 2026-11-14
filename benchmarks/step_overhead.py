@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import statistics
 import time
+from concurrent.futures import ThreadPoolExecutor
 from functools import partial
 from typing import TYPE_CHECKING
 
@@ -12,7 +13,7 @@ from rivlet import Graph, GraphStructure, Step
 from rivlet.compile import compile_graph
 from rivlet.runtime import (
     ExecutionControl,
-    ParallelGraphExecutor,
+    GraphExecutor,
     SerialGraphExecutor,
 )
 
@@ -35,9 +36,10 @@ def _declare(nodes: int) -> Graph:
 
 
 def _execute_threads(compilation: GraphCompilation, workers: int) -> object:
-    return ParallelGraphExecutor(execution_control=ExecutionControl()).execute(
-        compilation, workers=workers
-    )
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        return GraphExecutor(execution_control=ExecutionControl()).execute(
+            compilation, pool=pool
+        )
 
 
 def _measure(name: str, operation: Callable[[], object], repeats: int) -> None:

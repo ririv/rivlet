@@ -3,12 +3,13 @@ import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
+from functools import partial
 from pathlib import Path
 
 import pytest
+from execution_support import Invoke, run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     Execution,
     ExecutionState,
     Graph,
@@ -17,8 +18,8 @@ from rivlet import (
     Node,
     NodePath,
     Step,
-    ThreadRunOptions,
 )
+from rivlet import run as run_execution
 
 
 class _RecordingLog:
@@ -40,12 +41,16 @@ class _RecordingLog:
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 @pytest.mark.parametrize(
-    "options", [ThreadRunOptions(workers=2), AsyncRunOptions(concurrency=2)]
+    "options",
+    [
+        partial(run_execution, max_workers=2),
+        partial(run_async_execution, max_workers=2),
+    ],
 )
 def test_step_uses_constructor_log_path_snapshot(
     tmp_path: Path,
     mode: GraphMode,
-    options: ThreadRunOptions | AsyncRunOptions,
+    options: Invoke,
 ) -> None:
     observed: list[Path | None] = []
     log = _RecordingLog()
@@ -63,7 +68,7 @@ def test_step_uses_constructor_log_path_snapshot(
     )
     bindings[step] = tmp_path / "changed.log"
 
-    execution.run(options, mode=mode)
+    (options)(execution, mode=mode)
 
     assert observed == [path]
     assert log.path.get() is None
@@ -71,7 +76,11 @@ def test_step_uses_constructor_log_path_snapshot(
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 @pytest.mark.parametrize(
-    "options", [ThreadRunOptions(workers=2), AsyncRunOptions(concurrency=2)]
+    "options",
+    [
+        partial(run_execution, max_workers=2),
+        partial(run_async_execution, max_workers=2),
+    ],
 )
 def test_parallel_actions_keep_their_own_log_scope(tmp_path, mode, options):
     log = _RecordingLog()
@@ -86,11 +95,14 @@ def test_parallel_actions_keep_their_own_log_scope(tmp_path, mode, options):
     first = Step(lambda: record("first"))
     second = Step(lambda: record("second"))
     first_log, second_log = tmp_path / "first.log", tmp_path / "second.log"
-    Execution(
-        Graph(structure=GraphStructure(nodes=(first, second))),
-        action_log=log,
-        node_log_paths={first: first_log, second: second_log},
-    ).run(options, mode=mode)
+    (options)(
+        Execution(
+            Graph(structure=GraphStructure(nodes=(first, second))),
+            action_log=log,
+            node_log_paths={first: first_log, second: second_log},
+        ),
+        mode=mode,
+    )
     assert set(observed) == {
         ("first", first_log, first_log),
         ("second", second_log, second_log),
@@ -100,7 +112,11 @@ def test_parallel_actions_keep_their_own_log_scope(tmp_path, mode, options):
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 @pytest.mark.parametrize(
-    "options", [ThreadRunOptions(workers=2), AsyncRunOptions(concurrency=2)]
+    "options",
+    [
+        partial(run_execution, max_workers=2),
+        partial(run_async_execution, max_workers=2),
+    ],
 )
 @pytest.mark.parametrize("asynchronous", [False, True])
 def test_failed_action_appends_exception_to_its_bound_log(
@@ -119,11 +135,14 @@ def test_failed_action_appends_exception_to_its_bound_log(
 
     step = Step(fail_async if asynchronous else fail)
     with pytest.raises(RuntimeError, match="action failed"):
-        Execution(
-            Graph(structure=GraphStructure(nodes=(step,))),
-            action_log=log,
-            node_log_paths={step: path},
-        ).run(options, mode=mode)
+        (options)(
+            Execution(
+                Graph(structure=GraphStructure(nodes=(step,))),
+                action_log=log,
+                node_log_paths={step: path},
+            ),
+            mode=mode,
+        )
 
     assert len(log.appended) == 1
     assert log.appended[0][0] == path

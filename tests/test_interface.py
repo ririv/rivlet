@@ -17,9 +17,9 @@ from rivlet import (
     Node,
     ProviderSelection,
     Step,
-    ThreadRunOptions,
     resolve_port_requirements,
 )
+from rivlet import run as run_execution
 
 
 def _input_of(component: Node) -> str:
@@ -130,12 +130,16 @@ def test_one_input_unlocks_multiple_independent_steps(mode: GraphMode) -> None:
         (provider, consumer),
         (ExactProviderRequirement(consumer=consumer, provider=provider, port=sdk),),
     )
-    Execution(
-        root=Graph(
-            structure=GraphStructure(nodes=(provider, consumer), edges=bindings),
-            label="root",
-        )
-    ).run(ThreadRunOptions(workers=4), mode=mode)
+    run_execution(
+        Execution(
+            root=Graph(
+                structure=GraphStructure(nodes=(provider, consumer), edges=bindings),
+                label="root",
+            )
+        ),
+        max_workers=4,
+        mode=mode,
+    )
     assert a_started.is_set() and b_started.is_set()
 
 
@@ -231,8 +235,9 @@ def test_port_connection_unlocks_only_the_consumer_input() -> None:
     )
     graph = Graph(structure=GraphStructure(nodes=(provider, consumer), edges=bindings))
 
-    Execution(root=Graph(structure=graph.structure, label="port")).run(
-        ThreadRunOptions(workers=2),
+    run_execution(
+        Execution(root=Graph(structure=graph.structure, label="port")),
+        max_workers=2,
         mode="compiled",
     )
 
@@ -286,9 +291,7 @@ def test_direct_connections_gate_each_named_port_independently(mode: GraphMode) 
             ),
         )
     )
-    Execution(Graph(structure=graph.structure)).run(
-        ThreadRunOptions(workers=2), mode=mode
-    )
+    run_execution(Execution(Graph(structure=graph.structure)), max_workers=2, mode=mode)
     assert docs_used.is_set()
 
 
@@ -393,12 +396,15 @@ def test_port_port_can_explicitly_export_descendant_step() -> None:
         ),
     )
 
-    Execution(
-        root=Graph(
-            structure=GraphStructure(nodes=(provider, consumer), edges=bindings),
-            label="root",
+    run_execution(
+        Execution(
+            root=Graph(
+                structure=GraphStructure(nodes=(provider, consumer), edges=bindings),
+                label="root",
+            ),
         ),
-    ).run(mode="compiled")
+        mode="compiled",
+    )
 
 
 def test_any_provider_requirement_uses_explicit_selection_when_ambiguous() -> None:
@@ -471,4 +477,4 @@ def test_port_connection_uses_unified_execution_path() -> None:
         )
     )
 
-    Execution(root=Graph(structure=graph.structure)).run()
+    run_execution(Execution(root=Graph(structure=graph.structure)))

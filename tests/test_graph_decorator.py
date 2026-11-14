@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from rivlet import Edge, Execution, Graph, GraphStructure, GraphWiring, graph, step
+from rivlet import run as run_execution
 
 
 def test_graph_decorator_builds_once_without_running_actions() -> None:
@@ -36,8 +37,8 @@ def test_graph_decorator_builds_once_without_running_actions() -> None:
     prepare, build = structure.nodes
     assert structure.edges == (Edge(prepare, build),)
 
-    Execution(pipeline).run()
-    Execution(pipeline).run()
+    run_execution(Execution(pipeline))
+    run_execution(Execution(pipeline))
 
     assert calls == ["declare", "prepare", "build", "prepare", "build"]
 
@@ -74,7 +75,7 @@ def test_graph_decorator_composes_external_steps_and_graphs() -> None:
     assert pipeline.structure.edges == (Edge(prepare, checks),)
 
     root = Graph.from_wiring((pipeline.wire(), cleanup.wire(after=(pipeline,))))
-    Execution(root).run()
+    run_execution(Execution(root))
 
     assert calls == ["prepare", "build", "validate", "cleanup"]
 
@@ -101,6 +102,6 @@ def test_decorated_graph_structure_has_independent_mounts() -> None:
     assert left.structure is pipeline.structure
     assert right.structure is pipeline.structure
 
-    Execution((left >> right).graph()).run()
+    run_execution(Execution((left >> right).graph()))
 
     assert calls == ["prepare", "build", "prepare", "build"]

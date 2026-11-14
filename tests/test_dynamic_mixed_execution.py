@@ -5,11 +5,12 @@ import socketserver
 import subprocess
 import sys
 import threading
+from functools import partial
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     ExactProviderRequirement,
     Execution,
     ExecutionState,
@@ -23,31 +24,37 @@ from rivlet import (
     Results,
     ResultStore,
     Step,
-    ThreadRunOptions,
     resolve_port_requirements,
 )
+from rivlet import run as run_execution
 from rivlet._native import _rust_process_graph
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
-def test_native_and_python_actions_share_dynamic_budget(tmp_path, asynchronous) -> None:
+def test_native_and_python_actions_use_independent_execution_resources(
+    tmp_path, asynchronous
+) -> None:
     # 计数由单线程 TCP server 串行提交，跨进程、跨平台，不依赖文件锁或执行事件。
-    state = {"active": 0, "peak": 0, "completed": 0}
+    state = {
+        kind: {"active": 0, "peak": 0, "completed": 0} for kind in ("python", "rust")
+    }
 
     class ActivityHandler(socketserver.StreamRequestHandler):
         def handle(self) -> None:
-            delta = int(self.rfile.readline())
-            state["active"] += delta
-            state["peak"] = max(state["peak"], state["active"])
+            kind, raw_delta = self.rfile.readline().decode("ascii").split()
+            activity = state[kind]
+            delta = int(raw_delta)
+            activity["active"] += delta
+            activity["peak"] = max(activity["peak"], activity["active"])
             if delta < 0:
-                state["completed"] += 1
+                activity["completed"] += 1
             self.wfile.write(b"ok\n")
 
     script = """
 import socket, sys, time
 def change(delta):
     with socket.create_connection(('127.0.0.1', int(sys.argv[1])), timeout=10) as conn:
-        conn.sendall(f'{delta}\\n'.encode('ascii'))
+        conn.sendall(f'{sys.argv[2]} {delta}\\n'.encode('ascii'))
         with conn.makefile('rb') as reply:
             assert reply.readline() == b'ok\\n'
 change(1)
@@ -58,11 +65,19 @@ change(-1)
     command = [sys.executable, "-c", script, str(server.server_address[1])]
 
     def python_action() -> None:
-        subprocess.run(command, check=True, timeout=30)
+        subprocess.run([*command, "python"], check=True, timeout=30)
 
     def branch() -> GraphStructure:
         native = _rust_process_graph(
-            [("process", command[0], command[1:], str(tmp_path), dict(os.environ))],
+            [
+                (
+                    "process",
+                    command[0],
+                    [*command[1:], "rust"],
+                    str(tmp_path),
+                    dict(os.environ),
+                )
+            ],
             [],
         )
         return Graph(
@@ -88,17 +103,19 @@ change(-1)
         )
         thread.start()
         try:
-            Execution(Graph(structure=graph.structure), events=Sink()).run(
-                AsyncRunOptions(concurrency=2)
+            (
+                partial(run_async_execution, max_workers=2)
                 if asynchronous
-                else ThreadRunOptions(workers=2)
-            )
+                else partial(run_execution, max_workers=2)
+            )(Execution(Graph(structure=graph.structure), events=Sink()))
         finally:
             server.shutdown()
             thread.join()
-    assert state["completed"] == 12
-    assert state["active"] == 0
-    assert 1 <= state["peak"] <= 2
+    assert state["python"]["completed"] == 8
+    assert state["rust"]["completed"] == 4
+    assert state["python"]["active"] == state["rust"]["active"] == 0
+    assert 1 <= state["python"]["peak"] <= 2
+    assert 1 <= state["rust"]["peak"] <= 4
     rust_events = [event for event in events if event.node_path.labels[-1] == "process"]
     assert sum(event.state is NodeExecutionState.STARTED for event in rust_events) == 4
     assert (
@@ -149,10 +166,14 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
             Step(expand, label=("expand")).wire(after=(Results(prepared),)),
         )
     )
-    Execution(
-        Graph(structure=graph.structure),
-        execution_state=ExecutionState(results=ResultStore()),
-    ).run(
-        AsyncRunOptions(concurrency=1) if asynchronous else ThreadRunOptions(workers=1)
+    (
+        partial(run_async_execution, max_workers=1)
+        if asynchronous
+        else partial(run_execution, max_workers=1)
+    )(
+        Execution(
+            Graph(structure=graph.structure),
+            execution_state=ExecutionState(results=ResultStore()),
+        )
     )
     assert calls == ["prepared", "consumed"]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import InitVar, dataclass, field
 from threading import Lock
 from typing import TYPE_CHECKING
@@ -17,11 +18,8 @@ from .execution_output import (
 from .runtime import (
     NO_ACTION_LOG,
     ActionLog,
-    AsyncRunOptions,
     ExecutionControl,
     ExecutionState,
-    RunOptions,
-    ThreadRunOptions,
 )
 
 if TYPE_CHECKING:
@@ -30,6 +28,7 @@ if TYPE_CHECKING:
 
     from .events import NodeEventSink
     from .model import GraphMode, GraphStructure, Node, NodeKind, NodePath
+    from .observe import GraphObserver
     from .option import Some
 
 
@@ -48,7 +47,11 @@ class Execution:
 
     它负责的入口包括：
     - `compile()`：在内部 lower 条件边并生成 `GraphCompilation`
-    - `run()`：按 dynamic / compiled 两种模式执行这次图实例
+    - `run(pool=...)`：借用线程池阻塞等待这次执行
+    - `arun(pool=...)`：借用线程池和当前事件循环，异步等待这次执行
+
+    dynamic / compiled 仅控制展示记录，不是线程 / 异步模式。
+    模块级 run/arun 提供创建及关闭 Python 线程池的高阶封装。
     """
 
     root: NodeKind
@@ -207,29 +210,31 @@ class Execution:
 
     def run(
         self,
-        options: RunOptions | None = None,
         *,
+        pool: ThreadPoolExecutor,
+        observer: GraphObserver | None = None,
         mode: GraphMode = "dynamic",
     ) -> ExecutionState:
-        from .runtime import ParallelGraphExecutor
+        """Block until completion, borrowing but never shutting down the supplied pool."""
 
-        run_options = options or ThreadRunOptions()
-        if isinstance(run_options, AsyncRunOptions):
-            return asyncio.run(self.arun(run_options, mode=mode))
-        if not isinstance(run_options, ThreadRunOptions):
-            raise GraphError(
-                f"unsupported graph run options: {type(run_options).__name__}"
-            )
+        from .runtime import GraphExecutor
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            pass
+        else:
+            raise GraphError("use await execution.arun() inside a running event loop")
         target_graph = self._compile_for_run(mode)
         try:
-            result = ParallelGraphExecutor(
+            result = GraphExecutor(
                 self.execution_state,
                 shared=self.shared,
                 execution_control=self.execution_control,
-                observer=run_options.observer,
+                observer=observer,
                 action_log=self.action_log,
                 record_composites_as_steps=mode == "dynamic",
-            ).execute(target_graph, workers=run_options.workers)
+            ).execute(target_graph, pool=pool)
         except BaseException as execution_error:
             self._write_execution_output(mode=mode, execution_error=execution_error)
             raise
@@ -238,27 +243,59 @@ class Execution:
 
     async def arun(
         self,
-        options: AsyncRunOptions | None = None,
         *,
+        pool: ThreadPoolExecutor,
+        observer: GraphObserver | None = None,
         mode: GraphMode = "dynamic",
     ) -> ExecutionState:
-        """Execute asynchronous actions in the caller's event loop."""
+        """Await mixed actions using the caller's loop and a borrowed thread pool."""
 
-        from .runtime import AsyncGraphExecutor
+        from .runtime import GraphExecutor
 
-        run_options = options or AsyncRunOptions()
         target_graph = self._compile_for_run(mode)
         try:
-            result = await AsyncGraphExecutor(
+            result = await GraphExecutor(
                 self.execution_state,
                 shared=self.shared,
                 execution_control=self.execution_control,
-                observer=run_options.observer,
+                observer=observer,
                 action_log=self.action_log,
                 record_composites_as_steps=mode == "dynamic",
-            ).aexecute(target_graph, concurrency=run_options.concurrency)
+            ).aexecute(target_graph, pool=pool)
         except BaseException as execution_error:
             self._write_execution_output(mode=mode, execution_error=execution_error)
             raise
         self._write_execution_output(mode=mode)
         return result
+
+
+def run(
+    root: NodeKind | Execution,
+    *,
+    max_workers: int = 1,
+    observer: GraphObserver | None = None,
+    mode: GraphMode = "dynamic",
+) -> ExecutionState:
+    """Run a declaration or prepared execution using an owned Python thread pool."""
+
+    execution = root if isinstance(root, Execution) else Execution(root)
+    with ThreadPoolExecutor(
+        max_workers=max_workers, thread_name_prefix="GraphWorker"
+    ) as pool:
+        return execution.run(pool=pool, observer=observer, mode=mode)
+
+
+async def arun(
+    root: NodeKind | Execution,
+    *,
+    max_workers: int = 1,
+    observer: GraphObserver | None = None,
+    mode: GraphMode = "dynamic",
+) -> ExecutionState:
+    """Await a declaration or prepared execution using an owned Python thread pool."""
+
+    execution = root if isinstance(root, Execution) else Execution(root)
+    with ThreadPoolExecutor(
+        max_workers=max_workers, thread_name_prefix="GraphWorker"
+    ) as pool:
+        return await execution.arun(pool=pool, observer=observer, mode=mode)

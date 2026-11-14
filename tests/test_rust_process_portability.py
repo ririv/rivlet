@@ -5,17 +5,14 @@ from __future__ import annotations
 import json
 import os
 import sys
+from functools import partial
 from pathlib import Path
 
 import pytest
+from execution_support import run_async_execution
 
-from rivlet import (
-    AsyncRunOptions,
-    Execution,
-    Graph,
-    GraphStructure,
-    ThreadRunOptions,
-)
+from rivlet import Execution, Graph, GraphStructure
+from rivlet import run as run_execution
 from rivlet._native import _rust_process_graph
 
 
@@ -56,11 +53,15 @@ print('stderr marker', file=sys.stderr, flush=True)
             [],
         )
     )
-    Execution(
-        Graph(structure=GraphStructure(nodes=(native,))),
-        node_log_paths={native: log_path},
-    ).run(
-        AsyncRunOptions(concurrency=2) if asynchronous else ThreadRunOptions(workers=2)
+    (
+        partial(run_async_execution, max_workers=2)
+        if asynchronous
+        else partial(run_execution, max_workers=2)
+    )(
+        Execution(
+            Graph(structure=GraphStructure(nodes=(native,))),
+            node_log_paths={native: log_path},
+        )
     )
     result = json.loads((directory / "result.json").read_text(encoding="utf-8"))
     assert Path(result["cwd"]) == directory.resolve()

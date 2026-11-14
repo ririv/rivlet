@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import os
 import sys
+from functools import partial
 from pathlib import Path
 from typing import Literal
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     Case,
     Edge,
     Execution,
@@ -28,12 +29,12 @@ from rivlet import (
     ResultStore,
     SerialGraphExecutor,
     Step,
-    ThreadRunOptions,
     export_graph,
     render_graph,
     render_graph_mermaid,
     static,
 )
+from rivlet import run as run_execution
 from rivlet._native import (
     RustGraphStructure,
     _compose_rust_graph,
@@ -48,11 +49,11 @@ def execute(execution: Execution, backend: Backend) -> None:
     if backend == "serial":
         SerialGraphExecutor(execution.execution_state).execute(execution.compile())
     else:
-        execution.run(
-            ThreadRunOptions(workers=2)
+        (
+            partial(run_execution, max_workers=2)
             if backend == "thread"
-            else AsyncRunOptions(concurrency=2)
-        )
+            else partial(run_async_execution, max_workers=2)
+        )(execution)
 
 
 def processes(
@@ -308,7 +309,7 @@ def test_native_ports_reject_real_expanded_cycle_and_retain_scope_local_view(
     assert child_view is not None
     assert child_view.output_path("out") == [0]
     execution = Execution(Graph(child_view))
-    execution.run()
+    run_execution(execution)
     assert len(execution.compile().steps) == 1
 
 

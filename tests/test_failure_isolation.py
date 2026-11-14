@@ -3,11 +3,12 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
+from functools import partial
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     ConditionalPrerequisite,
     Edge,
     ExactProviderRequirement,
@@ -22,11 +23,11 @@ from rivlet import (
     NodePath,
     SerialGraphExecutor,
     Step,
-    ThreadRunOptions,
     render_execution,
     render_live_execution,
     resolve_port_requirements,
 )
+from rivlet import run as run_execution
 from rivlet._native import _rust_process_graph
 
 
@@ -39,12 +40,12 @@ def execute(request):
             )
         else:
             options = (
-                ThreadRunOptions(workers=1)
+                partial(run_execution, max_workers=1)
                 if request.param == "thread"
-                else AsyncRunOptions(concurrency=1)
+                else partial(run_async_execution, max_workers=1)
             )
-            Execution(root=Graph(structure=graph.structure), execution_state=state).run(
-                options
+            (options)(
+                Execution(root=Graph(structure=graph.structure), execution_state=state)
             )
 
     return run
@@ -249,7 +250,7 @@ def test_port_success_survives_failure_in_another_subgraph_branch(mode):
     )
     plan = Execution(root=Graph(structure=graph.structure))
     with pytest.raises(RuntimeError, match="action failed"):
-        plan.run(ThreadRunOptions(workers=1), mode=mode)
+        run_execution(plan, max_workers=1, mode=mode)
     assert calls == ["ready", "consume"]
     assert (
         plan.execution_state.node_failures[
@@ -361,7 +362,7 @@ def test_dynamic_returned_graph_failure_is_local_to_its_parent_action(execute):
     )
     with pytest.raises(RuntimeError, match="action failed"):
         execute(graph, ExecutionState())
-    assert calls == ["inner", "outer"]
+    assert sorted(calls) == ["inner", "outer"]
 
 
 def test_native_failure_preserves_successes_in_same_completion_batch(execute, tmp_path):
@@ -397,7 +398,11 @@ def test_native_failure_preserves_successes_in_same_completion_batch(execute, tm
 
 
 @pytest.mark.parametrize(
-    "options", [ThreadRunOptions(workers=1), AsyncRunOptions(concurrency=1)]
+    "options",
+    [
+        partial(run_execution, max_workers=1),
+        partial(run_async_execution, max_workers=1),
+    ],
 )
 def test_explicit_stop_still_prevents_unrelated_pending_actions(options):
     calls = []
@@ -409,7 +414,7 @@ def test_explicit_stop_still_prevents_unrelated_pending_actions(options):
     )
     plan = Execution(root=Graph(structure=graph.structure), execution_control=control)
     with pytest.raises(ExecutionStopped):
-        plan.run(options)
+        (options)(plan)
     assert calls == []
     assert control.stop_requested()
 
@@ -450,12 +455,16 @@ def test_cancellation_from_condition_waits_for_started_async_action():
     )
     plan = Execution(root=Graph(structure=graph.structure), execution_control=control)
     with pytest.raises(ExecutionStopped):
-        plan.run(AsyncRunOptions(concurrency=2))
+        run_async_execution(plan, max_workers=2)
     assert completed == ["survived"]
 
 
 @pytest.mark.parametrize(
-    "options", [ThreadRunOptions(workers=3), AsyncRunOptions(concurrency=3)]
+    "options",
+    [
+        partial(run_execution, max_workers=3),
+        partial(run_async_execution, max_workers=3),
+    ],
 )
 def test_parallel_native_errors_are_collected_without_losing_completions(
     options, tmp_path
@@ -492,7 +501,7 @@ def test_parallel_native_errors_are_collected_without_losing_completions(
         )
     )
     with pytest.raises(ExceptionGroup) as caught:
-        plan.run(options)
+        (options)(plan)
     assert len(caught.value.exceptions) == 2
     assert (tmp_path / "success").is_file()
     assert not plan.execution_control.stop_requested()

@@ -4,6 +4,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from enum import Enum, auto
+from os import process_cpu_count
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
@@ -56,6 +57,8 @@ class SessionDefinition:
     host: BatchExecutionHost
     rust_actions: RustActionBindings
     rust_contexts: list[tuple[int, str | None]]
+    dispatch_limit: int
+    async_nodes: frozenset[int] = frozenset()
 
 
 @dataclass(frozen=True, slots=True)
@@ -101,18 +104,13 @@ class PythonWork:
 
 
 class SessionTree:
-    """Allocate one action budget across root and runtime-created sessions."""
+    """Advance root and dynamic sessions without imposing an action quota."""
 
-    def __init__(self, root: SessionDefinition, capacity: int) -> None:
-        if capacity < 1:
-            raise ValueError("graph action capacity must be >= 1")
-        self.capacity = capacity
+    def __init__(self, root: SessionDefinition) -> None:
         self.host = root.host
         self.finished = False
-        self._occupied = 0
         self._ready: deque[SessionRun] = deque()
         self._queued: set[SessionRun] = set()
-        self._waiting: dict[SessionRun, None] = {}
         self._active: set[SessionRun] = set()
         self.rust_runs: dict[SessionRun, None] = {}
         self._skip_revision = self.host.skip_revision()
@@ -121,13 +119,15 @@ class SessionTree:
     def _add(
         self, definition: SessionDefinition, owner: RootSession | ChildSession
     ) -> None:
+        # 原生 session 保留独立 worker，默认取逻辑 CPU 数且最多 32 个；
+        # 这不是 Python 池大小，也不再参与全图动作额度。
         run = SessionRun(
             definition,
             definition.graph.mixed_session(
                 definition.host.skipped_nodes(),
                 definition.rust_actions,
                 definition.rust_contexts,
-                self.capacity,
+                min(32, process_cpu_count() or 1) if definition.rust_contexts else 1,
                 retain_results=definition.host.retains_rust_results(),
             ),
             owner,
@@ -140,19 +140,17 @@ class SessionTree:
         if run not in self._active:
             return
         if run not in self._queued:
-            self._waiting.pop(run, None)
             self._queued.add(run)
             self._ready.append(run)
 
     def complete(self, work: PythonWork, outcome: StepOutcome) -> None:
         run = work.session
         run.python_running -= 1
-        self._occupied -= 1
         if outcome is None:
             run.completed.append((work.node, True))
             self.wake(run)
         else:
-            # 父节点仍在 Rust 中等待完成，但不再占用 Python worker 或动作预算。
+            # 父动作已返回，不占用 worker；生命周期仍等待子图完成。
             self._add(
                 outcome.definition, ChildSession(run, work.node, outcome.complete)
             )
@@ -160,7 +158,6 @@ class SessionTree:
     def fail(self, work: PythonWork, error: Exception) -> None:
         run = work.session
         run.python_running -= 1
-        self._occupied -= 1
         run.definition.host.record_failure(work.node, error)
         run.completed.append((work.node, False))
         self.wake(run)
@@ -174,9 +171,6 @@ class SessionTree:
                 # 只有出现新的跨作用域 skip 请求时扫描 S 个活跃 session，O(S)。
                 for run in self._active:
                     self.wake(run)
-        if self._waiting and self._occupied < self.capacity:
-            for run in tuple(self._waiting):
-                self.wake(run)
         work: list[PythonWork] = []
         # 通常只处理收到完成通知的 session；静态图始终只有一个 session。
         # 每批成本 O(Q + A + C + T)，Q 为本批需推进的 session 数，
@@ -184,12 +178,10 @@ class SessionTree:
         while self._ready:
             run = self._ready.popleft()
             self._queued.remove(run)
-            available = self.capacity - self._occupied
-            if available == 0 and not run.completed and not run.rust_running:
-                self._waiting[run] = None
-                continue
             source = run.definition
-            previous_native = run.rust_running
+            # 每个节点至多派发一次，节点数足以取出当前全部就绪动作。
+            # 这是批量接口的容量，不是跨批次的在途动作上限。
+            available = source.dispatch_limit
             if run.phase is SessionPhase.NEW:
                 batch = run.engine.start(available)
                 run.phase = SessionPhase.RUNNING
@@ -202,7 +194,6 @@ class SessionTree:
                     values=source.host.rust_input_values(run.completed),
                 )
                 run.completed = []
-            issued = 0
             while True:
                 (
                     actions,
@@ -217,8 +208,6 @@ class SessionTree:
                 for node, message in failures:
                     source.host.record_failure(node, RuntimeError(message))
                 work.extend(PythonWork(run, node) for node in actions)
-                issued += len(actions)
-                self._occupied += len(actions) + rust_running - run.rust_running
                 run.python_running += len(actions)
                 run.rust_running = rust_running
                 if not conditions:
@@ -229,7 +218,7 @@ class SessionTree:
                     [],
                     resolutions,
                     source.host.skipped_nodes(),
-                    self.capacity - self._occupied,
+                    available,
                 )
             if run.rust_running:
                 self.rust_runs[run] = None
@@ -237,21 +226,10 @@ class SessionTree:
                 self.rust_runs.pop(run, None)
             if finished:
                 self._finish(run)
-            elif (
-                self._occupied == self.capacity
-                and not issued
-                and not run.python_running
-                and not run.rust_running
-            ):
-                self._waiting[run] = None
-            if previous_native > run.rust_running and self._waiting:
-                for waiting in tuple(self._waiting):
-                    self.wake(waiting)
         return work
 
     def _finish(self, run: SessionRun) -> None:
         self._active.remove(run)
-        self._waiting.pop(run, None)
         self.rust_runs.pop(run, None)
         match run.owner:
             case RootSession():

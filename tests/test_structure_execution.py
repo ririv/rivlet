@@ -5,9 +5,9 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     Execution,
     Graph,
     GraphError,
@@ -18,6 +18,8 @@ from rivlet import (
     compile_graph,
     export_graph,
 )
+from rivlet import arun as arun_execution
+from rivlet import run as run_execution
 
 
 @pytest.mark.parametrize("asynchronous", [False, True])
@@ -47,9 +49,9 @@ def test_actual_run_compilation_is_available_before_actions(asynchronous) -> Non
     assert execution.compilation is prepared
     assert len(evaluations) == 1
     if asynchronous:
-        asyncio.run(execution.arun())
+        asyncio.run(arun_execution(execution))
     else:
-        execution.run()
+        run_execution(execution)
     actual = execution.compilation
     assert actual is prepared
     assert observed == [actual]
@@ -80,7 +82,7 @@ def test_failed_preparation_is_not_committed_and_can_be_retried() -> None:
         execution.compile()
     assert execution.compilation is None
     prepared = execution.compile()
-    execution.run()
+    run_execution(execution)
     assert execution.compilation is prepared
     assert len(evaluations) == 2
 
@@ -96,7 +98,7 @@ def test_new_execution_and_standalone_compilation_make_fresh_static_decisions() 
     prepared = first.compile()
     assert len(prepared.steps) == 1
     enabled[0] = False
-    first.run()
+    run_execution(first)
     assert first.compile() is prepared
     assert len(first.compile().steps) == 1
     assert Execution(Graph(structure=graph.structure)).compile().steps == ()
@@ -109,7 +111,7 @@ def test_failed_action_keeps_this_run_compilation() -> None:
 
     execution = Execution(Graph(structure=GraphStructure(nodes=(Step(fail),))))
     with pytest.raises(ValueError, match="private failure"):
-        execution.run()
+        run_execution(execution)
     assert execution.compilation is not None
     document = export_graph(execution.compilation)
     assert "private failure" not in str(document)
@@ -118,7 +120,7 @@ def test_failed_action_keeps_this_run_compilation() -> None:
 
 def test_run_with_async_options_records_same_arun_compilation() -> None:
     execution = Execution(Graph(structure=GraphStructure()))
-    execution.run(AsyncRunOptions())
+    run_async_execution(execution)
     assert execution.compilation is not None
 
 

@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from functools import partial
 from typing import Literal
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     Edge,
     Execution,
     ExecutionState,
@@ -24,11 +25,11 @@ from rivlet import (
     StaticCondition,
     StaticConditions,
     Step,
-    ThreadRunOptions,
     export_graph,
     render_graph,
     render_graph_mermaid,
 )
+from rivlet import run as run_execution
 
 type Backend = Literal["serial", "thread", "async"]
 
@@ -38,11 +39,11 @@ def run(root: Graph, backend: Backend) -> Execution:
     if backend == "serial":
         SerialGraphExecutor(execution.execution_state).execute(execution.compile())
     else:
-        execution.run(
-            AsyncRunOptions(concurrency=2)
+        (
+            partial(run_async_execution, max_workers=2)
             if backend == "async"
-            else ThreadRunOptions(workers=2)
-        )
+            else partial(run_execution, max_workers=2)
+        )(execution)
     return execution
 
 
@@ -260,7 +261,7 @@ def test_dynamically_returned_graph_keeps_its_identity_and_condition() -> None:
             events.append(event)
 
     execution = Execution(expand, events=Events())
-    execution.run()
+    run_execution(execution)
     snapshot = execution.execution_state.snapshot()
     assert snapshot.skipped_steps
     assert any(

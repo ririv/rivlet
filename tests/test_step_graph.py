@@ -17,6 +17,7 @@ from rivlet import (
     render_graph_mermaid,
     step,
 )
+from rivlet import run as run_execution
 
 
 def _noop(_run_ctx: NodeRunContext) -> None:
@@ -246,7 +247,7 @@ def test_shared_structure_has_distinct_graph_nodes_and_executes_each_time() -> N
 
     assert len({mounted.id for mounted in graph.structure.nodes}) == 4
     assert left.structure is right.structure
-    Execution(graph).run()
+    run_execution(Execution(graph))
     assert calls == ["leaf", "child", "leaf", "child"]
 
 
@@ -281,7 +282,7 @@ def test_graph_wiring_step_mounts_complete_graph_with_its_own_condition(
     assert root.id != another_mount.id
     assert another_mount.label is None
     assert another_mount.condition is None
-    Execution(root).run()
+    run_execution(Execution(root))
     assert calls == (["prepare", "cleanup"] if enabled else [])
 
 

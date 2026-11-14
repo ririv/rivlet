@@ -11,6 +11,7 @@ from rivlet import (
     Step,
     export_graph,
 )
+from rivlet import run as run_execution
 from rivlet._native import _rust_process_graph
 
 
@@ -79,7 +80,7 @@ def test_export_does_not_include_results_shared_state_or_callable_representation
         execution_state=ExecutionState(results=ResultStore()),
     )
     before = export_graph(execution.root)
-    execution.run()
+    run_execution(execution)
     assert execution.require_result(step).unwrap() is secret
     after = export_graph(execution.compile())
     assert after["nodes"] == before["nodes"]

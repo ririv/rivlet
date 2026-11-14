@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
+from functools import partial
 from threading import Event
 
 import pytest
+from execution_support import run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     Edge,
     Execution,
     Graph,
@@ -17,9 +18,9 @@ from rivlet import (
     StaticCondition,
     StaticConditions,
     Step,
-    ThreadRunOptions,
     export_graph,
 )
+from rivlet import run as run_execution
 
 
 def require(event: Event) -> None:
@@ -106,10 +107,11 @@ def test_conditional_named_ports_gate_only_internal_consumers(
         )
     )
     execution = Execution(Graph(structure=graph.structure))
-    execution.run(
-        AsyncRunOptions(concurrency=4) if asynchronous else ThreadRunOptions(workers=4),
-        mode=mode,
-    )
+    (
+        partial(run_async_execution, max_workers=4)
+        if asynchronous
+        else partial(run_execution, max_workers=4)
+    )(execution, mode=mode)
     assert used_a.is_set() and used_b.is_set()
     assert calls == [enabled]
     document = export_graph(execution.compile())
@@ -171,7 +173,7 @@ def test_port_condition_controls_failure_propagation(enabled, mode):
         )
     )
     with pytest.raises(RuntimeError, match="provider failed"):
-        Execution(Graph(structure=graph.structure)).run(mode=mode)
+        run_execution(Execution(Graph(structure=graph.structure)), mode=mode)
     assert calls == (["prepare"] if enabled else ["prepare", "use"])
 
 
@@ -209,7 +211,7 @@ def test_static_exclusion_removes_port_connection_and_its_condition():
         )
     )
     execution = Execution(Graph(structure=graph.structure))
-    execution.run()
+    run_execution(execution)
     assert calls == ["use"]
     document = export_graph(execution.compile())
     assert not any(edge["kind"] == "port" for edge in document["edges"])
@@ -249,7 +251,7 @@ def test_condition_with_all_port_consumers_excluded_is_not_exported_or_evaluated
             )
         )
     )
-    execution.run()
+    run_execution(execution)
     document = export_graph(execution.compile())
     assert not any(edge["kind"] == "port" for edge in document["edges"])
     assert document["conditions"] == []
@@ -299,7 +301,7 @@ def test_same_port_graph_can_be_mounted_twice_with_distinct_condition_inputs():
             )
         )
     )
-    execution.run()
+    run_execution(execution)
     assert sorted(seen) == [False, True]
     document = export_graph(execution.compile())
     conditions = document["conditions"]

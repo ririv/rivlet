@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from .action_log import NO_ACTION_LOG, ActionLog
-from .batch_driver import run_serial_session
 from .control import ExecutionControl
 from .executor_common import invoke_sync_action
 from .python_actions import PythonActionRuntime
@@ -40,15 +39,12 @@ class SerialGraphExecutor:
         )
 
     def execute(self, graph: ExecutableGraph) -> ExecutionState:
+        from .serial_session import run_serial_definition
+
         self.execution_control.require_running()
         self.state.begin_run()
         definition = self._runtime.prepare(graph)
-        run_serial_session(
-            definition.graph,
-            definition.host,
-            definition.rust_actions,
-            definition.rust_contexts,
-        )
+        run_serial_definition(definition)
         self.state.require_skip_requests_resolved()
         self._runtime.after_success(graph)
         return self.state

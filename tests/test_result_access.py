@@ -15,8 +15,8 @@ from rivlet import (
     ResultStore,
     ResultView,
     Step,
-    ThreadRunOptions,
 )
+from rivlet import run as run_execution
 
 
 def test_result_view_is_live_and_preserves_none_results() -> None:
@@ -85,7 +85,7 @@ def test_actions_receive_bound_results_and_observers_receive_read_only_view() ->
         ),
         execution_state=state,
     )
-    execution.run(ThreadRunOptions(workers=2, observer=Observer()))
+    run_execution(execution, max_workers=2, observer=Observer())
     assert len(received) == 1
     assert all(view is state.results for view in received)
     assert execution.require_result(finish).value == "output"

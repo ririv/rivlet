@@ -1,11 +1,12 @@
 """声明身份、挂载路径、标签和结果隔离必须保持一致。"""
 
 import sys
+from functools import partial
 
 import pytest
+from execution_support import Invoke, run_async_execution
 
 from rivlet import (
-    AsyncRunOptions,
     Execution,
     Graph,
     GraphMode,
@@ -17,9 +18,9 @@ from rivlet import (
     Option,
     Results,
     Step,
-    ThreadRunOptions,
     export_graph,
 )
+from rivlet import run as run_execution
 from rivlet._native import _rust_process_graph
 
 
@@ -39,10 +40,14 @@ def test_path_labels_do_not_change_identity_and_parent_preserves_labels():
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 @pytest.mark.parametrize(
-    "options", [ThreadRunOptions(workers=2), AsyncRunOptions(concurrency=2)]
+    "options",
+    [
+        partial(run_execution, max_workers=2),
+        partial(run_async_execution, max_workers=2),
+    ],
 )
 def test_repeated_mounts_share_declaration_id_not_results(
-    mode: GraphMode, options: ThreadRunOptions | AsyncRunOptions
+    mode: GraphMode, options: Invoke
 ):
     received: list[tuple[NodeId, NodePath, object]] = []
     events: list[NodeExecutionEvent] = []
@@ -71,7 +76,7 @@ def test_repeated_mounts_share_declaration_id_not_results(
         )
     )
     execution = Execution(Graph(structure=graph.structure), events=Sink())
-    execution.run(options, mode=mode)
+    (options)(execution, mode=mode)
     assert producer.id != consumer.id
     assert {identity for identity, _, _ in received} == {consumer.id}
     assert {(path.segments, result) for _, path, result in received} == {
@@ -108,7 +113,7 @@ def test_dynamic_child_keeps_identity_and_full_path_labels():
     graph = Graph(
         structure=GraphStructure(nodes=(Step(lambda: child.structure, label="expand"),))
     )
-    Execution(Graph(structure=graph.structure)).run()
+    run_execution(Execution(Graph(structure=graph.structure)))
     assert seen[0].node_id == step.id
     assert seen[0].node_path.segments == (0, 0, 0)
     assert seen[0].node_path.labels == ("0", "expand", "leaf")

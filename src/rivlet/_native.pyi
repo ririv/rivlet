@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from enum import Enum
 from typing import Literal, Protocol
 
@@ -205,3 +206,4 @@ class MixedExecutionSession:
         values: list[tuple[int, object]] = ...,
     ) -> MixedExecutionBatch: ...
     def wait_rust(self) -> None: ...
+    def notify_rust(self, callback: Callable[[], None]) -> None: ...

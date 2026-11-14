@@ -1,8 +1,9 @@
-"""比较静态工作流与动态子图的执行耗时和实际并发，可对旧版运行。"""
+"""测量阻塞与可等待入口的动态子图耗时，以及同步动作的线程并发。"""
 
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import statistics
 import threading
@@ -10,12 +11,11 @@ import time
 from dataclasses import dataclass, field
 
 from rivlet import (
-    AsyncRunOptions,
-    Execution,
     Graph,
     GraphStructure,
     Step,
-    ThreadRunOptions,
+    arun,
+    run,
 )
 
 
@@ -43,21 +43,21 @@ class Activity:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--implementation", default="current")
-    parser.add_argument("--executor", choices=("threads", "async"), default="threads")
+    parser.add_argument("--entry", choices=("run", "arun"), default="run")
     parser.add_argument("--width", type=int, default=3)
     parser.add_argument("--depth", type=int, default=3)
     parser.add_argument("--leaves", type=int, default=4)
-    parser.add_argument("--capacity", type=int, default=8)
+    parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--delay", type=float, default=0.001)
     parser.add_argument("--repeats", type=int, default=7)
     args = parser.parse_args()
     if (
-        min(args.width, args.leaves, args.capacity, args.repeats) < 1
+        min(args.width, args.leaves, args.workers, args.repeats) < 1
         or args.depth < 0
         or args.delay < 0
     ):
         parser.error(
-            "width, leaves, capacity, repeats must be positive; depth and delay must be nonnegative"
+            "width, leaves, workers, repeats must be positive; depth and delay must be nonnegative"
         )
     samples: list[float] = []
     peaks: list[int] = []
@@ -81,13 +81,11 @@ def main() -> None:
             )
 
         graph = branch(args.depth)
-        options = (
-            AsyncRunOptions(concurrency=args.capacity)
-            if args.executor == "async"
-            else ThreadRunOptions(workers=args.capacity)
-        )
         start = time.perf_counter()
-        Execution(Graph(structure=graph.structure)).run(options)
+        if args.entry == "arun":
+            asyncio.run(arun(graph, max_workers=args.workers))
+        else:
+            run(graph, max_workers=args.workers)
         elapsed = time.perf_counter() - start
         if activity.completed != expected:
             raise RuntimeError(
@@ -100,11 +98,11 @@ def main() -> None:
         json.dumps(
             {
                 "implementation": args.implementation,
-                "executor": args.executor,
+                "entry": args.entry,
                 "width": args.width,
                 "depth": args.depth,
                 "leaves": expected,
-                "capacity": args.capacity,
+                "workers": args.workers,
                 "delay": args.delay,
                 "median_seconds": statistics.median(samples),
                 "samples_seconds": samples,
