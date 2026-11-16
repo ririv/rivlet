@@ -1,0 +1,45 @@
+name: Node-API checks
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: node-checks-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, macos-15, windows-2022]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: bindings/node
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
+        with:
+          node-version: '24.19.0'
+          package-manager-cache: false
+      - name: Prepare Rust
+        run: rustup toolchain install 1.95.0 --profile minimal --component clippy
+      - name: Install locked JavaScript dependencies
+        run: npm ci
+      - name: Check types and negative type examples
+        run: npm run check
+      - name: Check Node adapter Rust boundary
+        run: cargo +1.95.0 clippy --locked --manifest-path ../../crates/node/Cargo.toml -- -D warnings
+      - name: Build and test the real Node addon
+        env:
+          RUSTUP_TOOLCHAIN: 1.95.0
+        run: npm test
+      - name: Run subgraph port example
+        run: node examples/ports.mjs

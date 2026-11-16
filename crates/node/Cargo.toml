@@ -1,0 +1,33 @@
+[package]
+name = "rivlet-node"
+publish = false
+version = "0.4.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+
+# Node 工具链和依赖独立锁定；路径依赖仍指向唯一的共享 core。
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+test = false
+doctest = false
+
+[dependencies]
+napi = { version = "3.16.2", default-features = false, features = ["napi9", "serde-json", "dyn-symbols"] }
+napi-derive = "3.7.1"
+rivlet = { path = "../core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[build-dependencies]
+napi-build = "2.6.0"
+
+# napi-rs 的注册宏需要内部 allow(unsafe_code)；手写代码仍 deny，core 保持 forbid。
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = "warn"
+pedantic = "warn"

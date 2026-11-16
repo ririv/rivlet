@@ -1,0 +1,35 @@
+{
+  "name": "rivlet",
+  "version": "0.4.0",
+  "private": true,
+  "description": "Composable task graphs with the Rivlet Rust core and JavaScript actions",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "import": "./lib/index.js"
+    }
+  },
+  "files": [
+    "lib",
+    "native/rivlet.node"
+  ],
+  "napi": {
+    "binaryName": "rivlet"
+  },
+  "scripts": {
+    "build:native": "napi build --manifest-path ../../crates/node/Cargo.toml --output-dir native --no-js --dts binding.d.ts --release -- --locked",
+    "build": "npm run build:native && tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.types.json",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "devDependencies": {
+    "@napi-rs/cli": "3.10.12",
+    "@types/node": "26.6.6",
+    "typescript": "7.0.2"
+  }
+}
