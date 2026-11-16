@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import sys
 from threading import Event
 
 import pytest
@@ -21,12 +20,6 @@ from rivlet import (
     render_graph_mermaid,
     run,
 )
-from rivlet._native import (
-    _compose_rust_graph,
-    _rust_process_graph,
-    _rust_result_fixture,
-)
-from rivlet._native import _ResultFixtureKind as Kind
 
 
 def test_anonymous_shorthand_mapping_and_named_ports_share_one_declaration():
@@ -169,88 +162,3 @@ def test_anonymous_readiness_does_not_change_whole_node_completion(mode, connect
     if ports:
         assert ports[0]["source_port"] is None
         assert ports[0]["target_port"] is None
-
-
-@pytest.mark.parametrize("async_mode", (False, True))
-def test_rust_anonymous_results_survive_native_composition_and_python_forwarding(
-    async_mode,
-):
-    source_body, target_body = _rust_result_fixture(Kind.I64)
-    source = _compose_rust_graph(
-        [("source", source_body)],
-        [],
-        [],
-        [(None, 0, "value"), ("named", 0, "value")],
-    )
-    target = _compose_rust_graph(
-        [("target", target_body)],
-        [],
-        [(None, [(0, "apply")]), ("named", [(0, "apply")])],
-        [(None, 0, "value")],
-    )
-    body = _compose_rust_graph(
-        [("source", source), ("target", target)],
-        [([(0, None)], (1, None))],
-        [],
-        [(None, 1, None)],
-    )
-    native = Graph(body)
-    assert set(Graph(source).interface.outputs) == {None, "named"}
-    assert set(Graph(target).interface.inputs) == {None, "named"}
-    assert native.interface.output == native.interface.outputs[None]
-    with pytest.raises(KeyError):
-        _ = native.interface.input
-    wrapped = Graph.from_wiring((native.wire(),), interface=native)
-    seen = []
-    sink = Step(lambda ctx, value: seen.append(value.unwrap()))
-    root = Graph(
-        GraphStructure(
-            nodes=(wrapped, sink), edges=Edge.results((wrapped.interface.output,), sink)
-        )
-    )
-    execution = Execution(root)
-    (run_async_execution if async_mode else run)(execution, max_workers=3)
-    assert seen == [42]
-    for subject in (root, execution.compile()):
-        document = export_graph(subject)
-        json.dumps(document)
-        edges = [e for e in document["edges"] if e["kind"] == "result"]
-        anonymous = [e for e in edges if "target_port" in e]
-        assert len(anonymous) == 1
-        assert anonymous[0]["source_port"] is None
-        assert anonymous[0]["target_port"] is None
-        assert anonymous[0]["consumer_nodes"]
-    render_graph(root, root_label="root")
-    render_graph_mermaid(root, root_label="root")
-
-
-def test_native_anonymous_readiness_routes_by_identity(tmp_path):
-    source = _rust_process_graph(
-        [("unit", sys.executable, ["-c", "pass"], str(tmp_path), {})],
-        [],
-        [(None, [0])],
-        [(None, 0), ("named", 0)],
-    )
-    anonymous = _compose_rust_graph(
-        [("left", source), ("right", source)],
-        [(0, 1, None, None)],
-        [(None, [(0, None)])],
-        [(None, 1, None)],
-    )
-    # 使用公开 Python 入口消费真实 Rust 匿名出口。
-    native = Graph(anonymous)
-    sink = Step(lambda: None)
-    consumer = Graph(
-        GraphStructure(nodes=(sink,), interface=GraphInterface(inputs=sink))
-    )
-    root = Graph(
-        GraphStructure(
-            nodes=(native, consumer),
-            edges=(Edge(native.interface.output, consumer.interface.input),),
-        )
-    )
-    run(root)
-    assert "anonymous" in render_graph_mermaid(root, root_label="root")
-    ports = [e for e in export_graph(root)["edges"] if e["kind"] == "port"]
-    assert len(ports) == 2
-    assert all(e["source_port"] is None and e["target_port"] is None for e in ports)

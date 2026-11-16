@@ -13,7 +13,7 @@ from .session_tree import DynamicSubgraph, RootSession, SessionDefinition
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from .._native import MixedExecutionBatch, MixedExecutionSession
+    from .._native import ExecutionBatch, ExecutionSession
     from .session_tree import BatchExecutionHost
 
 
@@ -26,19 +26,15 @@ class _Child:
 @dataclass(slots=True)
 class _Frame:
     definition: SessionDefinition
-    engine: MixedExecutionSession
-    batch: MixedExecutionBatch
+    engine: ExecutionSession
+    batch: ExecutionBatch
     owner: RootSession | _Child
     held_actions: list[int] = field(default_factory=list)
 
 
 def _frame(definition: SessionDefinition, owner: RootSession | _Child) -> _Frame:
-    engine = definition.graph.mixed_session(
+    engine = definition.graph.session(
         definition.host.skipped_nodes(),
-        definition.rust_actions,
-        definition.rust_contexts,
-        1,
-        retain_results=definition.host.retains_rust_results(),
     )
     return _Frame(definition, engine, engine.start(1), owner)
 
@@ -93,19 +89,15 @@ def _run_serial_definition(
             frame = stack[-1]
             host = frame.definition.host
             host.require_running()
-            actions, conditions, events, finished, rust_running, failures, results = (
-                frame.batch.parts()
-            )
-            host.apply_events(events, results)
-            for node, message in failures:
-                host.record_failure(node, RuntimeError(message))
+            actions, conditions, events, finished = frame.batch.parts()
+            host.apply_events(events)
             if conditions:
                 frame.held_actions.extend(actions)
                 frame.batch = frame.engine.advance(
                     [],
                     _resolve_conditions(host, conditions, get_runner),
                     host.skipped_nodes(),
-                    1 - len(frame.held_actions) - rust_running,
+                    1 - len(frame.held_actions),
                 )
                 continue
             if frame.held_actions:
@@ -133,19 +125,10 @@ def _run_serial_definition(
                             [],
                             parent.definition.host.skipped_nodes(),
                             1,
-                            values=parent.definition.host.rust_input_values(
-                                [(node, success)]
-                            ),
                         )
                 continue
             if not actions:
-                if not rust_running:
-                    raise RuntimeError(
-                        "running graph session returned no serial action"
-                    )
-                frame.engine.wait_rust()
-                frame.batch = frame.engine.advance([], [], host.skipped_nodes(), 0)
-                continue
+                raise RuntimeError("running graph session returned no serial action")
             node = actions[0]
             try:
                 result = host.run_step(node)
@@ -170,7 +153,6 @@ def _run_serial_definition(
                 [],
                 host.skipped_nodes(),
                 1,
-                values=host.rust_input_values([(node, success)]),
             )
     except BaseException:
         root.host.request_stop()

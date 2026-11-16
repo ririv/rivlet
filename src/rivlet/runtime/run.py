@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 from ..compile import (
     CompiledPythonStep,
-    CompiledRustStep,
     CompiledStep,
     GraphCompilation,
 )
@@ -91,7 +90,7 @@ class CompiledGraphRun:
     def step_log_path_for(
         self,
         state: ExecutionState,
-        step: CompiledPythonStep | CompiledRustStep,
+        step: CompiledPythonStep,
     ) -> Path | None:
         """Resolve a step's explicit or inherited log path without creating a run context."""
 
@@ -106,25 +105,6 @@ class CompiledGraphRun:
                 step_log_path = bound_path
                 break
         return step_log_path
-
-    def rust_action_contexts(
-        self,
-        state: ExecutionState,
-    ) -> list[tuple[int, str | None]]:
-        """Project native step log contexts without exposing their actions."""
-
-        contexts: list[tuple[int, str | None]] = []
-        for node, compiled_node in enumerate(self.compilation._execution_nodes):
-            if not isinstance(compiled_node, CompiledRustStep):
-                continue
-            step_log_path = self.step_log_path_for(state, compiled_node)
-            contexts.append(
-                (
-                    node,
-                    None if step_log_path is None else str(step_log_path),
-                )
-            )
-        return contexts
 
     def child_graph_scope(
         self,

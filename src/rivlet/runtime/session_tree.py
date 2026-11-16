@@ -9,14 +9,10 @@ from typing import TYPE_CHECKING, Protocol
 from .._native import _ConcurrencyLimits
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from .._native import (
         CompiledExecutionGraph,
         EncodedExecutionEvent,
-        MixedExecutionSession,
-        RustActionBindings,
-        _RustResult,
+        ExecutionSession,
     )
     from ..model import NodePath
     from .concurrency import SessionLimits
@@ -38,15 +34,7 @@ class BatchExecutionHost(Protocol):
         self, node: int, child: BatchExecutionHost, error: Exception
     ) -> None: ...
     def raise_failures(self) -> None: ...
-    def apply_events(
-        self,
-        events: list[EncodedExecutionEvent],
-        rust_results: Sequence[tuple[int, _RustResult]] = (),
-    ) -> None: ...
-    def rust_input_values(
-        self, completed: list[tuple[int, bool]]
-    ) -> list[tuple[int, object]]: ...
-    def retains_rust_results(self) -> bool: ...
+    def apply_events(self, events: list[EncodedExecutionEvent]) -> None: ...
     def run_step(self, node: int) -> StepInvocation: ...
     def stop_requested(self) -> bool: ...
     def request_stop(self) -> None: ...
@@ -57,8 +45,6 @@ class BatchExecutionHost(Protocol):
 class SessionDefinition:
     graph: CompiledExecutionGraph
     host: BatchExecutionHost
-    rust_actions: RustActionBindings
-    rust_contexts: list[tuple[int, str | None]]
     dispatch_limit: int
     async_nodes: frozenset[int] = frozenset()
     limits: SessionLimits | None = None
@@ -92,10 +78,9 @@ class SessionPhase(Enum):
 @dataclass(eq=False, slots=True)
 class SessionRun:
     definition: SessionDefinition
-    engine: MixedExecutionSession
+    engine: ExecutionSession
     owner: RootSession | ChildSession
     phase: SessionPhase = SessionPhase.NEW
-    rust_running: int = 0
     python_running: int = 0
     completed: list[tuple[int, bool]] = field(default_factory=list)
     resolved_conditions: list[tuple[int, bool | None]] = field(default_factory=list)
@@ -126,7 +111,6 @@ class SessionTree:
         self._ready: deque[SessionRun] = deque()
         self._queued: set[SessionRun] = set()
         self._active: set[SessionRun] = set()
-        self.rust_runs: dict[SessionRun, None] = {}
         self._skip_revision = self.host.skip_revision()
         self._limits = (
             None
@@ -142,8 +126,7 @@ class SessionTree:
         owner: RootSession | ChildSession,
         inherited_scopes: tuple[int, ...] = (),
     ) -> None:
-        # 原生 session 的默认容量由 Rust 托管执行层决定，不读取 Python CPU API；
-        # 这不是 Python 池大小；显式限额在真正派发前由公共调度器准入。
+        # 显式限额由公共调度器在真正派发前准入，动态子 session 继承父范围。
         concurrency = None
         if self._limits is not None:
             if definition.limits is None:
@@ -157,11 +140,8 @@ class SessionTree:
             )
         run = SessionRun(
             definition,
-            definition.graph.mixed_session(
+            definition.graph.session(
                 definition.host.skipped_nodes(),
-                definition.rust_actions,
-                definition.rust_contexts,
-                retain_results=definition.host.retains_rust_results(),
                 concurrency=concurrency,
             ),
             owner,
@@ -170,7 +150,7 @@ class SessionTree:
         self.wake(run)
 
     def wake(self, run: SessionRun) -> None:
-        # native 完成可能已被别的批次排空；稍后到达的 wait 通知不再推进终态 session。
+        # 完成通知不再推进已结束的 session。
         if run not in self._active:
             return
         if run not in self._queued:
@@ -255,33 +235,17 @@ class SessionTree:
                     run.resolved_conditions,
                     source.host.skipped_nodes(),
                     available,
-                    values=source.host.rust_input_values(run.completed),
                 )
                 run.completed = []
                 run.resolved_conditions = []
-            (
-                actions,
-                conditions,
-                events,
-                finished,
-                rust_running,
-                failures,
-                results,
-            ) = batch.parts()
-            source.host.apply_events(events, results)
-            for node, message in failures:
-                source.host.record_failure(node, RuntimeError(message))
+            actions, conditions, events, finished = batch.parts()
+            source.host.apply_events(events)
             work.extend(
                 ConditionWork(run, node, condition) for node, condition in conditions
             )
             work.extend(PythonWork(run, node) for node in actions)
             run.python_running += len(actions)
             run.conditions_running += len(conditions)
-            run.rust_running = rust_running
-            if run.rust_running:
-                self.rust_runs[run] = None
-            else:
-                self.rust_runs.pop(run, None)
             if finished and not run.conditions_running:
                 self._finish(run)
             self._wake_limit_waiters()
@@ -289,7 +253,6 @@ class SessionTree:
 
     def _finish(self, run: SessionRun) -> None:
         self._active.remove(run)
-        self.rust_runs.pop(run, None)
         match run.owner:
             case RootSession():
                 self.finished = True

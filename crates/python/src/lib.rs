@@ -1,12 +1,9 @@
 //! Python adapter for the Rust graph core.
 
+mod concurrency;
 mod declaration;
 mod events;
 mod experiment;
-mod mixed_execution;
-mod result_fixture;
-mod result_values;
-mod rust_graph;
 
 use events::{EncodedEvent, encode_event};
 use pyo3::exceptions::PyValueError;
@@ -72,6 +69,12 @@ struct ExecutionSession {
 
 #[pymethods]
 impl ExecutionSession {
+    fn suspend_action(&mut self, node: usize) -> PyResult<Vec<usize>> {
+        self.session
+            .suspend_action(NodeId::new(node))
+            .map_err(|error| PyValueError::new_err(error.to_string()))
+    }
+
     fn start(&mut self, max_actions: usize) -> PyResult<ExecutionBatch> {
         self.session
             .start(max_actions)
@@ -344,34 +347,12 @@ impl CompiledExecutionGraph {
         node_indexes(self.graph.dependency_topology().topological_order())
     }
 
-    fn session(&self, initially_skipped: Vec<usize>) -> PyResult<ExecutionSession> {
-        Ok(ExecutionSession {
-            session: CoreExecutionSession::new(
-                Arc::clone(&self.graph),
-                initially_skipped.into_iter().map(NodeId::new),
-            )
-            .map_err(|error| PyValueError::new_err(error.to_string()))?,
-        })
-    }
-
-    #[pyo3(signature = (initially_skipped, rust_actions, rust_contexts, workers=None, retain_results=false, concurrency=None))]
-    fn mixed_session(
+    #[pyo3(signature = (initially_skipped, concurrency=None))]
+    fn session(
         &self,
         initially_skipped: Vec<usize>,
-        rust_actions: &mixed_execution::RustActionBindings,
-        rust_contexts: Vec<(usize, Option<String>)>,
-        workers: Option<usize>,
-        retain_results: bool,
-        concurrency: Option<(
-            PyRef<'_, mixed_execution::ConcurrencyLimits>,
-            Vec<Vec<usize>>,
-        )>,
-    ) -> PyResult<mixed_execution::MixedExecutionSession> {
-        let bindings = mixed_execution::MixedExecutionSession::bindings(
-            self.graph.nodes().len(),
-            rust_actions,
-            rust_contexts,
-        )?;
+        concurrency: Option<(PyRef<'_, concurrency::ConcurrencyLimits>, Vec<Vec<usize>>)>,
+    ) -> PyResult<ExecutionSession> {
         let mut session = CoreExecutionSession::new(
             Arc::clone(&self.graph),
             initially_skipped.into_iter().map(NodeId::new),
@@ -386,7 +367,7 @@ impl CompiledExecutionGraph {
                 .with_concurrency(binding)
                 .map_err(|error| PyValueError::new_err(error.to_string()))?;
         }
-        mixed_execution::MixedExecutionSession::new(session, bindings, workers, retain_results)
+        Ok(ExecutionSession { session })
     }
 }
 
@@ -403,26 +384,10 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(resolve_port_connections, module)?)?;
     module.add_function(wrap_pyfunction!(declaration::compile_declaration, module)?)?;
     module.add_function(wrap_pyfunction!(experiment::run_tokio_callbacks, module)?)?;
-    module.add_function(wrap_pyfunction!(rust_graph::rust_process_graph, module)?)?;
-    module.add_function(wrap_pyfunction!(rust_graph::compose_rust_graph, module)?)?;
     module.add_class::<CompiledExecutionGraph>()?;
     module.add_class::<declaration::DeclarationCompilation>()?;
     module.add_class::<ExecutionBatch>()?;
     module.add_class::<ExecutionSession>()?;
-    module.add_class::<mixed_execution::RustActionBindings>()?;
-    module.add_class::<result_values::RustResult>()?;
-    module.add_class::<result_fixture::ResultFixtureKind>()?;
-    module.add_function(wrap_pyfunction!(
-        result_fixture::rust_result_fixture,
-        module
-    )?)?;
-    module.add_function(wrap_pyfunction!(
-        result_fixture::rust_condition_fixture,
-        module
-    )?)?;
-    module.add_class::<mixed_execution::MixedExecutionBatch>()?;
-    module.add_class::<mixed_execution::MixedExecutionSession>()?;
-    module.add_class::<mixed_execution::ConcurrencyLimits>()?;
-    module.add_class::<rust_graph::RustGraphStructure>()?;
+    module.add_class::<concurrency::ConcurrencyLimits>()?;
     Ok(())
 }

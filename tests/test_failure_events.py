@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Never
 
 import pytest
@@ -35,7 +33,6 @@ from rivlet import (
     resolve_port_requirements,
 )
 from rivlet import run as run_execution
-from rivlet._native import _rust_process_graph
 
 
 @dataclass
@@ -449,28 +446,3 @@ def test_provider_failure_after_ready_does_not_retroactively_block_consumer(
         ): SubgraphFailed(NodePath((0, 0, 1))),
     }
     assert NodePath((0, 1, 0)) in execution.execution_state.completed_steps
-
-
-@pytest.mark.parametrize("mode", ["dynamic", "compiled"])
-def test_native_action_failure_uses_the_same_causal_model(
-    execute: Execute, mode: GraphMode, tmp_path: Path
-) -> None:
-    native = _rust_process_graph(
-        [("fail", sys.executable, ["-c", "raise SystemExit(7)"], str(tmp_path), {})],
-        [],
-    )
-    events = Events()
-    execute(
-        Graph(structure=GraphStructure(nodes=(Graph(structure=native),))),
-        events,
-        mode,
-    )
-    assert events.failures() == {
-        NodePath((0, 0, 0)): ActionFailed(),
-        NodePath(
-            (
-                0,
-                0,
-            )
-        ): SubgraphFailed(NodePath((0, 0, 0))),
-    }

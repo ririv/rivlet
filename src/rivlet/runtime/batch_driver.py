@@ -20,7 +20,6 @@ from .session_tree import (
     DynamicSubgraph,
     PythonWork,
     SessionDefinition,
-    SessionRun,
     SessionTree,
     StepInvocation,
     StepOutcome,
@@ -28,11 +27,6 @@ from .session_tree import (
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterable
-
-
-@dataclass(frozen=True, slots=True)
-class _RustWait:
-    session: SessionRun
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,8 +67,7 @@ class _Driver:
 
     def __init__(self, definition: SessionDefinition) -> None:
         self.tree = SessionTree(definition)
-        self.pending: dict[_Pending, PythonWork | ConditionWork | _RustWait] = {}
-        self.rust_waiters: set[SessionRun] = set()
+        self.pending: dict[_Pending, PythonWork | ConditionWork] = {}
         self.deferred: list[_Deferred] = []
         self.deferred_conditions: list[tuple[ConditionWork, Awaitable[bool]]] = []
         self.awaiting: list[PythonWork] = []
@@ -97,14 +90,12 @@ class _Driver:
                 notify(future)
 
     @overload
-    def track(self, future: _ActionPending, item: PythonWork | _RustWait) -> None: ...
+    def track(self, future: _ActionPending, item: PythonWork) -> None: ...
 
     @overload
     def track(self, future: _ConditionPending, item: ConditionWork) -> None: ...
 
-    def track(
-        self, future: _Pending, item: PythonWork | ConditionWork | _RustWait
-    ) -> None:
+    def track(self, future: _Pending, item: PythonWork | ConditionWork) -> None:
         # 每个 Future 只注册一次通知。A 次提交、C 次完成共 O(A + C) 次
         # 队列操作，不在每次完成后重扫全部 R 个在途 Future。
         self.pending[future] = item
@@ -144,14 +135,6 @@ class _Driver:
             # 同步条件直接回传，沿用本次派发循环，不创建 Future 或事件循环。
             if not self.tree.has_ready:
                 break
-        for run in self.tree.rust_runs:
-            if run not in self.rust_waiters:
-                notification: Future[StepInvocation] = Future()
-                run.engine.notify_rust(
-                    lambda future=notification: future.set_result(None)
-                )
-                self.rust_waiters.add(run)
-                self.track(notification, _RustWait(run))
 
     def _submit_condition(self, work: ConditionWork, dispatch: _Dispatch) -> None:
         host = work.session.definition.host
@@ -189,11 +172,6 @@ class _Driver:
     def consume(self, done: Iterable[_Pending]) -> None:
         for future in done:
             item = self.pending.pop(future)
-            if isinstance(item, _RustWait):
-                future.result()
-                self.rust_waiters.remove(item.session)
-                self.tree.wake(item.session)
-                continue
             # track 的重载约束 Future 与工作种类；异构注册表只在此恢复对应类型。
             if isinstance(item, ConditionWork):
                 self._consume_condition(cast("_ConditionPending", future), item)

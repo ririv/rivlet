@@ -36,8 +36,8 @@ if TYPE_CHECKING:
 class Execution:
     """Bind one declared root Node to a single execution.
 
-    根与内部 Node 使用相同的身份、条件和生命周期；根可承载 Graph、Step
-    或原生图结构。这里只绑定运行状态，不重命名或替换声明。
+    根与内部 Node 使用相同的身份、条件和生命周期；根可以是 Graph 或 Step。
+    这里只绑定运行状态，不重命名或替换声明。
 
     它持有：
     - 根 Node 声明

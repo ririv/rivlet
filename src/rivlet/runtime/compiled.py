@@ -8,7 +8,6 @@ from typing import TYPE_CHECKING
 from ..compile import (
     CompiledComposite,
     CompiledPythonStep,
-    CompiledRustStep,
     GraphCompilation,
 )
 from ..errors import GraphError
@@ -22,15 +21,14 @@ from ..events import (
     NodeConditionSite,
     SubgraphFailed,
 )
-from ..model import GraphStructure
 from ..observe import GraphObservationEvent, GraphObservationPhase
 from ..option import Nothing
 from .control import ExecutionStopped
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Sequence
+    from collections.abc import Awaitable, Callable
 
-    from .._native import EncodedExecutionEvent, _RustResult
+    from .._native import EncodedExecutionEvent
     from ..model import NodePath
     from ..observe import GraphObserver
     from .control import ExecutionControl
@@ -55,18 +53,13 @@ class CompiledExecutionHost:
     ) -> None:
         self.compilation = compilation
         self.state = state
-        self._rust_import_sources = frozenset(
-            compilation._rust_actions.python_sources()
-        )
         # inputs 是显式的数据依赖；执行生产者前即开启记录，无需调用方另配 store。
         # 最多检查 C 个条件和 V 个步骤，O(C + V) 时间、O(1) 额外空间。
-        if (
-            self._rust_import_sources
-            or any(condition.inputs for condition in compilation._execution_conditions)
-            or any(
-                isinstance(step, CompiledPythonStep) and step.inputs
-                for step in compilation.steps
-            )
+        if any(
+            condition.inputs for condition in compilation._execution_conditions
+        ) or any(
+            isinstance(step, CompiledPythonStep) and step.inputs
+            for step in compilation.steps
         ):
             state._enable_results()
         self.observer = observer
@@ -150,30 +143,7 @@ class CompiledExecutionHost:
         if self._failures:
             raise ExceptionGroup("GraphStructure execution failed", self._failures)
 
-    def rust_input_values(
-        self, completed: list[tuple[int, bool]]
-    ) -> list[tuple[int, object]]:
-        if not self._rust_import_sources:
-            return []
-        results = self.state.results
-        if results is None:
-            raise GraphError("native inputs require an enabled result store")
-        return [
-            (node, results.require(self.compilation._execution_node(node).path).value)
-            for node, success in completed
-            if success and node in self._rust_import_sources
-        ]
-
-    def retains_rust_results(self) -> bool:
-        return self.state.results is not None
-
-    def apply_events(
-        self,
-        events: list[EncodedExecutionEvent],
-        rust_results: Sequence[tuple[int, _RustResult]] = (),
-    ) -> None:
-        for node, value in rust_results:
-            self.state.record_result(self._require_rust_step(node).path, value)
+    def apply_events(self, events: list[EncodedExecutionEvent]) -> None:
         for event in events:
             match event:
                 case (0, node, value):
@@ -187,12 +157,6 @@ class CompiledExecutionHost:
                 case (4, node):
                     node_path = self.compilation._execution_node(node).path
                     self.state.record_skipped_step(node_path)
-                case (5, node):
-                    step = self._require_rust_step(node)
-                    self.state.record_step(step.path, step.path.labels)
-                case (6, node):
-                    step = self._require_rust_step(node)
-                    self.state.complete_step(step.path)
                 case (7, node):
                     node_path = self._failure_step(node)
                     source = (
@@ -369,14 +333,6 @@ class CompiledExecutionHost:
             )
         return compiled_node
 
-    def _require_rust_step(self, node: int) -> CompiledRustStep:
-        compiled_node = self.compilation._execution_node(node)
-        if not isinstance(compiled_node, CompiledRustStep):
-            raise GraphError(
-                f"native action lifecycle references non-native node: {compiled_node.path}"
-            )
-        return compiled_node
-
 
 def _emit_composite_observation(
     composite: CompiledComposite,
@@ -394,8 +350,6 @@ def _emit_composite_observation(
     )
     if message is None:
         return
-    if not isinstance(composite.source_graph, GraphStructure):
-        raise GraphError("native graph must not declare Python observation messages")
     observer.emit(
         GraphObservationEvent(
             phase=phase,

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from functools import partial
 from pathlib import Path
 from typing import Literal
@@ -205,37 +204,6 @@ def test_runtime_graph_returned_by_step_root_keeps_the_same_root_identity() -> N
         NodeExecutionState.STARTED,
         NodeExecutionState.COMPLETED,
     ]
-
-
-@pytest.mark.parametrize("enabled", [False, True])
-def test_native_graph_root_uses_the_outer_steps_condition_and_label(
-    tmp_path: Path, enabled: bool
-) -> None:
-    from rivlet._native import _rust_process_graph
-
-    output = tmp_path / "result"
-    native = _rust_process_graph(
-        [
-            (
-                "native leaf",
-                sys.executable,
-                [
-                    "-c",
-                    "from pathlib import Path; import sys; Path(sys.argv[1]).touch()",
-                    str(output),
-                ],
-                str(tmp_path),
-                {},
-            )
-        ],
-        [],
-    )
-    root = Graph(structure=native, label="native root", condition=lambda: enabled)
-    execution = Execution(root)
-    assert execution.compile().composites[0].id == root.id
-    assert execution.compile().composites[0].graph_label == "native root"
-    run_execution(execution)
-    assert output.exists() is enabled
 
 
 def test_log_binding_can_reference_the_root_declaration(tmp_path: Path) -> None:

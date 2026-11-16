@@ -59,8 +59,6 @@ def _batch(compilation: GraphCompilation, workers: int) -> None:
     definition = SessionDefinition(
         compilation._execution_graph,
         _host(compilation),
-        compilation._rust_actions,
-        [],
         max(1, len(compilation._execution_nodes)),
     )
     with ThreadPoolExecutor(max_workers=workers) as pool:

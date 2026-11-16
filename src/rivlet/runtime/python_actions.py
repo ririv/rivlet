@@ -76,8 +76,6 @@ class PythonActionRuntime:
         return SessionDefinition(
             compilation._execution_graph,
             host,
-            compilation._rust_actions,
-            run.rust_action_contexts(self.state),
             max(1, len(compilation._execution_nodes)),
             frozenset(
                 index

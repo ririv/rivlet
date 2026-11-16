@@ -1,7 +1,6 @@
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
-use action::{ActionHandle, ValueType};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet::{
@@ -10,9 +9,6 @@ use rivlet::{
 };
 
 use crate::CompiledExecutionGraph;
-use crate::mixed_execution::{RustActionBindings, RustActionDeclaration};
-use crate::result_values::ValueCodecs;
-use crate::rust_graph::RustGraphStructure;
 
 type ExportOrigins = (
     Vec<usize>,
@@ -49,15 +45,6 @@ struct GraphRecord {
     local_node_order: Vec<usize>,
     descendant_nodes: HashMap<usize, Vec<usize>>,
     port_scopes: Vec<usize>,
-    ports: PortDefinitions,
-}
-
-enum PortDefinitions {
-    Python,
-    Rust {
-        inputs: BTreeMap<Option<String>, Vec<usize>>,
-        outputs: BTreeMap<Option<String>, usize>,
-    },
 }
 
 struct NodeRecord {
@@ -72,7 +59,6 @@ struct NodeRecord {
 
 enum NodeContent {
     Python(Py<PyAny>),
-    Rust(ActionHandle, Arc<ValueCodecs>),
     Composite(usize),
 }
 
@@ -80,7 +66,7 @@ impl NodeRecord {
     fn child_graph(&self) -> Option<usize> {
         match self.content {
             NodeContent::Composite(child) => Some(child),
-            NodeContent::Python(_) | NodeContent::Rust(_, _) => None,
+            NodeContent::Python(_) => None,
         }
     }
 }
@@ -150,7 +136,6 @@ impl<'py> Collector<'py> {
                             .bind(self.py)
                             .call_method1("validate_inputs", (node.inputs.len(),))?;
                     }
-                    NodeContent::Rust(action, _) => self.validate_rust_inputs(node, action)?,
                     NodeContent::Composite(_) => unreachable!(),
                 }
             }
@@ -178,42 +163,6 @@ impl<'py> Collector<'py> {
             .iter()
             .map(|condition| condition.index())
             .collect();
-        let compact: HashMap<_, _> = compilation
-            .declaration_nodes()
-            .iter()
-            .enumerate()
-            .map(|(index, node)| (node.index(), index))
-            .collect();
-        let mut python_sources = HashSet::new();
-        let rust_actions = RustActionBindings::new(
-            compilation
-                .declaration_nodes()
-                .iter()
-                .map(|node| {
-                    let record = &self.nodes[node.index()];
-                    match &record.content {
-                        NodeContent::Python(_) | NodeContent::Composite(_) => None,
-                        NodeContent::Rust(action, codecs) => {
-                            for source in &record.inputs {
-                                if matches!(self.nodes[*source].content, NodeContent::Python(_)) {
-                                    python_sources.insert(compact[source]);
-                                }
-                            }
-                            Some(RustActionDeclaration {
-                                action: action.clone(),
-                                codecs: Arc::clone(codecs),
-                                inputs: record
-                                    .inputs
-                                    .iter()
-                                    .map(|source| compact[source])
-                                    .collect(),
-                            })
-                        }
-                    }
-                })
-                .collect(),
-            python_sources.into_iter().collect(),
-        );
         let graph = CompiledExecutionGraph {
             graph: Arc::new(compilation.into_graph()),
         };
@@ -224,37 +173,9 @@ impl<'py> Collector<'py> {
             graphs: self.graphs,
             nodes: self.nodes,
             conditions: self.conditions,
-            rust_actions,
             disabled_edges: self.disabled_edges,
             id_prefix: id_prefix.to_vec(),
         })
-    }
-
-    fn validate_rust_inputs(&self, node: &NodeRecord, action: &ActionHandle) -> PyResult<()> {
-        if action.input_types().len() != node.inputs.len() {
-            return Err(PyValueError::new_err(format!(
-                "native action expects {} result inputs, received {}",
-                action.input_types().len(),
-                node.inputs.len()
-            )));
-        }
-        for (source, expected) in node.inputs.iter().zip(action.input_types()) {
-            let actual = match &self.nodes[*source].content {
-                NodeContent::Rust(source, _) => Some(source.output_type()),
-                NodeContent::Composite(_) => Some(ValueType::of::<()>()),
-                NodeContent::Python(_) => None,
-            };
-            if let Some(actual) = actual {
-                if actual != *expected {
-                    return Err(PyValueError::new_err(format!(
-                        "native result type mismatch: expected {}, received {}",
-                        expected.name(),
-                        actual.name()
-                    )));
-                }
-            }
-        }
-        Ok(())
     }
 
     fn collect_graph(
@@ -284,7 +205,6 @@ impl<'py> Collector<'py> {
             local_node_order: Vec::new(),
             descendant_nodes: HashMap::new(),
             port_scopes,
-            ports: PortDefinitions::Python,
         });
 
         let steps = source_graph.getattr("nodes")?;
@@ -397,24 +317,14 @@ impl<'py> Collector<'py> {
         child_label_path.push(step_label.to_owned());
         let child_graph = if action.is_instance(&self.types.graph)? {
             let structure = action.getattr("structure")?;
-            if let Ok(rust_graph) = structure.extract::<PyRef<'_, RustGraphStructure>>() {
-                Some(self.collect_rust_graph(
-                    &rust_graph,
-                    &child_label_path,
-                    node_index,
-                    node_path,
-                    active,
-                )?)
-            } else {
-                Some(self.collect_graph(
-                    &structure,
-                    step_label,
-                    child_label_path,
-                    Some(node_index),
-                    node_path,
-                    active,
-                )?)
-            }
+            Some(self.collect_graph(
+                &structure,
+                step_label,
+                child_label_path,
+                Some(node_index),
+                node_path,
+                active,
+            )?)
         } else {
             None
         };
@@ -428,165 +338,6 @@ impl<'py> Collector<'py> {
                 child_graph: GraphId::new(child_graph),
             },
         );
-        Ok(())
-    }
-
-    fn collect_rust_graph(
-        &mut self,
-        rust_graph: &RustGraphStructure,
-        label_path: &[String],
-        owner: usize,
-        id_prefix: &[usize],
-        parent_active: bool,
-    ) -> PyResult<usize> {
-        let projection = rust_graph.projection()?;
-        let first_graph = self.graphs.len();
-        let first_node = self.nodes.len();
-        // V/E/P/R/L 为挂载、边、端口名、展开端点与路径总长，K 为单层端口数：
-        // O(V+E+P*log(K+1)+R+L) 整批导入侧表，复用投影与 Rust action handles；
-        // Graph 直接登记为 Composite，不制造空 action 或 Python 回调。
-        self.collect_rust_scopes(
-            &projection,
-            rust_graph.codecs(),
-            label_path,
-            owner,
-            first_node,
-        )?;
-        for node in projection.nodes() {
-            let graph = first_graph + node.graph().index();
-            let (content, kind) = match node.kind() {
-                graph::ProjectedKind::Step(action) => (
-                    NodeContent::Rust(action.clone(), Arc::clone(rust_graph.codecs())),
-                    DeclaredNodeKind::Step,
-                ),
-                graph::ProjectedKind::Graph(child) => {
-                    let child = first_graph + child.index();
-                    (
-                        NodeContent::Composite(child),
-                        DeclaredNodeKind::Composite {
-                            child_graph: GraphId::new(child),
-                        },
-                    )
-                }
-            };
-            let mut path = id_prefix.to_vec();
-            path.extend(node.path());
-            self.nodes.push(NodeRecord {
-                identity: node.identity().value(),
-                source_node: None,
-                content,
-                graph,
-                node_path: path,
-                label: node.label().to_owned(),
-                inputs: node
-                    .inputs()
-                    .iter()
-                    .map(|id| first_node + id.index())
-                    .collect(),
-            });
-            let activation = if parent_active {
-                NodeActivation::Active {
-                    prerequisites: node
-                        .prerequisites()
-                        .iter()
-                        .map(|id| {
-                            DeclarationPrerequisite::Required(NodeId::new(
-                                first_node + id.node().index(),
-                            ))
-                        })
-                        .collect(),
-                    condition: None,
-                }
-            } else {
-                NodeActivation::Inactive
-            };
-            self.activations.push(activation.clone());
-            self.declaration_nodes.push(DeclarationNode::new(
-                GraphId::new(graph),
-                kind,
-                activation,
-            ));
-        }
-        if parent_active {
-            for port in projection.port_connections() {
-                self.port_connections.push(PortConnection::new(
-                    NodeId::new(first_node + port.source().index()),
-                    NodeId::new(first_node + port.target().index()),
-                ));
-            }
-        }
-        Ok(first_graph)
-    }
-
-    fn collect_rust_scopes(
-        &mut self,
-        projection: &Arc<graph::Projection>,
-        codecs: &Arc<ValueCodecs>,
-        label_path: &[String],
-        owner: usize,
-        first_node: usize,
-    ) -> PyResult<()> {
-        for (index, scope) in projection.scopes().iter().enumerate() {
-            let scope_owner = scope
-                .owner()
-                .map_or(owner, |node| first_node + node.index());
-            let (label, path) = if let Some(local_owner) = scope.owner() {
-                let node = &projection.nodes()[local_owner.index()];
-                let mut path = label_path.to_vec();
-                let mut ancestors = Vec::new();
-                let mut current = Some(local_owner);
-                while let Some(id) = current {
-                    let ancestor = &projection.nodes()[id.index()];
-                    ancestors.push(ancestor.label().to_owned());
-                    current = projection.scopes()[ancestor.graph().index()].owner();
-                }
-                path.extend(ancestors.into_iter().rev());
-                (node.label().to_owned(), path)
-            } else {
-                (self.nodes[owner].label.clone(), label_path.to_vec())
-            };
-            self.graphs.push(GraphRecord {
-                source_graph: Py::new(
-                    self.py,
-                    RustGraphStructure::view(
-                        Arc::clone(projection),
-                        GraphId::new(index),
-                        Arc::clone(codecs),
-                    ),
-                )?
-                .into_any(),
-                label,
-                label_path: path,
-                owner: Some(scope_owner),
-                local_nodes: HashMap::new(),
-                local_node_order: scope
-                    .nodes()
-                    .iter()
-                    .map(|id| first_node + id.index())
-                    .collect(),
-                descendant_nodes: HashMap::new(),
-                port_scopes: Vec::new(),
-                ports: PortDefinitions::Rust {
-                    inputs: scope
-                        .inputs()
-                        .iter()
-                        .map(|(name, nodes)| {
-                            (
-                                name.as_option().map(str::to_owned),
-                                nodes.iter().map(|id| first_node + id.index()).collect(),
-                            )
-                        })
-                        .collect(),
-                    outputs: scope
-                        .outputs()
-                        .iter()
-                        .map(|(name, id)| {
-                            (name.as_option().map(str::to_owned), first_node + id.index())
-                        })
-                        .collect(),
-                },
-            });
-        }
         Ok(())
     }
 
@@ -719,44 +470,28 @@ impl<'py> Collector<'py> {
 
     fn resolve_port_output(&self, component: usize, name: Option<String>) -> PyResult<usize> {
         let graph = self.require_child_graph(component)?;
-        match &self.graphs[graph].ports {
-            PortDefinitions::Rust { outputs, .. } => outputs
-                .get(&name)
-                .copied()
-                .ok_or_else(|| PyValueError::new_err(format!("unknown output port: {name:?}"))),
-            PortDefinitions::Python => {
-                let name = name.into_pyobject(self.py)?;
-                let definition = require_interface_port(
-                    self.graphs[graph].source_graph.bind(self.py),
-                    "outputs",
-                    name.as_any(),
-                )?;
-                self.resolve_output_definition(component, &definition)
-            }
-        }
+        let name = name.into_pyobject(self.py)?;
+        let definition = require_interface_port(
+            self.graphs[graph].source_graph.bind(self.py),
+            "outputs",
+            name.as_any(),
+        )?;
+        self.resolve_output_definition(component, &definition)
     }
 
     fn resolve_port_inputs(&self, component: usize, name: Option<String>) -> PyResult<Vec<usize>> {
         let graph = self.require_child_graph(component)?;
-        match &self.graphs[graph].ports {
-            PortDefinitions::Rust { inputs, .. } => inputs
-                .get(&name)
-                .cloned()
-                .ok_or_else(|| PyValueError::new_err(format!("unknown input port: {name:?}"))),
-            PortDefinitions::Python => {
-                let name = name.into_pyobject(self.py)?;
-                let definitions = require_interface_port(
-                    self.graphs[graph].source_graph.bind(self.py),
-                    "inputs",
-                    name.as_any(),
-                )?;
-                let mut nodes = Vec::new();
-                for definition in definitions.try_iter()? {
-                    nodes.extend(self.resolve_input_definition(component, &definition?)?);
-                }
-                Ok(nodes)
-            }
+        let name = name.into_pyobject(self.py)?;
+        let definitions = require_interface_port(
+            self.graphs[graph].source_graph.bind(self.py),
+            "inputs",
+            name.as_any(),
+        )?;
+        let mut nodes = Vec::new();
+        for definition in definitions.try_iter()? {
+            nodes.extend(self.resolve_input_definition(component, &definition?)?);
         }
+        Ok(nodes)
     }
 
     fn resolve_output_definition(
@@ -1046,7 +781,6 @@ pub(crate) struct DeclarationCompilation {
     graphs: Vec<GraphRecord>,
     nodes: Vec<NodeRecord>,
     conditions: Vec<ConditionRecord>,
-    rust_actions: RustActionBindings,
     disabled_edges: Vec<(usize, usize)>,
     id_prefix: Vec<usize>,
 }
@@ -1138,13 +872,9 @@ impl DeclarationCompilation {
         self.active_nodes()
             .map(|node| match &node.content {
                 NodeContent::Python(action) => Some(action.clone_ref(py)),
-                NodeContent::Rust(_, _) | NodeContent::Composite(_) => None,
+                NodeContent::Composite(_) => None,
             })
             .collect()
-    }
-
-    fn rust_actions(&self) -> RustActionBindings {
-        self.rust_actions.clone()
     }
 
     fn graph_labels(&self) -> Vec<String> {

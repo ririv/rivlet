@@ -1,23 +1,4 @@
-from collections.abc import Callable
-from enum import Enum
 from typing import Literal, Protocol
-
-class _ResultFixtureKind(Enum):
-    I64 = 0
-    U64 = 1
-    Bool = 2
-    F64 = 3
-    String = 4
-    Bytes = 5
-    Unit = 6
-    Custom = 7
-    Opaque = 8
-
-def _rust_result_fixture(
-    kind: _ResultFixtureKind,
-) -> tuple[RustGraphStructure, RustGraphStructure]: ...
-
-def _rust_condition_fixture() -> RustGraphStructure: ...
 
 type EncodedExecutionEvent = (
     tuple[Literal[0], int, bool]
@@ -27,34 +8,9 @@ type EncodedExecutionEvent = (
     | tuple[Literal[14], int, int, int, int]
 )
 
-class RustGraphStructure:
-    def nodes(self) -> list[tuple[int, str, RustGraphStructure | None]]: ...
-    def edges(
-        self,
-    ) -> list[
-        tuple[int, int]
-        | tuple[int, int, str | None, str | None]
-        | tuple[int, int, int, tuple[str | None] | None, tuple[str | None] | None]
-    ]: ...
-    def node_ids(self) -> list[int]: ...
-    def input_ports(self) -> list[str | None]: ...
-    def output_ports(self) -> list[str | None]: ...
-    def has_input_port(self, name: str | None) -> bool: ...
-    def has_output_port(self, name: str | None) -> bool: ...
-    def input_paths(self, name: str | None) -> list[list[int]]: ...
-    def output_path(self, name: str | None) -> list[int]: ...
-    def input_arities(self, name: str | None) -> list[int]: ...
-
-class RustActionBindings:
-    def __init__(self, node_count: int) -> None: ...
-    def python_sources(self) -> list[int]: ...
-
 class _ConcurrencyLimits:
     def __init__(self, maxima: list[int]) -> None: ...
     def revision(self) -> int: ...
-
-class _RustResult:
-    def to_python(self) -> object: ...
 
 class ExperimentalCallbackHost(Protocol):
     def skipped_nodes(self) -> list[int]: ...
@@ -96,7 +52,6 @@ class DeclarationCompilation:
     def node_child_graphs(self) -> list[int | None]: ...
     def source_steps(self) -> list[object | None]: ...
     def actions(self) -> list[object | None]: ...
-    def rust_actions(self) -> RustActionBindings: ...
     def graph_labels(self) -> list[str]: ...
     def graph_label_paths(self) -> list[list[str]]: ...
     def graph_owners(self) -> list[int | None]: ...
@@ -119,27 +74,6 @@ def compile_declaration(
     root_label_path: list[str] = ...,
     id_prefix: list[int] = ...,
 ) -> DeclarationCompilation: ...
-def _rust_process_graph(
-    processes: list[tuple[str, str, list[str], str, dict[str, str]]],
-    arcs: list[tuple[int, int]],
-    inputs: list[tuple[str | None, list[int]]] = ...,
-    outputs: list[tuple[str | None, int]] = ...,
-) -> RustGraphStructure: ...
-def _compose_rust_graph(
-    components: list[tuple[str, RustGraphStructure]],
-    edges: list[
-        tuple[int, int]
-        | tuple[int, int, str | None, str | None]
-        | tuple[list[tuple[int, str | None]], tuple[int, str | None]]
-    ],
-    inputs: list[tuple[str | None, list[tuple[int, str | None]]]],
-    outputs: list[tuple[str | None, int, str | None]],
-) -> RustGraphStructure: ...
-def _experimental_run_tokio_callbacks(
-    graph: CompiledExecutionGraph,
-    host: ExperimentalCallbackHost,
-    concurrency: int,
-) -> None: ...
 
 class CompiledExecutionGraph:
     def __init__(
@@ -158,16 +92,11 @@ class CompiledExecutionGraph:
     def all_prerequisites(self) -> list[list[tuple[int, int | None]]]: ...
     def node_conditions(self) -> list[int | None]: ...
     def topological_order(self) -> list[int]: ...
-    def session(self, initially_skipped: list[int]) -> ExecutionSession: ...
-    def mixed_session(
+    def session(
         self,
         initially_skipped: list[int],
-        rust_actions: RustActionBindings,
-        rust_contexts: list[tuple[int, str | None]],
-        workers: int | None = ...,
-        retain_results: bool = ...,
         concurrency: tuple[_ConcurrencyLimits, list[list[int]]] | None = ...,
-    ) -> MixedExecutionSession: ...
+    ) -> ExecutionSession: ...
 
 class ExecutionBatch:
     def parts(
@@ -180,6 +109,7 @@ class ExecutionBatch:
     ]: ...
 
 class ExecutionSession:
+    def suspend_action(self, node: int) -> list[int]: ...
     def start(self, max_actions: int) -> ExecutionBatch: ...
     def advance(
         self,
@@ -188,30 +118,3 @@ class ExecutionSession:
         skipped: list[int],
         max_actions: int,
     ) -> ExecutionBatch: ...
-
-class MixedExecutionBatch:
-    def parts(
-        self,
-    ) -> tuple[
-        list[int],
-        list[tuple[int, int]],
-        list[EncodedExecutionEvent],
-        bool,
-        int,
-        list[tuple[int, str]],
-        list[tuple[int, _RustResult]],
-    ]: ...
-
-class MixedExecutionSession:
-    def suspend_action(self, node: int) -> list[int]: ...
-    def start(self, capacity: int) -> MixedExecutionBatch: ...
-    def advance(
-        self,
-        completed: list[tuple[int, bool]],
-        conditions: list[tuple[int, bool | None]],
-        skipped: list[int],
-        available: int,
-        values: list[tuple[int, object]] = ...,
-    ) -> MixedExecutionBatch: ...
-    def wait_rust(self) -> None: ...
-    def notify_rust(self, callback: Callable[[], None]) -> None: ...

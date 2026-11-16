@@ -12,8 +12,6 @@ from ._compilation_origins import (
 from ._native import (
     CompiledExecutionGraph,
     DeclarationCompilation,
-    RustActionBindings,
-    RustGraphStructure,
     compile_declaration,
 )
 from .errors import GraphError
@@ -124,26 +122,6 @@ class CompiledPythonStep:
 
 
 @dataclass(frozen=True, slots=True)
-class CompiledRustStep:
-    """由 Rust 执行器直接调用的原生叶子节点。"""
-
-    ref: CompiledStepRef
-    after: tuple[CompiledPrerequisite, ...]
-    condition: CompiledRuntimeCondition | None
-    owner: CompiledCompositeRef | None
-    context: CompiledNodeContext
-    inputs: tuple[CompiledNodeRef, ...] = ()
-
-    @property
-    def path(self) -> NodePath:
-        return self.ref.path
-
-    @property
-    def id(self) -> NodeId:
-        return self.context.node_id
-
-
-@dataclass(frozen=True, slots=True)
 class CompiledComposite:
     """原始子图在编译产物中的非执行生命周期投影。
 
@@ -153,7 +131,7 @@ class CompiledComposite:
     """
 
     ref: CompiledCompositeRef
-    source_graph: GraphStructure | RustGraphStructure
+    source_graph: GraphStructure
     graph_label: str
     children: tuple[CompiledNodeRef, ...]
     after: tuple[CompiledPrerequisite, ...]
@@ -172,7 +150,7 @@ class CompiledComposite:
         return self.context.node_id
 
 
-type CompiledStep = CompiledPythonStep | CompiledRustStep
+type CompiledStep = CompiledPythonStep
 type CompiledNode = CompiledStep | CompiledComposite
 
 
@@ -188,7 +166,6 @@ class _PrecompiledExecutionGraph:
     graph: CompiledExecutionGraph
     conditions: tuple[CompiledRuntimeCondition, ...]
     nodes: tuple[CompiledNode, ...]
-    rust_actions: RustActionBindings
 
 
 type _ExecutionGraphInput = _MaterializeExecutionGraph | _PrecompiledExecutionGraph
@@ -237,11 +214,6 @@ class GraphCompilation:
         compare=False,
     )
     _execution_conditions: tuple[CompiledRuntimeCondition, ...] = field(
-        init=False,
-        repr=False,
-        compare=False,
-    )
-    _rust_actions: RustActionBindings = field(
         init=False,
         repr=False,
         compare=False,
@@ -400,7 +372,6 @@ class GraphCompilation:
             nodes=execution_nodes,
             node_indexes=execution_node_indexes,
             conditions=execution_conditions,
-            rust_actions=RustActionBindings(len(execution_nodes)),
         )
 
     def _initialize_precompiled_execution_graph(
@@ -429,7 +400,6 @@ class GraphCompilation:
             nodes=precompiled.nodes,
             node_indexes=execution_node_indexes,
             conditions=precompiled.conditions,
-            rust_actions=precompiled.rust_actions,
         )
 
     def _set_execution_graph(
@@ -439,14 +409,12 @@ class GraphCompilation:
         nodes: tuple[CompiledNode, ...],
         node_indexes: dict[NodePath, int],
         conditions: tuple[CompiledRuntimeCondition, ...],
-        rust_actions: RustActionBindings,
     ) -> None:
         """Commit the complete native execution view as one internal state transition."""
 
         object.__setattr__(self, "_execution_graph", graph)
         object.__setattr__(self, "_execution_nodes", nodes)
         object.__setattr__(self, "_execution_conditions", conditions)
-        object.__setattr__(self, "_rust_actions", rust_actions)
         object.__setattr__(
             self,
             "_execution_node_indexes",
@@ -763,37 +731,24 @@ def _bind_declaration_compilation(
         child_graph = child_graphs[compiled_index]
         if child_graph is None:
             action = actions[compiled_index]
-            compiled_step: CompiledStep
             if action is None:
-                compiled_step = CompiledRustStep(
-                    ref=cast("CompiledStepRef", ref),
-                    after=after,
-                    condition=condition,
-                    owner=owner,
-                    context=context,
-                    inputs=tuple(
-                        refs_by_declaration[node]
-                        for node in node_inputs[compiled_index]
-                    ),
-                )
-            else:
-                compiled_step = CompiledPythonStep(
-                    ref=cast("CompiledStepRef", ref),
-                    action=cast("Step", action),
-                    after=after,
-                    condition=condition,
-                    owner=owner,
-                    context=context,
-                    inputs=tuple(
-                        refs_by_declaration[node]
-                        for node in node_inputs[compiled_index]
-                    ),
-                )
+                raise GraphError("compiled action is missing its Python declaration")
+            compiled_step = CompiledPythonStep(
+                ref=cast("CompiledStepRef", ref),
+                action=cast("Step", action),
+                after=after,
+                condition=condition,
+                owner=owner,
+                context=context,
+                inputs=tuple(
+                    refs_by_declaration[node] for node in node_inputs[compiled_index]
+                ),
+            )
             steps.append(compiled_step)
             ordered_nodes.append(compiled_step)
             continue
         component_source_graph = cast(
-            "GraphStructure | RustGraphStructure",
+            "GraphStructure",
             source_graphs[child_graph],
         )
         composite = CompiledComposite(
@@ -808,11 +763,7 @@ def _bind_declaration_compilation(
             after=after,
             condition=condition,
             owner=owner,
-            observation=(
-                component_source_graph.observation
-                if isinstance(component_source_graph, GraphStructure)
-                else GraphObservationMessages()
-            ),
+            observation=component_source_graph.observation,
             context=context,
             graph_node_paths=graph_node_paths[child_graph],
         )
@@ -849,7 +800,6 @@ def _bind_declaration_compilation(
             graph=native.graph,
             conditions=compiled_conditions,
             nodes=tuple(ordered_nodes),
-            rust_actions=native.rust_actions(),
         ),
     )
 

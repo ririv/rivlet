@@ -126,28 +126,16 @@ class _Inputs(Mapping[PortName, InputPort]):
         self._graph = graph
 
     def __getitem__(self, key: PortName) -> InputPort:
-        from ._native import RustGraphStructure
-
         body = self._graph.structure
-        exists = (
-            body.has_input_port(key)
-            if isinstance(body, RustGraphStructure)
-            else key in body.interface.inputs
-        )
+        exists = key in body.interface.inputs
         if not exists:
             raise KeyError(key)
         return InputPort(self._graph, key)
 
     @property
-    def _names(self) -> Mapping[PortName, tuple[InputEndpoint, ...]] | list[PortName]:
-        from ._native import RustGraphStructure
-
+    def _names(self) -> Mapping[PortName, tuple[InputEndpoint, ...]]:
         body = self._graph.structure
-        return (
-            body.input_ports()
-            if isinstance(body, RustGraphStructure)
-            else body.interface.inputs
-        )
+        return body.interface.inputs
 
     def __len__(self) -> int:
         return len(self._names)
@@ -161,28 +149,16 @@ class _Outputs(Mapping[PortName, OutputPort]):
         self._graph = graph
 
     def __getitem__(self, key: PortName) -> OutputPort:
-        from ._native import RustGraphStructure
-
         body = self._graph.structure
-        exists = (
-            body.has_output_port(key)
-            if isinstance(body, RustGraphStructure)
-            else key in body.interface.outputs
-        )
+        exists = key in body.interface.outputs
         if not exists:
             raise KeyError(key)
         return OutputPort(self._graph, key)
 
     @property
-    def _names(self) -> Mapping[PortName, OutputEndpoint] | list[PortName]:
-        from ._native import RustGraphStructure
-
+    def _names(self) -> Mapping[PortName, OutputEndpoint]:
         body = self._graph.structure
-        return (
-            body.output_ports()
-            if isinstance(body, RustGraphStructure)
-            else body.interface.outputs
-        )
+        return body.interface.outputs
 
     def __len__(self) -> int:
         return len(self._names)

@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import os
-import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -42,7 +40,6 @@ from rivlet import (
     render_live_execution,
 )
 from rivlet import run as run_execution
-from rivlet._native import RustGraphStructure, _rust_process_graph
 from rivlet.compile import compile_graph
 from rivlet.runtime.compiled import CompiledExecutionHost
 
@@ -57,21 +54,6 @@ class _ConditionEvaluator(StaticConditionEvaluator):
 
 def _condition(name: str) -> StaticCondition:
     return StaticCondition(payload=name, description=name)
-
-
-def _process_graph(
-    *,
-    label: str,
-    program: str,
-    arguments: list[str],
-    cwd: Path,
-) -> RustGraphStructure:
-    """Build a native process graph through the private adapter test boundary."""
-
-    return _rust_process_graph(
-        [(label, program, arguments, str(cwd), dict(os.environ))],
-        [],
-    )
 
 
 def test_compiled_host_forwards_only_new_skip_requests() -> None:
@@ -152,86 +134,6 @@ def test_execution_rejects_pre_stopped_execution_control() -> None:
     assert calls == []
 
 
-def test_execution_executes_python_and_native_actions_in_one_graph(
-    tmp_path: Path,
-) -> None:
-    output = tmp_path / "mixed.txt"
-    prepare = Step(lambda: output.write_text("python\n"), label=("prepare"))
-    native = Graph(
-        structure=_process_graph(
-            label="native-process",
-            program=sys.executable,
-            arguments=[
-                "-c",
-                "from pathlib import Path; import sys; p = Path(sys.argv[1]); p.write_text(p.read_text() + 'rust\\n')",
-                str(output),
-            ],
-            cwd=tmp_path,
-        ),
-        label="native",
-    )
-    verify = Step(lambda: output.read_text().splitlines(), label=("verify"))
-    plan = Execution(
-        root=Graph(
-            structure=(prepare >> native >> verify).graph().structure, label="mixed"
-        ),
-        execution_state=ExecutionState(results=ResultStore()),
-    )
-
-    state = run_execution(plan, max_workers=2)
-
-    assert plan.require_result(verify).value == ["python", "rust"]
-    assert state.completed_steps == {NodePath((0,))} | frozenset(
-        {
-            NodePath(
-                (
-                    0,
-                    0,
-                )
-            ),
-            NodePath(
-                (
-                    0,
-                    1,
-                )
-            ),
-            NodePath((0, 1, 0)),
-            NodePath(
-                (
-                    0,
-                    2,
-                )
-            ),
-        }
-    )
-
-
-def test_native_action_writes_to_bound_component_log(tmp_path: Path) -> None:
-    log_path = tmp_path / "component.log"
-    native = Graph(
-        structure=_process_graph(
-            label="native-process",
-            program=sys.executable,
-            arguments=[
-                "-u",
-                "-c",
-                "import sys; print('native stdout'); print('native stderr', file=sys.stderr)",
-            ],
-            cwd=tmp_path,
-        ),
-        label="native",
-    )
-    component = Graph(structure=GraphStructure(nodes=(native,)), label="component")
-    plan = Execution(
-        root=Graph(structure=GraphStructure(nodes=(component,)), label="native-log"),
-        node_log_paths={component: log_path},
-    )
-
-    run_execution(plan)
-
-    assert log_path.read_text().splitlines() == ["native stdout", "native stderr"]
-
-
 def test_step_log_paths_resolve_at_construction(tmp_path: Path) -> None:
     first = Step(lambda: None, label=("first"))
     second = Step(lambda: None, label=("second"))
@@ -268,55 +170,6 @@ def test_step_log_paths_resolve_at_construction(tmp_path: Path) -> None:
         )
         == second_log
     )
-
-
-def test_native_action_failure_is_a_graph_action_failure(tmp_path: Path) -> None:
-    native = Graph(
-        structure=_process_graph(
-            label="native-process",
-            program=sys.executable,
-            arguments=["-c", "raise SystemExit(7)"],
-            cwd=tmp_path,
-        ),
-        label="native",
-    )
-
-    with pytest.raises(RuntimeError, match=r"exited with status .*7"):
-        run_execution(
-            Execution(
-                root=Graph(
-                    structure=GraphStructure(nodes=(native,)), label="native-failure"
-                )
-            )
-        )
-
-
-def test_async_graph_executor_runs_native_action_without_blocking_model_changes(
-    tmp_path: Path,
-) -> None:
-    output = tmp_path / "async-native.txt"
-    native = Graph(
-        structure=_process_graph(
-            label="native-process",
-            program=sys.executable,
-            arguments=[
-                "-c",
-                "from pathlib import Path; import sys; Path(sys.argv[1]).write_text('async')",
-                str(output),
-            ],
-            cwd=tmp_path,
-        ),
-        label="native",
-    )
-
-    run_async_execution(
-        Execution(
-            root=Graph(structure=GraphStructure(nodes=(native,)), label="async-native")
-        ),
-        max_workers=1,
-    )
-
-    assert output.read_text() == "async"
 
 
 def test_execution_run_executes_nested_graphs_in_topological_order() -> None:

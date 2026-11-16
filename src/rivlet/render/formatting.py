@@ -10,7 +10,6 @@ from ..compile import (
     CompiledPrerequisite,
     CompiledPythonStep,
     CompiledRuntimeCondition,
-    CompiledRustStep,
     CompiledStep,
     CompiledStepRef,
     GraphCompilation,
@@ -52,7 +51,7 @@ def render_step_label(
     *,
     node_path: NodePath | None = None,
 ) -> str:
-    if isinstance(step, (CompiledPythonStep, CompiledRustStep)):
+    if isinstance(step, CompiledPythonStep):
         return step.path.labels[-1]
     if node_path is None:
         raise ValueError("declaration node label requires its mounted path")

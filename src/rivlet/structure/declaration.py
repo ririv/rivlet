@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from .._native import RustGraphStructure
 from ..errors import GraphError
 from ..interface import InputEndpoint, InputPort, OutputEndpoint, OutputPort
 from ..model import (
@@ -42,7 +41,7 @@ def edge_id(owner: NodePath | None, index: int) -> str:
 
 @dataclass(slots=True)
 class Scope:
-    graph: GraphStructure | RustGraphStructure
+    graph: GraphStructure
     owner: NodePath | None
     label_path: tuple[str, ...]
     ids: dict[Node, NodePath] = field(default_factory=dict)
@@ -83,8 +82,6 @@ class DeclarationIndex:
         return scope.require_descendant(endpoint)
 
     def output_port_node(self, scope: Scope, name: str | None) -> str:
-        if isinstance(scope.graph, RustGraphStructure):
-            return scope.mounted_path(scope.graph.output_path(name))
         return self.output_node(scope, scope.graph.interface.outputs[name])
 
     def input_nodes(self, scope: Scope, endpoint: InputEndpoint) -> list[str]:
@@ -97,8 +94,6 @@ class DeclarationIndex:
         return [scope.require_descendant(endpoint)]
 
     def input_port_nodes(self, scope: Scope, name: str | None) -> list[str]:
-        if isinstance(scope.graph, RustGraphStructure):
-            return [scope.mounted_path(path) for path in scope.graph.input_paths(name)]
         return [
             value
             for target in scope.graph.interface.inputs[name]
@@ -145,198 +140,82 @@ def index_declaration(
     # V/E/P 为节点、边和端口引用数，L 为全部身份/标签路径长度。
     # 按挂载遍历并建立索引，时间/空间 O(V + E + P + L)；不按每条边重扫子图。
     def visit(
-        current: GraphStructure | RustGraphStructure,
+        current: GraphStructure,
         owner: NodePath | None,
         path: tuple[str, ...],
         ancestors: tuple[Scope, ...],
     ) -> None:
         scope = Scope(current, owner, path)
         index.scopes[scope.id] = scope
-        if isinstance(current, GraphStructure):
-            scope.ids = node_paths_for_mount(current, parent_node_path=owner)
-            scope_label = (
-                ("<structure>" if label is None else label)
-                if not ancestors
-                else path[-1]
+        scope.ids = node_paths_for_mount(current, parent_node_path=owner)
+        scope_label = (
+            ("<structure>" if label is None else label) if not ancestors else path[-1]
+        )
+        scope_document: ScopeDocument = {
+            "id": scope.id,
+            "label": scope_label,
+            "label_path": list(path),
+            "owner": None if owner is None else str(owner),
+            "nodes": [str(value) for value in scope.ids.values()],
+            "ports": [],
+        }
+        document["graphs"].append(scope_document)
+        for step, identifier in scope.ids.items():
+            key = str(identifier)
+            index.node_scopes[key] = scope
+            for ancestor in (*ancestors, scope):
+                ancestor.descendants.setdefault(step, []).append(identifier)
+            step_label = resolve_node_label(step, identifier)
+            condition = (
+                None
+                if step.condition is None
+                else index.condition_id(key, step.condition)
             )
-            scope_document: ScopeDocument = {
-                "id": scope.id,
-                "label": scope_label,
-                "label_path": list(path),
-                "owner": None if owner is None else str(owner),
-                "nodes": [str(value) for value in scope.ids.values()],
-                "ports": [],
-            }
-            document["graphs"].append(scope_document)
-            for step, identifier in scope.ids.items():
-                key = str(identifier)
-                index.node_scopes[key] = scope
-                for ancestor in (*ancestors, scope):
-                    ancestor.descendants.setdefault(step, []).append(identifier)
-                step_label = resolve_node_label(step, identifier)
-                condition = (
-                    None
-                    if step.condition is None
-                    else index.condition_id(key, step.condition)
-                )
-                action = step.structure if isinstance(step, GraphNode) else step
-                node: NodeDocument
-                if isinstance(action, (GraphStructure, RustGraphStructure)):
-                    node = {
-                        "kind": "subgraph",
-                        "node_id": step.id.value,
-                        "id": key,
-                        "graph": scope.id,
-                        "label": step_label,
-                        "label_path": [*path, step_label],
-                        "child_graph": scope_id(identifier),
-                        "condition": condition,
-                    }
-                    document["nodes"].append(node)
-                    visit(action, identifier, (*path, step_label), (*ancestors, scope))
-                elif isinstance(action, Step):
-                    node = {
-                        "kind": "leaf",
-                        "node_id": step.id.value,
-                        "id": key,
-                        "graph": scope.id,
-                        "label": step_label,
-                        "label_path": [*path, step_label],
-                        "action_kind": "python",
-                        "condition": condition,
-                    }
-                    document["nodes"].append(node)
-                else:
-                    raise GraphError(f"unsupported node declaration: {type(action)!r}")
-            for port_name, steps in current.interface.inputs.items():
-                port: InputPortDocument = {
-                    "kind": "input",
-                    "port": port_name,
-                    "nodes": [
-                        value
-                        for step in steps
-                        for value in index.input_nodes(scope, step)
-                    ],
-                }
-                scope_document["ports"].append(port)
-            for port_name, step in current.interface.outputs.items():
-                output: OutputPortDocument = {
-                    "kind": "output",
-                    "port": port_name,
-                    "node": index.output_node(scope, step),
-                }
-                scope_document["ports"].append(output)
-        else:
-            rust_nodes = current.nodes()
-            ids = [
-                owner.child(i) if owner is not None else NodePath((i,))
-                for i in range(len(rust_nodes))
-            ]
-            scope_document = {
-                "id": scope.id,
-                "label": path[-1] if path else "<structure>",
-                "label_path": list(path),
-                "owner": None if owner is None else str(owner),
-                "nodes": [str(value) for value in ids],
-                "ports": [],
-            }
-            document["graphs"].append(scope_document)
-            for identifier, (identity, rust_label, child) in zip(
-                ids, rust_nodes, strict=True
-            ):
-                key = str(identifier)
-                index.node_scopes[key] = scope
-                if child is None:
-                    document["nodes"].append(
-                        {
-                            "kind": "leaf",
-                            "id": key,
-                            "node_id": identity,
-                            "graph": scope.id,
-                            "label": rust_label,
-                            "label_path": [*path, rust_label],
-                            "action_kind": "native",
-                            "condition": None,
-                        }
-                    )
-                else:
-                    document["nodes"].append(
-                        {
-                            "kind": "subgraph",
-                            "id": key,
-                            "node_id": identity,
-                            "graph": scope.id,
-                            "label": rust_label,
-                            "label_path": [*path, rust_label],
-                            "child_graph": scope_id(identifier),
-                            "condition": None,
-                        }
-                    )
-                    visit(child, identifier, (*path, rust_label), (*ancestors, scope))
-            for name in current.input_ports():
-                scope_document["ports"].append(
-                    {
-                        "kind": "input",
-                        "port": name,
-                        "nodes": index.input_port_nodes(scope, name),
-                    }
-                )
-            for name in current.output_ports():
-                scope_document["ports"].append(
-                    {
-                        "kind": "output",
-                        "port": name,
-                        "node": index.output_port_node(scope, name),
-                    }
-                )
-            for i, rust_edge in enumerate(current.edges()):
-                source, target = rust_edge[:2]
-                item: EdgeDocument = {
-                    "kind": "order",
-                    "id": edge_id(owner, i),
+            action = step.structure if isinstance(step, GraphNode) else step
+            node: NodeDocument
+            if isinstance(action, GraphStructure):
+                node = {
+                    "kind": "subgraph",
+                    "node_id": step.id.value,
+                    "id": key,
                     "graph": scope.id,
-                    "source": str(ids[source]),
-                    "target": str(ids[target]),
+                    "label": step_label,
+                    "label_path": [*path, step_label],
+                    "child_graph": scope_id(identifier),
+                    "condition": condition,
                 }
-                if len(rust_edge) == 4:
-                    output_name, input_name = rust_edge[2:]
-                    provider = index.scopes[scope_id(ids[source])]
-                    consumer = index.scopes[scope_id(ids[target])]
-                    item = {
-                        "kind": "port",
-                        "id": edge_id(owner, i),
-                        "graph": scope.id,
-                        "source": str(ids[source]),
-                        "target": str(ids[target]),
-                        "source_port": output_name,
-                        "target_port": input_name,
-                        "provider_node": index.output_port_node(provider, output_name),
-                        "consumer_nodes": index.input_port_nodes(consumer, input_name),
-                        "condition": None,
-                    }
-                elif len(rust_edge) == 5:
-                    _, _, argument, output_port, input_port = rust_edge
-                    item = {
-                        "kind": "result",
-                        "id": edge_id(owner, i),
-                        "graph": scope.id,
-                        "source": str(ids[source]),
-                        "target": str(ids[target]),
-                        "argument_index": argument,
-                    }
-                    if output_port is not None:
-                        (output_name,) = output_port
-                        item["source_port"] = output_name
-                        item["provider_node"] = index.output_port_node(
-                            index.scopes[scope_id(ids[source])], output_name
-                        )
-                    if input_port is not None:
-                        (input_name,) = input_port
-                        item["target_port"] = input_name
-                        item["consumer_nodes"] = index.input_port_nodes(
-                            index.scopes[scope_id(ids[target])], input_name
-                        )
-                document["edges"].append(item)
+                document["nodes"].append(node)
+                visit(action, identifier, (*path, step_label), (*ancestors, scope))
+            elif isinstance(action, Step):
+                node = {
+                    "kind": "leaf",
+                    "node_id": step.id.value,
+                    "id": key,
+                    "graph": scope.id,
+                    "label": step_label,
+                    "label_path": [*path, step_label],
+                    "action_kind": "python",
+                    "condition": condition,
+                }
+                document["nodes"].append(node)
+            else:
+                raise GraphError(f"unsupported node declaration: {type(action)!r}")
+        for port_name, steps in current.interface.inputs.items():
+            port: InputPortDocument = {
+                "kind": "input",
+                "port": port_name,
+                "nodes": [
+                    value for step in steps for value in index.input_nodes(scope, step)
+                ],
+            }
+            scope_document["ports"].append(port)
+        for port_name, step in current.interface.outputs.items():
+            output: OutputPortDocument = {
+                "kind": "output",
+                "port": port_name,
+                "node": index.output_node(scope, step),
+            }
+            scope_document["ports"].append(output)
 
     visit(graph, parent, label_path, ())
     for scope in index.scopes.values():

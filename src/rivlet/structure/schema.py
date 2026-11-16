@@ -61,7 +61,7 @@ class StepDocument(TypedDict):
     graph: str
     label: str
     label_path: list[str]
-    action_kind: Literal["python", "native"]
+    action_kind: Literal["python"]
     condition: str | None
 
 

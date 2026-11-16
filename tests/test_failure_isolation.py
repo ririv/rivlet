@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import os
-import sys
 from functools import partial
 
 import pytest
@@ -28,7 +26,6 @@ from rivlet import (
     resolve_port_requirements,
 )
 from rivlet import run as run_execution
-from rivlet._native import _rust_process_graph
 
 
 @pytest.fixture(params=["serial", "thread", "async"])
@@ -365,38 +362,6 @@ def test_dynamic_returned_graph_failure_is_local_to_its_parent_action(execute):
     assert sorted(calls) == ["inner", "outer"]
 
 
-def test_native_failure_preserves_successes_in_same_completion_batch(execute, tmp_path):
-    native = _rust_process_graph(
-        [
-            (
-                "fail",
-                sys.executable,
-                ["-c", "raise SystemExit(7)"],
-                str(tmp_path),
-                dict(os.environ),
-            ),
-            (
-                "succeed",
-                sys.executable,
-                ["-c", "from pathlib import Path; Path('success').touch()"],
-                str(tmp_path),
-                dict(os.environ),
-            ),
-        ],
-        [],
-    )
-    calls = []
-    graph = Graph(
-        structure=GraphStructure(
-            nodes=(Graph(structure=native), Step(lambda: calls.append("python")))
-        )
-    )
-    with pytest.raises(RuntimeError, match=r"exited with status .*7"):
-        execute(graph, ExecutionState())
-    assert (tmp_path / "success").is_file()
-    assert calls == ["python"]
-
-
 @pytest.mark.parametrize(
     "options",
     [
@@ -457,51 +422,3 @@ def test_cancellation_from_condition_waits_for_started_async_action():
     with pytest.raises(ExecutionStopped):
         run_async_execution(plan, max_workers=2)
     assert completed == ["survived"]
-
-
-@pytest.mark.parametrize(
-    "options",
-    [
-        partial(run_execution, max_workers=3),
-        partial(run_async_execution, max_workers=3),
-    ],
-)
-def test_parallel_native_errors_are_collected_without_losing_completions(
-    options, tmp_path
-):
-    native = _rust_process_graph(
-        [
-            (
-                "fail-a",
-                sys.executable,
-                ["-c", "raise SystemExit(7)"],
-                str(tmp_path),
-                dict(os.environ),
-            ),
-            (
-                "fail-b",
-                sys.executable,
-                ["-c", "raise SystemExit(8)"],
-                str(tmp_path),
-                dict(os.environ),
-            ),
-            (
-                "succeed",
-                sys.executable,
-                ["-c", "from pathlib import Path; Path('success').touch()"],
-                str(tmp_path),
-                dict(os.environ),
-            ),
-        ],
-        [],
-    )
-    plan = Execution(
-        root=Graph(
-            structure=GraphStructure(nodes=(Graph(structure=native),)), label="root"
-        )
-    )
-    with pytest.raises(ExceptionGroup) as caught:
-        (options)(plan)
-    assert len(caught.value.exceptions) == 2
-    assert (tmp_path / "success").is_file()
-    assert not plan.execution_control.stop_requested()

@@ -18,7 +18,7 @@ class NodeExecutionState(StrEnum):
 
 @dataclass(frozen=True, slots=True)
 class ActionFailed:
-    """The node's own Python or native action failed."""
+    """The node's own Python action failed."""
 
 
 @dataclass(frozen=True, slots=True)

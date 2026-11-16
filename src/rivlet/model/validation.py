@@ -22,8 +22,6 @@ if TYPE_CHECKING:
 
 def _input_nodes(endpoint: InputEndpoint) -> tuple[Node, ...]:
     if isinstance(endpoint, InputPort):
-        if not isinstance(endpoint.graph.structure, GraphStructure):
-            return ()
         return tuple(
             node
             for target in _declared_interface(endpoint.graph).inputs[endpoint.name]
@@ -35,15 +33,8 @@ def _input_nodes(endpoint: InputEndpoint) -> tuple[Node, ...]:
 def _validate_result_target(endpoint: InputEndpoint, count: int) -> None:
     if isinstance(endpoint, InputPort):
         body = endpoint.graph.structure
-        if isinstance(body, GraphStructure):
-            for target in body.interface.inputs[endpoint.name]:
-                _validate_result_target(target, count)
-        else:
-            for arity in body.input_arities(endpoint.name):
-                if arity != count:
-                    raise GraphError(
-                        f"native action expects {arity} result inputs, received {count}"
-                    )
+        for target in body.interface.inputs[endpoint.name]:
+            _validate_result_target(target, count)
     elif isinstance(endpoint, Step):
         endpoint.validate_inputs(count)
     else:
