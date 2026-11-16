@@ -37,6 +37,7 @@
 - [失败事件与直接原因](./failure_events.md)
 - [Python 图与 Rust 原生图](./rust-graphs.md)
 - [执行 Rust 图](./rust-execution.md)
+- [实验性 Node.js API](./node-api.md)
 - [原生结果值与跨语言转换](./rust-results.md)
 - [结果记录、生命周期与未来保留策略候选](./result_lifetime.md)
 - [条件边](./conditional_edges.md)

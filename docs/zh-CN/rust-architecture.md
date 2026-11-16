@@ -8,7 +8,7 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
 
 ## crate 边界
 
-当前 workspace 包含：
+当前 crate 的职责如下，Node 适配器使用独立 workspace：
 
 - `crates/action`
   - 定义带输入/输出关联类型的 `Action`、原生值与稳定错误边界
@@ -37,6 +37,12 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 私有实验 crate，不属于正式 API
   - 独占 Tokio 依赖，用于测量“Rust runtime 逐 action 回调 Python”的成本
   - 只通过项目自己的 `CallbackHost` 接口消费 core，不向领域模型泄漏 Tokio 类型
+- `crates/node`
+  - 实验性 Node-API adapter，独占 napi-rs/serde 依赖
+  - 使用独立 Cargo workspace/锁文件，不属于上面的 Python 发行 workspace
+  - 将 JS 声明和批量完成通知接入现有 core 编译器与 session
+  - `bindings/node` 保留 JS 回调和任意结果对象，不经过 Python
+  - 支持边界见 [Node.js API](./node-api.md)
 
 core 的公开数据模型不出现 PyO3 或其它第三方库类型。
 

@@ -26,6 +26,11 @@ integration.
 - `crates/python` is the private PyO3 adapter. It converts declarations into integer
   IDs in batches, retains Python action/predicate/observation side tables, connects
   host control, and dispatches native actions to their Rust implementation.
+- `crates/node` is the experimental Node-API adapter in its own Cargo workspace
+  and lockfile, excluded from the Python distribution workspace. It owns napi-rs/serde and
+  converts JS declarations and completion batches into the existing core compiler
+  and session. `bindings/node` retains JS callbacks and arbitrary result objects;
+  no Python bridge is involved. See [the Node.js scope](./node-api.md).
 - `crates/tokio-runtime` is a private experiment, not production API. It contains
   the Tokio dependency and measures per-action callbacks into Python through the
   project's CallbackHost interface.

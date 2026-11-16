@@ -42,6 +42,10 @@ Other platforms require a source build; see
 For Windows x64 source builds and installed-wheel validation, see
 [Windows setup](https://github.com/ririv/rivlet/blob/main/docs/development.md#windows-setup).
 
+An experimental [Node.js source binding](https://github.com/ririv/rivlet/blob/main/docs/node-api.md)
+connects JavaScript actions to the same Rust compiler and scheduler, without Python.
+It is not yet published to npm; its supported scope is documented separately.
+
 ## Compose steps and reusable subgraphs
 
 ```python

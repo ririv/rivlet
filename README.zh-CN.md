@@ -408,6 +408,10 @@ run(execution)  # 复用同一份编译结果
 编译导出只读取已有决定、不重新编译；运行事件与返回值仍然独立。
 schema、历史冻结及静态／动态范围见[结构导出](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/graph_export.md)。
 
+实验性 [Node.js 源码绑定](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/node-api.md)
+让 JS 动作直接接入同一 Rust 编译器与调度器，不经过 Python；尚未发布 npm，
+支持范围见独立文档。
+
 ## 更多用法
 
 - [结果输入与动作上下文](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/core_model.md#结果与运行上下文)
