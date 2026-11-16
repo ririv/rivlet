@@ -3,10 +3,13 @@ use std::sync::Arc;
 use action::{ActionContext, ActionExecutor, Value};
 use graph::{Compilation, ProjectedKind};
 use rivlet::{
-    ExecutionEvent, ExecutionSession, ExecutionUpdate, FailureCause, NodeId, SessionStatus,
+    ConditionRequest, ConditionResolution, ExecutionEvent, ExecutionSession, ExecutionUpdate,
+    FailureCause, NodeId, SessionStatus,
 };
 
-use crate::{ExecutionError, ExecutionOptions, ExecutionOutcome, NodeFailure, NodeOutcome};
+use crate::{
+    ConditionOutcome, ExecutionError, ExecutionOptions, ExecutionOutcome, NodeFailure, NodeOutcome,
+};
 
 struct Results(Vec<Option<NodeOutcome>>);
 
@@ -38,7 +41,9 @@ impl Results {
     fn events(&mut self, events: &[ExecutionEvent]) -> Result<(), ExecutionError> {
         for event in events {
             match *event {
-                ExecutionEvent::CompositeEntered(_) => {}
+                ExecutionEvent::CompositeEntered(_)
+                | ExecutionEvent::ConditionEvaluated { .. }
+                | ExecutionEvent::ConditionSkipped(_) => {}
                 ExecutionEvent::CompositeCompleted(node) => {
                     self.record(node, NodeOutcome::Succeeded(Value::new(())))?;
                 }
@@ -61,9 +66,6 @@ impl Results {
                         return Err(ExecutionError::InvalidTransition(node));
                     }
                 }
-                ExecutionEvent::ConditionEvaluated { .. } | ExecutionEvent::ConditionSkipped(_) => {
-                    return Err(ExecutionError::UnsupportedConditions);
-                }
             }
         }
         Ok(())
@@ -80,27 +82,69 @@ impl Results {
     }
 }
 
+fn evaluate_conditions(
+    compilation: &Compilation,
+    results: &Results,
+    outcomes: &mut [ConditionOutcome],
+    requests: &[ConditionRequest],
+) -> Result<Vec<ConditionResolution>, ExecutionError> {
+    let mut resolutions = Vec::with_capacity(requests.len());
+    for request in requests {
+        let condition = request.condition();
+        let predicate = compilation.condition(condition);
+        let inputs = predicate
+            .inputs()
+            .iter()
+            .map(|source| results.input(*source))
+            .collect::<Result<Vec<_>, _>>()?;
+        // 谓词在宿主线程求值，不是动作，也不占 action worker 名额。
+        let (outcome, resolution) = match predicate.evaluate(&inputs) {
+            Ok(value) => (
+                ConditionOutcome::Resolved(value),
+                ConditionResolution::new(condition, value),
+            ),
+            Err(error) => (
+                ConditionOutcome::Failed(error),
+                ConditionResolution::failed(condition),
+            ),
+        };
+        outcomes[condition.index()] = outcome;
+        resolutions.push(resolution);
+    }
+    Ok(resolutions)
+}
+
 pub(crate) fn run(
     compilation: Arc<Compilation>,
     options: ExecutionOptions,
 ) -> Result<ExecutionOutcome, ExecutionError> {
-    if !compilation.graph().conditions().is_empty() {
-        return Err(ExecutionError::UnsupportedConditions);
-    }
     let mut session =
         ExecutionSession::new(Arc::new(compilation.graph().clone()), options.skipped)?;
     let workers = options.workers.get();
     let mut results = Results::new(compilation.graph().nodes().len());
+    let mut conditions: Vec<_> = (0..compilation.graph().conditions().len())
+        .map(|_| ConditionOutcome::NotEvaluated)
+        .collect();
     let mut batch = session.start(workers)?;
     // 空图、全跳过图不需要创建空闲线程池。
     if batch.status() != SessionStatus::Running {
         results.events(batch.events())?;
-        return Ok(ExecutionOutcome::new(compilation, results.finish()?));
+        return Ok(ExecutionOutcome::new(
+            compilation,
+            results.finish()?,
+            conditions,
+        ));
     }
-    let executor = ActionExecutor::new(workers).map_err(ExecutionError::Executor)?;
+    let mut executor = None;
     let mut running: usize = 0;
     loop {
         results.events(batch.events())?;
+        if !batch.actions().is_empty() {
+            // 只有真要运行动作才建池；仅判断后全部跳过的图不创建空闲 worker。
+            if executor.is_none() {
+                executor = Some(ActionExecutor::new(workers).map_err(ExecutionError::Executor)?);
+            }
+        }
         for node in batch.actions() {
             let projected = compilation.node(*node);
             let ProjectedKind::Step(action) = projected.kind() else {
@@ -112,6 +156,8 @@ pub(crate) fn run(
                 .map(|source| results.input(*source))
                 .collect::<Result<Vec<_>, _>>()?;
             executor
+                .as_ref()
+                .expect("dispatched actions own an executor")
                 .submit(
                     node.index(),
                     action.clone(),
@@ -122,11 +168,23 @@ pub(crate) fn run(
             running += 1;
         }
         if batch.status() != SessionStatus::Running {
-            return Ok(ExecutionOutcome::new(compilation, results.finish()?));
+            return Ok(ExecutionOutcome::new(
+                compilation,
+                results.finish()?,
+                conditions,
+            ));
+        }
+        if !batch.conditions().is_empty() {
+            let resolutions =
+                evaluate_conditions(&compilation, &results, &mut conditions, batch.conditions())?;
+            batch =
+                session.advance(ExecutionUpdate::new([], resolutions, []), workers - running)?;
+            continue;
         }
         if running == 0 {
             return Err(ExecutionError::Stalled);
         }
+        let executor = executor.as_ref().expect("running actions own an executor");
         executor.wait_for_completion();
         let completions = executor.drain_completions();
         running = running

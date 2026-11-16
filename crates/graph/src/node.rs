@@ -3,16 +3,17 @@ use std::sync::Arc;
 use action::ActionHandle;
 use rivlet::NodeIdentity;
 
-use crate::{GraphError, GraphInterfaceView, GraphStructure, Projection};
+use crate::{Condition, GraphError, GraphInterfaceView, GraphStructure, Projection};
 
 #[derive(Clone, Debug)]
 struct Metadata {
     id: NodeIdentity,
     label: Arc<str>,
+    condition: Option<Condition>,
 }
 
 impl Metadata {
-    fn new(label: impl Into<String>) -> Result<Self, GraphError> {
+    fn new(label: impl Into<String>, condition: Option<Condition>) -> Result<Self, GraphError> {
         let label = label.into();
         if label.is_empty() {
             return Err(GraphError::EmptyNodeLabel);
@@ -20,6 +21,7 @@ impl Metadata {
         Ok(Self {
             id: NodeIdentity::allocate(),
             label: label.into(),
+            condition,
         })
     }
 }
@@ -28,6 +30,7 @@ impl Metadata {
 pub trait Node {
     fn id(&self) -> NodeIdentity;
     fn label(&self) -> &str;
+    fn condition(&self) -> Option<&Condition>;
 }
 
 /// One Rust action with declaration-local metadata.
@@ -44,9 +47,29 @@ impl Step {
     /// Returns an error for an empty label.
     pub fn new(label: impl Into<String>, action: ActionHandle) -> Result<Self, GraphError> {
         Ok(Self {
-            metadata: Metadata::new(label)?,
+            metadata: Metadata::new(label, None)?,
             action,
         })
+    }
+
+    /// Creates a distinct step with a complete runtime condition.
+    ///
+    /// # Errors
+    /// Returns an error for an empty label.
+    pub fn with_condition(
+        label: impl Into<String>,
+        action: ActionHandle,
+        condition: Condition,
+    ) -> Result<Self, GraphError> {
+        Ok(Self {
+            metadata: Metadata::new(label, Some(condition))?,
+            action,
+        })
+    }
+
+    #[must_use]
+    pub const fn condition(&self) -> Option<&Condition> {
+        self.metadata.condition.as_ref()
     }
 
     #[must_use]
@@ -72,6 +95,9 @@ impl Node for Step {
     fn label(&self) -> &str {
         self.label()
     }
+    fn condition(&self) -> Option<&Condition> {
+        self.condition()
+    }
 }
 
 /// One graph node composing metadata and reusable structure, without a fake action.
@@ -91,9 +117,29 @@ impl Graph {
         structure: Arc<GraphStructure>,
     ) -> Result<Self, GraphError> {
         Ok(Self {
-            metadata: Metadata::new(label)?,
+            metadata: Metadata::new(label, None)?,
             structure,
         })
+    }
+
+    /// Creates a distinct graph mount with a complete runtime condition.
+    ///
+    /// # Errors
+    /// Returns an error for an empty label.
+    pub fn with_condition(
+        label: impl Into<String>,
+        structure: Arc<GraphStructure>,
+        condition: Condition,
+    ) -> Result<Self, GraphError> {
+        Ok(Self {
+            metadata: Metadata::new(label, Some(condition))?,
+            structure,
+        })
+    }
+
+    #[must_use]
+    pub const fn condition(&self) -> Option<&Condition> {
+        self.metadata.condition.as_ref()
     }
 
     #[must_use]
@@ -132,6 +178,9 @@ impl Node for Graph {
     fn label(&self) -> &str {
         self.label()
     }
+    fn condition(&self) -> Option<&Condition> {
+        self.condition()
+    }
 }
 
 /// The supported concrete node kinds, not an implementation-inheritance hierarchy.
@@ -152,6 +201,12 @@ impl Node for NodeKind {
         match self {
             Self::Step(value) => value.label(),
             Self::Graph(value) => value.label(),
+        }
+    }
+    fn condition(&self) -> Option<&Condition> {
+        match self {
+            Self::Step(value) => value.condition(),
+            Self::Graph(value) => value.condition(),
         }
     }
 }

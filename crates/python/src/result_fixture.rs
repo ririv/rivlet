@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use std::sync::Arc;
 
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{GraphInterface, GraphStructure, Step};
+use graph::{Condition, GraphInterface, GraphStructure, Step};
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -99,6 +99,17 @@ fn pair<T: Clone + Send + Sync + 'static>(
 
 fn invalid(error: impl std::fmt::Display) -> PyErr {
     PyTypeError::new_err(error.to_string())
+}
+
+#[pyfunction(name = "_rust_condition_fixture")]
+pub(crate) fn rust_condition_fixture() -> PyResult<RustGraphStructure> {
+    let condition = Condition::new(|()| Ok(true), []).map_err(invalid)?;
+    let step = Step::with_condition("guarded", ActionHandle::new(Constant(42_i64)), condition)
+        .map_err(invalid)?;
+    RustGraphStructure::with_codecs(
+        GraphStructure::new([step.into()], []).map_err(invalid)?,
+        Arc::new(ValueCodecs::default()),
+    )
 }
 
 fn bodies(

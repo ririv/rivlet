@@ -1,6 +1,6 @@
 use rivlet::NodeIdentity;
 
-use crate::{GraphError, InputPort, Node, OutputEndpoint, OutputPort, Step};
+use crate::{Condition, GraphError, InputPort, Node, OutputEndpoint, OutputPort, Step};
 
 /// A nonempty immutable group, constructed only by [`Edge::results`].
 #[derive(Clone, Debug)]
@@ -47,9 +47,19 @@ pub enum Edge {
         source: NodeIdentity,
         target: NodeIdentity,
     },
+    ConditionalCompletion {
+        source: NodeIdentity,
+        target: NodeIdentity,
+        condition: Condition,
+    },
     Ports {
         source: OutputPort,
         target: InputPort,
+    },
+    ConditionalPorts {
+        source: OutputPort,
+        target: InputPort,
+        condition: Condition,
     },
     Results {
         sources: ResultSources,
@@ -69,6 +79,41 @@ impl Edge {
     #[must_use]
     pub const fn ports(source: OutputPort, target: InputPort) -> Self {
         Self::Ports { source, target }
+    }
+
+    #[must_use]
+    pub fn with_condition(
+        source: &(impl Node + ?Sized),
+        target: &(impl Node + ?Sized),
+        condition: Condition,
+    ) -> Self {
+        Self::ConditionalCompletion {
+            source: source.id(),
+            target: target.id(),
+            condition,
+        }
+    }
+
+    #[must_use]
+    pub const fn ports_with_condition(
+        source: OutputPort,
+        target: InputPort,
+        condition: Condition,
+    ) -> Self {
+        Self::ConditionalPorts {
+            source,
+            target,
+            condition,
+        }
+    }
+
+    #[must_use]
+    pub const fn condition(&self) -> Option<&Condition> {
+        match self {
+            Self::ConditionalCompletion { condition, .. }
+            | Self::ConditionalPorts { condition, .. } => Some(condition),
+            Self::Completion { .. } | Self::Ports { .. } | Self::Results { .. } => None,
+        }
     }
 
     /// Declares one complete ordered result group and its execution dependencies.
@@ -92,8 +137,12 @@ impl Edge {
     #[must_use]
     pub fn sources(&self) -> Vec<NodeIdentity> {
         match self {
-            Self::Completion { source, .. } => vec![*source],
-            Self::Ports { source, .. } => vec![source.owner()],
+            Self::Completion { source, .. } | Self::ConditionalCompletion { source, .. } => {
+                vec![*source]
+            }
+            Self::Ports { source, .. } | Self::ConditionalPorts { source, .. } => {
+                vec![source.owner()]
+            }
             Self::Results { sources, .. } => sources
                 .iter()
                 .map(|source| match source {
@@ -106,8 +155,8 @@ impl Edge {
     #[must_use]
     pub const fn target(&self) -> NodeIdentity {
         match self {
-            Self::Completion { target, .. } => *target,
-            Self::Ports { target, .. } => target.owner(),
+            Self::Completion { target, .. } | Self::ConditionalCompletion { target, .. } => *target,
+            Self::Ports { target, .. } | Self::ConditionalPorts { target, .. } => target.owner(),
             Self::Results { target, .. } => target.owner(),
         }
     }

@@ -1,16 +1,16 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use action::{ActionHandle, ValueType};
+use action::{ActionError, ActionHandle, Value, ValueType};
 use rivlet::{
-    CompiledExecutionGraph, DeclarationNode, DeclarationPrerequisite, DeclaredGraph,
+    CompiledExecutionGraph, ConditionId, DeclarationNode, DeclarationPrerequisite, DeclaredGraph,
     DeclaredNodeKind, GraphCompilation, GraphDeclaration, GraphId, NodeActivation, NodeId,
-    NodeIdentity, PortConnection,
+    NodeIdentity, PortConnection, Prerequisite, RuntimeCondition,
 };
 
 use crate::{
-    Edge, GraphError, GraphStructure, InputEndpoint, InputPort, Node, NodeKind, OutputEndpoint,
-    OutputPort, PortName, ResultTarget,
+    Condition, Edge, GraphError, GraphStructure, InputEndpoint, InputPort, Node, NodeKind,
+    OutputEndpoint, OutputPort, PortName, ResultTarget,
 };
 
 /// Action ownership and composite membership are mutually exclusive.
@@ -28,8 +28,9 @@ pub struct ProjectedNode {
     path: Vec<usize>,
     graph: GraphId,
     kind: ProjectedKind,
-    prerequisites: Vec<NodeId>,
+    prerequisites: Vec<Prerequisite>,
     inputs: Vec<NodeId>,
+    condition: Option<ConditionId>,
 }
 
 impl ProjectedNode {
@@ -54,12 +55,38 @@ impl ProjectedNode {
         &self.kind
     }
     #[must_use]
-    pub fn prerequisites(&self) -> &[NodeId] {
+    pub fn prerequisites(&self) -> &[Prerequisite] {
         &self.prerequisites
     }
     #[must_use]
     pub fn inputs(&self) -> &[NodeId] {
         &self.inputs
+    }
+    #[must_use]
+    pub const fn condition(&self) -> Option<ConditionId> {
+        self.condition
+    }
+}
+
+/// One predicate use resolved in its actual mounted declaration scope.
+#[derive(Clone, Debug)]
+pub struct ProjectedCondition {
+    declaration: Condition,
+    inputs: Vec<NodeId>,
+}
+
+impl ProjectedCondition {
+    #[must_use]
+    pub fn inputs(&self) -> &[NodeId] {
+        &self.inputs
+    }
+
+    /// Evaluates already-ready typed inputs, without copying their payloads.
+    ///
+    /// # Errors
+    /// Returns a predicate error, input decoding failure, or caught panic.
+    pub fn evaluate(&self, values: &[Option<Value>]) -> Result<bool, ActionError> {
+        self.declaration.evaluate(values)
     }
 }
 
@@ -114,6 +141,7 @@ pub struct Projection {
     scopes: Vec<ProjectedScope>,
     nodes: Vec<ProjectedNode>,
     ports: Vec<PortConnection>,
+    conditions: Vec<ProjectedCondition>,
 }
 
 impl Projection {
@@ -126,6 +154,7 @@ impl Projection {
             scopes: Vec::new(),
             nodes: Vec::new(),
             ports: Vec::new(),
+            conditions: Vec::new(),
         };
         projection.visit(structure, None, &[])?;
         Ok(projection)
@@ -150,6 +179,10 @@ impl Projection {
     #[must_use]
     pub fn port_connections(&self) -> &[PortConnection] {
         &self.ports
+    }
+    #[must_use]
+    pub fn conditions(&self) -> &[ProjectedCondition] {
+        &self.conditions
     }
 
     /// Uses the existing core compiler, including hierarchy and final DAG checks.
@@ -188,13 +221,22 @@ impl Projection {
                             .prerequisites
                             .iter()
                             .copied()
-                            .map(DeclarationPrerequisite::Required)
+                            .map(|prerequisite| match prerequisite {
+                                Prerequisite::Required(node) => {
+                                    DeclarationPrerequisite::Required(node)
+                                }
+                                Prerequisite::Conditional { node, condition } => {
+                                    DeclarationPrerequisite::RuntimeConditional { node, condition }
+                                }
+                            })
                             .collect(),
-                        condition: None,
+                        condition: node.condition,
                     },
                 )
             }),
-            [],
+            self.conditions
+                .iter()
+                .map(|condition| RuntimeCondition::new(condition.inputs.iter().copied())),
             self.ports.iter().copied(),
         )
         .compile()
@@ -240,6 +282,7 @@ impl Projection {
                 kind,
                 prerequisites: Vec::new(),
                 inputs: Vec::new(),
+                condition: None,
             });
             self.scopes[scope.index()].nodes.push(id);
             self.scopes[scope.index()].local.insert(node.id(), id);
@@ -256,17 +299,53 @@ impl Projection {
         scope: GraphId,
         structure: &GraphStructure,
     ) -> Result<(), GraphError> {
+        for node in structure.nodes() {
+            if let Some(condition) = node.condition() {
+                let target = self.scopes[scope.index()].local_node(node.id())?;
+                let condition = self.bind_condition(scope, condition)?;
+                self.nodes[target.index()].condition = Some(condition);
+            }
+        }
         for edge in structure.edges() {
             match edge {
                 Edge::Completion { source, target } => {
                     let source = self.scopes[scope.index()].local_node(*source)?;
                     let target = self.scopes[scope.index()].local_node(*target)?;
-                    self.nodes[target.index()].prerequisites.push(source);
+                    self.nodes[target.index()]
+                        .prerequisites
+                        .push(Prerequisite::Required(source));
+                }
+                Edge::ConditionalCompletion {
+                    source,
+                    target,
+                    condition,
+                } => {
+                    let source = self.scopes[scope.index()].local_node(*source)?;
+                    let target = self.scopes[scope.index()].local_node(*target)?;
+                    let condition = self.bind_condition(scope, condition)?;
+                    self.nodes[target.index()]
+                        .prerequisites
+                        .push(Prerequisite::Conditional {
+                            node: source,
+                            condition,
+                        });
                 }
                 Edge::Ports { source, target } => {
                     let source = self.output_port(scope, source)?;
                     for target in self.input_port(scope, target)? {
                         self.ports.push(PortConnection::new(source, target));
+                    }
+                }
+                Edge::ConditionalPorts {
+                    source,
+                    target,
+                    condition,
+                } => {
+                    let source = self.output_port(scope, source)?;
+                    let condition = self.bind_condition(scope, condition)?;
+                    for target in self.input_port(scope, target)? {
+                        self.ports
+                            .push(PortConnection::conditional(source, target, condition));
                     }
                 }
                 Edge::Results { sources, target } => {
@@ -333,12 +412,44 @@ impl Projection {
         self.nodes[target.index()].inputs = sources.to_vec();
         for source in sources {
             if self.nodes[source.index()].graph == self.nodes[target.index()].graph {
-                self.nodes[target.index()].prerequisites.push(*source);
+                self.nodes[target.index()]
+                    .prerequisites
+                    .push(Prerequisite::Required(*source));
             } else {
                 self.ports.push(PortConnection::new(*source, target));
             }
         }
         Ok(())
+    }
+
+    fn bind_condition(
+        &mut self,
+        scope: GraphId,
+        declaration: &Condition,
+    ) -> Result<ConditionId, GraphError> {
+        let inputs = declaration
+            .inputs()
+            .iter()
+            .map(|source| self.output_endpoint(scope, source))
+            .collect::<Result<Vec<_>, _>>()?;
+        for (source, expected) in inputs.iter().zip(declaration.input_types()) {
+            let actual = match &self.nodes[source.index()].kind {
+                ProjectedKind::Step(action) => action.output_type(),
+                ProjectedKind::Graph(_) => ValueType::of::<()>(),
+            };
+            if actual != *expected {
+                return Err(GraphError::ResultTypeMismatch {
+                    expected: expected.name(),
+                    actual: actual.name(),
+                });
+            }
+        }
+        let id = ConditionId::new(self.conditions.len());
+        self.conditions.push(ProjectedCondition {
+            declaration: declaration.clone(),
+            inputs,
+        });
+        Ok(id)
     }
 
     fn child_scope(&self, scope: GraphId, owner: NodeIdentity) -> Result<GraphId, GraphError> {
@@ -410,5 +521,14 @@ impl Compilation {
     #[must_use]
     pub fn node(&self, index: NodeId) -> &ProjectedNode {
         &self.projection.nodes[self.graph.declaration_nodes()[index.index()].index()]
+    }
+
+    /// Reads the predicate side table using the compiler's actual condition mapping.
+    ///
+    /// # Panics
+    /// Panics if the condition does not belong to this compilation.
+    #[must_use]
+    pub fn condition(&self, index: ConditionId) -> &ProjectedCondition {
+        &self.projection.conditions[self.graph.declaration_conditions()[index.index()].index()]
     }
 }

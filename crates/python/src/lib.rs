@@ -416,6 +416,10 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
         result_fixture::rust_result_fixture,
         module
     )?)?;
+    module.add_function(wrap_pyfunction!(
+        result_fixture::rust_condition_fixture,
+        module
+    )?)?;
     module.add_class::<mixed_execution::MixedExecutionBatch>()?;
     module.add_class::<mixed_execution::MixedExecutionSession>()?;
     module.add_class::<mixed_execution::ConcurrencyLimits>()?;

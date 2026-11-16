@@ -67,7 +67,7 @@ impl GraphStructure {
     }
 
     fn validate(&self) -> Result<(), GraphError> {
-        // 本层校验 O(V+E+R+P)，R 为结果来源总数；不为每条普通边分配来源 Vec。
+        // 本层校验 O(V+E+R+P)，R 为动作与条件的结果来源总数；普通边不分配来源 Vec。
         // 端口不近似成整个子图的阻塞关系。
         let mut indexes = HashMap::new();
         for (index, node) in self.nodes.iter().enumerate() {
@@ -78,14 +78,28 @@ impl GraphStructure {
         let require =
             |id: NodeIdentity| indexes.get(&id).copied().ok_or(GraphError::UnknownNode(id));
         let mut arcs = Vec::new();
+        for node in &self.nodes {
+            if let Some(condition) = node.condition() {
+                for input in condition.inputs() {
+                    match input {
+                        OutputEndpoint::Node(source) => {
+                            arcs.push(TopologyArc::new(require(*source)?, require(node.id())?));
+                        }
+                        OutputEndpoint::Port(port) => {
+                            require(port.owner())?;
+                        }
+                    }
+                }
+            }
+        }
         for edge in &self.edges {
             let target = require(edge.target())?;
             match edge {
-                Edge::Completion { source, .. } => {
+                Edge::Completion { source, .. } | Edge::ConditionalCompletion { source, .. } => {
                     let source = require(*source)?;
                     arcs.push(TopologyArc::new(source, target));
                 }
-                Edge::Ports { source, .. } => {
+                Edge::Ports { source, .. } | Edge::ConditionalPorts { source, .. } => {
                     require(source.owner())?;
                 }
                 Edge::Results { sources, .. } => {
@@ -94,6 +108,21 @@ impl GraphStructure {
                             OutputEndpoint::Node(id) => *id,
                             OutputEndpoint::Port(port) => port.owner(),
                         })?;
+                    }
+                }
+            }
+            if let Some(condition) = edge.condition() {
+                for input in condition.inputs() {
+                    match input {
+                        OutputEndpoint::Node(source) => {
+                            let source = require(*source)?;
+                            if matches!(edge, Edge::ConditionalCompletion { .. }) {
+                                arcs.push(TopologyArc::new(source, target));
+                            }
+                        }
+                        OutputEndpoint::Port(port) => {
+                            require(port.owner())?;
+                        }
                     }
                 }
             }

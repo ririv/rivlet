@@ -17,6 +17,10 @@ pub enum GraphError {
     UnknownInputPort(PortName),
     UnknownOutputPort(PortName),
     EmptyResults,
+    ConditionInputCount {
+        expected: usize,
+        actual: usize,
+    },
     DuplicateResults(NodeIdentity),
     ResultTargetNotStep(NodeIdentity),
     ResultInputCount {
@@ -52,6 +56,10 @@ impl Display for GraphError {
             Self::UnknownInputPort(name) => write!(f, "unknown input port: {name}"),
             Self::UnknownOutputPort(name) => write!(f, "unknown output port: {name}"),
             Self::EmptyResults => f.write_str("result connections require at least one source"),
+            Self::ConditionInputCount { expected, actual } => write!(
+                f,
+                "predicate expects {expected} result inputs, received {actual}"
+            ),
             Self::DuplicateResults(id) => {
                 write!(f, "node {} has more than one result group", id.value())
             }

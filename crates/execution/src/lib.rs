@@ -1,7 +1,7 @@
 //! A synchronous Rust host composing the shared scheduler, workers and typed results.
 //!
 //! Graph declarations and the low-level session/executor APIs remain independent.
-//! An Execution is consumed by run; an Arc<Compilation> can be shared by separate
+//! An Execution is consumed by run; an `Arc<Compilation>` can be shared by separate
 //! executions, each with its own workers and results. No Python runtime is involved.
 //!
 //! ```
@@ -26,7 +26,7 @@ use graph::Compilation;
 use rivlet::NodeId;
 
 pub use error::ExecutionError;
-pub use outcome::{ExecutionOutcome, ExecutionStatus, NodeFailure, NodeOutcome};
+pub use outcome::{ConditionOutcome, ExecutionOutcome, ExecutionStatus, NodeFailure, NodeOutcome};
 
 /// Explicit worker capacity and additive initial skips for a single execution.
 #[derive(Clone, Debug)]
@@ -70,15 +70,16 @@ impl Execution {
         }
     }
 
-    /// Runs to completion, including independent branches after an action failure.
+    /// Runs to completion, including independent branches after an action/predicate failure.
     ///
-    /// Action failures are retained in the returned outcome, not returned as early
-    /// errors. Idle execution waits on worker completion, not a timer. Action
+    /// Action and predicate failures are retained in the returned outcome, not returned as early
+    /// errors. Predicates run on this thread, outside worker slots. Idle execution
+    /// waits on worker completion, not a timer. Action
     /// contexts use their default (no log path); custom hosts can compose the
     /// low-level session and executor instead.
     ///
     /// # Errors
-    /// Returns an error for invalid skip indexes, unsupported predicates, executor
+    /// Returns an error for invalid skip indexes, executor
     /// infrastructure failures, or inconsistent scheduler/result transitions.
     pub fn run(self) -> Result<ExecutionOutcome, ExecutionError> {
         driver::run(self.compilation, self.options)

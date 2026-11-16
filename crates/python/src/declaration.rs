@@ -490,7 +490,9 @@ impl<'py> Collector<'py> {
                         .prerequisites()
                         .iter()
                         .map(|id| {
-                            DeclarationPrerequisite::Required(NodeId::new(first_node + id.index()))
+                            DeclarationPrerequisite::Required(NodeId::new(
+                                first_node + id.node().index(),
+                            ))
                         })
                         .collect(),
                     condition: None,

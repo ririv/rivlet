@@ -2,7 +2,7 @@
 //!
 //! Step/Graph own metadata; `GraphStructure` is reusable. Node is their common
 //! reference interface and `NodeKind` is the closed concrete union. Result edges
-//! bind typed action inputs; Rust predicate execution remains outside this API.
+//! bind typed action inputs; typed runtime predicates remain Rust-owned.
 //!
 //! ```
 //! use std::sync::Arc;
@@ -35,6 +35,7 @@
 //! # }
 //! ```
 
+mod condition;
 mod edge;
 mod error;
 mod interface;
@@ -42,6 +43,7 @@ mod node;
 mod projection;
 mod structure;
 
+pub use condition::Condition;
 pub use edge::{Edge, ResultSources, ResultTarget};
 pub use error::GraphError;
 pub use interface::{
@@ -49,5 +51,7 @@ pub use interface::{
     PortName,
 };
 pub use node::{Graph, Node, NodeKind, Step};
-pub use projection::{Compilation, ProjectedKind, ProjectedNode, ProjectedScope, Projection};
+pub use projection::{
+    Compilation, ProjectedCondition, ProjectedKind, ProjectedNode, ProjectedScope, Projection,
+};
 pub use structure::GraphStructure;

@@ -17,6 +17,8 @@ def _rust_result_fixture(
     kind: _ResultFixtureKind,
 ) -> tuple[RustGraphStructure, RustGraphStructure]: ...
 
+def _rust_condition_fixture() -> RustGraphStructure: ...
+
 type EncodedExecutionEvent = (
     tuple[Literal[0], int, bool]
     | tuple[Literal[1, 2, 3, 4, 5, 6, 7], int]

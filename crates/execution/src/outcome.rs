@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use action::{ActionError, Value};
 use graph::Compilation;
-use rivlet::{BlockCause, NodeId};
+use rivlet::{BlockCause, ConditionId, NodeId};
 
 /// One direct failure witness; child failures retain their compiled node identity.
 #[derive(Debug)]
@@ -20,6 +20,14 @@ pub enum NodeOutcome {
     Blocked(BlockCause),
 }
 
+/// A condition is either never requested, resolved, or failed with its original error.
+#[derive(Debug)]
+pub enum ConditionOutcome {
+    NotEvaluated,
+    Resolved(bool),
+    Failed(ActionError),
+}
+
 /// The final status of an execution, never an intermediate Running state.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionStatus {
@@ -31,11 +39,20 @@ pub enum ExecutionStatus {
 pub struct ExecutionOutcome {
     compilation: Arc<Compilation>,
     nodes: Vec<NodeOutcome>,
+    conditions: Vec<ConditionOutcome>,
 }
 
 impl ExecutionOutcome {
-    pub(crate) fn new(compilation: Arc<Compilation>, nodes: Vec<NodeOutcome>) -> Self {
-        Self { compilation, nodes }
+    pub(crate) fn new(
+        compilation: Arc<Compilation>,
+        nodes: Vec<NodeOutcome>,
+        conditions: Vec<ConditionOutcome>,
+    ) -> Self {
+        Self {
+            compilation,
+            nodes,
+            conditions,
+        }
     }
 
     #[must_use]
@@ -47,6 +64,12 @@ impl ExecutionOutcome {
     #[must_use]
     pub fn node(&self, node: NodeId) -> Option<&NodeOutcome> {
         self.nodes.get(node.index())
+    }
+
+    /// Returns None only for an index outside this compilation.
+    #[must_use]
+    pub fn condition(&self, condition: ConditionId) -> Option<&ConditionOutcome> {
+        self.conditions.get(condition.index())
     }
 
     /// Iterates mounted execution identities, not reusable declaration identities.

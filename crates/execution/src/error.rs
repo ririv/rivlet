@@ -10,7 +10,6 @@ pub enum ExecutionError {
     InvalidWorkers,
     Session(SessionError),
     Executor(ActionError),
-    UnsupportedConditions,
     UnexpectedComposite(NodeId),
     MissingResult(NodeId),
     DuplicateOutcome(NodeId),
@@ -25,9 +24,6 @@ impl Display for ExecutionError {
             Self::InvalidWorkers => formatter.write_str("workers must be greater than zero"),
             Self::Session(error) => Display::fmt(error, formatter),
             Self::Executor(error) => Display::fmt(error, formatter),
-            Self::UnsupportedConditions => {
-                formatter.write_str("Rust predicate execution is not supported")
-            }
             Self::UnexpectedComposite(node) => write!(
                 formatter,
                 "composite {} was dispatched as an action",

@@ -49,8 +49,15 @@ impl RustGraphStructure {
         structure: GraphStructure,
         codecs: Arc<ValueCodecs>,
     ) -> PyResult<Self> {
+        let projection = Projection::from_structure(Arc::new(structure)).map_err(invalid)?;
+        // Python 混合 session 尚无 Rust 谓词侧表；禁止把带条件的原生图当作无条件图导入。
+        if !projection.conditions().is_empty() {
+            return Err(invalid(
+                "Rust predicates require the Rust Execution host; Python mixed predicate dispatch is not implemented",
+            ));
+        }
         Ok(Self {
-            projection: Arc::new(Projection::from_structure(Arc::new(structure)).map_err(invalid)?),
+            projection: Arc::new(projection),
             scope: GraphId::new(0),
             codecs,
         })
@@ -183,6 +190,9 @@ impl RustGraphStructure {
                                 .unbind(),
                         );
                     }
+                }
+                Edge::ConditionalCompletion { .. } | Edge::ConditionalPorts { .. } => {
+                    return Err(invalid("Rust predicates require the Rust Execution host"));
                 }
             }
         }
