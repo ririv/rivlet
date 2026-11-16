@@ -2,6 +2,12 @@ from collections.abc import Callable
 from enum import Enum
 from typing import Literal, Protocol
 
+from .model.graph import Graph
+from .model.graph_structure import GraphStructure
+from .model.step import Step
+
+def _import_node(capsule: object) -> Step | Graph: ...
+
 class _ResultFixtureKind(Enum):
     I64 = 0
     U64 = 1
@@ -15,9 +21,18 @@ class _ResultFixtureKind(Enum):
 
 def _rust_result_fixture(
     kind: _ResultFixtureKind,
-) -> tuple[RustGraphStructure, RustGraphStructure]: ...
+) -> tuple[GraphStructure, GraphStructure]: ...
+def _rust_condition_fixture() -> GraphStructure: ...
 
-def _rust_condition_fixture() -> RustGraphStructure: ...
+class _NativePredicate: ...
+
+class _NativeStep:
+    def input_count(self) -> int: ...
+
+class _NativeCondition:
+    def as_input(self) -> _NativeCondition: ...
+    @property
+    def inputs(self) -> tuple[()]: ...
 
 type EncodedExecutionEvent = (
     tuple[Literal[0], int, bool]
@@ -27,8 +42,9 @@ type EncodedExecutionEvent = (
     | tuple[Literal[14], int, int, int, int]
 )
 
-class RustGraphStructure:
-    def nodes(self) -> list[tuple[int, str, RustGraphStructure | None]]: ...
+class _NativeStructure:
+    def conditions(self) -> list[tuple[list[int], int | None, list[list[int]]]]: ...
+    def nodes(self) -> list[tuple[int, str, _NativeStructure | None]]: ...
     def edges(
         self,
     ) -> list[
@@ -124,9 +140,9 @@ def _rust_process_graph(
     arcs: list[tuple[int, int]],
     inputs: list[tuple[str | None, list[int]]] = ...,
     outputs: list[tuple[str | None, int]] = ...,
-) -> RustGraphStructure: ...
+) -> GraphStructure: ...
 def _compose_rust_graph(
-    components: list[tuple[str, RustGraphStructure]],
+    components: list[tuple[str, GraphStructure]],
     edges: list[
         tuple[int, int]
         | tuple[int, int, str | None, str | None]
@@ -134,7 +150,7 @@ def _compose_rust_graph(
     ],
     inputs: list[tuple[str | None, list[tuple[int, str | None]]]],
     outputs: list[tuple[str | None, int, str | None]],
-) -> RustGraphStructure: ...
+) -> GraphStructure: ...
 def _experimental_run_tokio_callbacks(
     graph: CompiledExecutionGraph,
     host: ExperimentalCallbackHost,
@@ -167,7 +183,7 @@ class CompiledExecutionGraph:
         workers: int | None = ...,
         retain_results: bool = ...,
         concurrency: tuple[_ConcurrencyLimits, list[list[int]]] | None = ...,
-    ) -> MixedExecutionSession: ...
+    ) -> _DriverSession: ...
 
 class ExecutionBatch:
     def parts(
@@ -215,3 +231,33 @@ class MixedExecutionSession:
     ) -> MixedExecutionBatch: ...
     def wait_rust(self) -> None: ...
     def notify_rust(self, callback: Callable[[], None]) -> None: ...
+
+class HostExecutionBatch:
+    def parts(
+        self,
+    ) -> tuple[
+        list[int],
+        list[tuple[int, int]],
+        list[EncodedExecutionEvent],
+        bool,
+        int,
+        list[tuple[int, str]],
+        list[tuple[int, _RustResult]],
+    ]: ...
+
+class HostExecutionSession:
+    def suspend_action(self, node: int) -> list[int]: ...
+    def start(self, capacity: int) -> HostExecutionBatch: ...
+    def advance(
+        self,
+        completed: list[tuple[int, bool]],
+        conditions: list[tuple[int, bool | None]],
+        skipped: list[int],
+        available: int,
+        values: list[tuple[int, object]] = ...,
+    ) -> HostExecutionBatch: ...
+    def wait_rust(self) -> None: ...
+    def notify_rust(self, callback: Callable[[], None]) -> None: ...
+
+type _DriverSession = HostExecutionSession | MixedExecutionSession
+type _DriverBatch = HostExecutionBatch | MixedExecutionBatch

@@ -1,6 +1,8 @@
 [workspace]
 members = [
     "crates/action",
+    "crates/bridge",
+    "crates/python-sdk",
     "crates/core",
     "crates/execution",
     "crates/graph",
@@ -8,7 +10,7 @@ members = [
     "crates/topology",
     "crates/tokio-runtime",
 ]
-exclude = ["crates/node"]
+exclude = ["crates/node", "examples/python-native"]
 resolver = "3"
 
 [workspace.package]

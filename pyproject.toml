@@ -47,6 +47,12 @@ include = [
     {path = "justfile", format = "sdist"},
     {path = "tests/**/*", format = "sdist"},
     {path = "scripts/**/*", format = "sdist"},
+    {path = "examples/python-native/Cargo.toml", format = "sdist"},
+    {path = "examples/python-native/Cargo.lock", format = "sdist"},
+    {path = "examples/python-native/pyproject.toml", format = "sdist"},
+    {path = "examples/python-native/*.py", format = "sdist"},
+    {path = "examples/python-native/*.pyi", format = "sdist"},
+    {path = "examples/python-native/src/**/*", format = "sdist"},
 ]
 
 [tool.pytest.ini_options]

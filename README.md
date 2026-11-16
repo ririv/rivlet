@@ -46,6 +46,10 @@ An experimental [Node.js source binding](https://github.com/ririv/rivlet/blob/ma
 connects JavaScript actions to the same Rust compiler and scheduler, without Python.
 It is not yet published to npm; its supported scope is documented separately.
 
+Python/Rust mixed execution, the independent-extension SDK and its ABI bridge are
+[one experimental feature](https://github.com/ririv/rivlet/blob/main/docs/mixed-execution.md).
+They may change or be removed; ordinary Python workflows do not require them.
+
 ## Compose steps and reusable subgraphs
 
 ```python
@@ -455,6 +459,7 @@ for the schema, historical snapshots, and static/dynamic scope limits.
 - [Conditional steps](https://github.com/ririv/rivlet/blob/main/docs/conditional_steps.md) and [conditional edges](https://github.com/ririv/rivlet/blob/main/docs/conditional_edges.md)
 - [Async execution, cancellation, and failure propagation](https://github.com/ririv/rivlet/blob/main/docs/execution.md)
 - [Typed failure events](https://github.com/ririv/rivlet/blob/main/docs/failure_events.md)
+- [Independent Rust extensions in Python workflows (experimental SDK)](https://github.com/ririv/rivlet/blob/main/docs/python-native.md)
 - [All documentation](https://github.com/ririv/rivlet/blob/main/docs/index.md)
 
 For contributors: [local development and checks](https://github.com/ririv/rivlet/blob/main/docs/development.md),

@@ -126,12 +126,12 @@ class _Inputs(Mapping[PortName, InputPort]):
         self._graph = graph
 
     def __getitem__(self, key: PortName) -> InputPort:
-        from ._native import RustGraphStructure
+        from ._native import _NativeStructure
 
-        body = self._graph.structure
+        body = self._graph.structure._declaration
         exists = (
             body.has_input_port(key)
-            if isinstance(body, RustGraphStructure)
+            if isinstance(body, _NativeStructure)
             else key in body.interface.inputs
         )
         if not exists:
@@ -140,12 +140,12 @@ class _Inputs(Mapping[PortName, InputPort]):
 
     @property
     def _names(self) -> Mapping[PortName, tuple[InputEndpoint, ...]] | list[PortName]:
-        from ._native import RustGraphStructure
+        from ._native import _NativeStructure
 
-        body = self._graph.structure
+        body = self._graph.structure._declaration
         return (
             body.input_ports()
-            if isinstance(body, RustGraphStructure)
+            if isinstance(body, _NativeStructure)
             else body.interface.inputs
         )
 
@@ -161,12 +161,12 @@ class _Outputs(Mapping[PortName, OutputPort]):
         self._graph = graph
 
     def __getitem__(self, key: PortName) -> OutputPort:
-        from ._native import RustGraphStructure
+        from ._native import _NativeStructure
 
-        body = self._graph.structure
+        body = self._graph.structure._declaration
         exists = (
             body.has_output_port(key)
-            if isinstance(body, RustGraphStructure)
+            if isinstance(body, _NativeStructure)
             else key in body.interface.outputs
         )
         if not exists:
@@ -175,12 +175,12 @@ class _Outputs(Mapping[PortName, OutputPort]):
 
     @property
     def _names(self) -> Mapping[PortName, OutputEndpoint] | list[PortName]:
-        from ._native import RustGraphStructure
+        from ._native import _NativeStructure
 
-        body = self._graph.structure
+        body = self._graph.structure._declaration
         return (
             body.output_ports()
-            if isinstance(body, RustGraphStructure)
+            if isinstance(body, _NativeStructure)
             else body.interface.outputs
         )
 
@@ -217,11 +217,11 @@ class GraphInterfaceView:
 
 
 def _declared_interface(graph: Graph) -> GraphInterface:
-    from .model.graph_structure import GraphStructure
+    from .model.python_structure import _PythonStructure
 
-    if not isinstance(graph.structure, GraphStructure):
+    if not isinstance(graph.structure._declaration, _PythonStructure):
         raise GraphError("opaque Rust interfaces do not expose Python node objects")
-    return graph.structure.interface
+    return graph.structure._declaration.interface
 
 
 @dataclass(frozen=True, slots=True)

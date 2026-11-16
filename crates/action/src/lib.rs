@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 pub use process::ProcessAction;
-pub use value::{ActionInputs, Value, ValueType};
+pub use value::{ActionInputs, ExternalValue, Value, ValueType, ValueTypeId};
 
 /// Immutable inputs available to a native action during one execution.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -60,6 +60,50 @@ struct ActionAdapter<A> {
     input_types: Vec<ValueType>,
 }
 
+type DynamicFunction =
+    dyn Fn(&ActionContext, &[Option<Value>]) -> Result<Value, ActionError> + Send + Sync;
+
+struct FunctionAction {
+    inputs: Vec<ValueType>,
+    output: ValueType,
+    function: Box<DynamicFunction>,
+}
+
+impl ErasedAction for FunctionAction {
+    fn execute(
+        &self,
+        context: &ActionContext,
+        inputs: &[Option<Value>],
+    ) -> Result<Value, ActionError> {
+        if inputs.len() != self.inputs.len() {
+            return Err(ActionError::new("native input group has an invalid length"));
+        }
+        for (value, expected) in inputs.iter().zip(&self.inputs) {
+            if value
+                .as_ref()
+                .is_some_and(|value| value.type_id() != expected.id())
+            {
+                return Err(ActionError::new(
+                    "native input value type does not match its declaration",
+                ));
+            }
+        }
+        let value = (self.function)(context, inputs)?;
+        if value.type_id() != self.output.id() {
+            return Err(ActionError::new(
+                "native output value type does not match its declaration",
+            ));
+        }
+        Ok(value)
+    }
+    fn input_types(&self) -> &[ValueType] {
+        &self.inputs
+    }
+    fn output_type(&self) -> ValueType {
+        self.output
+    }
+}
+
 impl<A: Action> ErasedAction for ActionAdapter<A> {
     fn execute(
         &self,
@@ -90,6 +134,24 @@ impl<A: Action> ErasedAction for ActionAdapter<A> {
 pub struct ActionHandle(Arc<dyn ErasedAction>);
 
 impl ActionHandle {
+    /// Declares a dynamically typed adapter action with a complete checked signature.
+    ///
+    /// Experimental adapter entry used by mixed execution and the extension SDK.
+    #[must_use]
+    pub fn from_fn(
+        inputs: Vec<ValueType>,
+        output: ValueType,
+        function: impl Fn(&ActionContext, &[Option<Value>]) -> Result<Value, ActionError>
+        + Send
+        + Sync
+        + 'static,
+    ) -> Self {
+        Self(Arc::new(FunctionAction {
+            inputs,
+            output,
+            function: Box::new(function),
+        }))
+    }
     #[must_use]
     pub fn new<A: Action>(action: A) -> Self {
         Self(Arc::new(ActionAdapter {

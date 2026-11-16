@@ -83,8 +83,8 @@ def test_compile_graph_flattens_nested_graph_and_preserves_structure() -> None:
     assert parent_path is not None
     assert parent_path.labels == ("stage",)
     assert compilation.steps[1].context.graph_node_paths == {
-        stage_graph.structure.nodes[0]: NodePath((1, 0)),
-        stage_graph.structure.nodes[1]: NodePath((1, 1)),
+        stage_graph.structure._declaration.nodes[0]: NodePath((1, 0)),
+        stage_graph.structure._declaration.nodes[1]: NodePath((1, 1)),
     }
     assert (
         compilation.steps[1].context.ancestor_graph_scopes

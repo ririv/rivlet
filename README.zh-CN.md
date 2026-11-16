@@ -415,12 +415,17 @@ schema、历史冻结及静态／动态范围见[结构导出](https://github.co
 让 JS 动作直接接入同一 Rust 编译器与调度器，不经过 Python；尚未发布 npm，
 支持范围见独立文档。
 
+Python/Rust 混合执行、独立扩展 SDK 与 ABI 桥接
+[整体作为实验性功能](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/mixed-execution.md)，
+可能调整或移除；普通 Python 工作流不依赖它们。
+
 ## 更多用法
 
 - [结果输入与动作上下文](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/core_model.md#结果与运行上下文)
 - [条件步骤](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/conditional_steps.md)与[条件边](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/conditional_edges.md)
 - [异步执行、取消与失败传播](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/execution.md)
 - [强类型失败事件](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/failure_events.md)
+- [在 Python 工作流中组合独立 Rust 扩展（实验性 SDK）](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/python-native.md)
 - [完整文档](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/index.md)
 
 参与开发请参阅[本地开发与检查](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/development.md)、

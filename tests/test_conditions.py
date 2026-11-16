@@ -50,7 +50,7 @@ def test_external_condition_source_does_not_remove_dsl_sequence_edge(mode):
         condition=((lambda value: value.unwrap(), probe)),
     )
     graph = (probe >> prepare >> consumer).graph()
-    assert Edge(prepare, consumer) in graph.structure.edges
+    assert Edge(prepare, consumer) in graph.structure._declaration.edges
     run_execution(Execution(Graph(structure=graph.structure)), max_workers=3, mode=mode)
     assert calls == ["prepare", "consume"]
 

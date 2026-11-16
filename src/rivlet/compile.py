@@ -13,7 +13,7 @@ from ._native import (
     CompiledExecutionGraph,
     DeclarationCompilation,
     RustActionBindings,
-    RustGraphStructure,
+    _NativePredicate,
     compile_declaration,
 )
 from .errors import GraphError
@@ -62,7 +62,7 @@ class CompiledRuntimeCondition:
     按声明顺序接收该挂载对应的 Option 结果，编译过程不会提前求值。
     """
 
-    when: ConditionalEdgePredicate
+    when: ConditionalEdgePredicate | _NativePredicate
     inputs: tuple[CompiledNodeRef, ...]
 
 
@@ -125,7 +125,7 @@ class CompiledPythonStep:
 
 @dataclass(frozen=True, slots=True)
 class CompiledRustStep:
-    """由 Rust 执行器直接调用的原生叶子节点。"""
+    """Experimental: a Rust action inside a Python-driven mixed workflow."""
 
     ref: CompiledStepRef
     after: tuple[CompiledPrerequisite, ...]
@@ -153,7 +153,7 @@ class CompiledComposite:
     """
 
     ref: CompiledCompositeRef
-    source_graph: GraphStructure | RustGraphStructure
+    source_graph: GraphStructure
     graph_label: str
     children: tuple[CompiledNodeRef, ...]
     after: tuple[CompiledPrerequisite, ...]
@@ -716,7 +716,7 @@ def _bind_declaration_compilation(
     condition_reads = native.condition_reads()
     compiled_conditions = tuple(
         CompiledRuntimeCondition(
-            when=cast("ConditionalEdgePredicate", predicate),
+            when=cast("ConditionalEdgePredicate | _NativePredicate", predicate),
             inputs=tuple(refs_by_declaration[read] for read in reads),
         )
         for predicate, reads in zip(predicates, condition_reads, strict=True)
@@ -793,7 +793,7 @@ def _bind_declaration_compilation(
             ordered_nodes.append(compiled_step)
             continue
         component_source_graph = cast(
-            "GraphStructure | RustGraphStructure",
+            "GraphStructure",
             source_graphs[child_graph],
         )
         composite = CompiledComposite(
@@ -808,11 +808,7 @@ def _bind_declaration_compilation(
             after=after,
             condition=condition,
             owner=owner,
-            observation=(
-                component_source_graph.observation
-                if isinstance(component_source_graph, GraphStructure)
-                else GraphObservationMessages()
-            ),
+            observation=(component_source_graph.observation),
             context=context,
             graph_node_paths=graph_node_paths[child_graph],
         )

@@ -3,7 +3,9 @@
 mod declaration;
 mod events;
 mod experiment;
+mod host_execution;
 mod mixed_execution;
+mod native_structure;
 mod result_fixture;
 mod result_values;
 mod rust_graph;
@@ -355,23 +357,21 @@ impl CompiledExecutionGraph {
     }
 
     #[pyo3(signature = (initially_skipped, rust_actions, rust_contexts, workers=None, retain_results=false, concurrency=None))]
+    // Python token 不是用户参数；保留既有私有 driver 协议，不为 lint 改动调用入口。
+    #[allow(clippy::too_many_arguments)]
     fn mixed_session(
         &self,
+        py: Python<'_>,
         initially_skipped: Vec<usize>,
         rust_actions: &mixed_execution::RustActionBindings,
         rust_contexts: Vec<(usize, Option<String>)>,
         workers: Option<usize>,
         retain_results: bool,
         concurrency: Option<(
-            PyRef<'_, mixed_execution::ConcurrencyLimits>,
+            PyRef<'_, host_execution::ConcurrencyLimits>,
             Vec<Vec<usize>>,
         )>,
-    ) -> PyResult<mixed_execution::MixedExecutionSession> {
-        let bindings = mixed_execution::MixedExecutionSession::bindings(
-            self.graph.nodes().len(),
-            rust_actions,
-            rust_contexts,
-        )?;
+    ) -> PyResult<Py<PyAny>> {
         let mut session = CoreExecutionSession::new(
             Arc::clone(&self.graph),
             initially_skipped.into_iter().map(NodeId::new),
@@ -386,7 +386,27 @@ impl CompiledExecutionGraph {
                 .with_concurrency(binding)
                 .map_err(|error| PyValueError::new_err(error.to_string()))?;
         }
-        mixed_execution::MixedExecutionSession::new(session, bindings, workers, retain_results)
+        if !rust_actions.has_native() {
+            rust_actions.validate_host_only(self.graph.nodes().len(), &rust_contexts, workers)?;
+            return Py::new(py, host_execution::HostExecutionSession::new(session))
+                .map(Py::into_any);
+        }
+        let bindings = mixed_execution::MixedExecutionSession::bindings(
+            self.graph.nodes().len(),
+            rust_actions,
+            rust_contexts,
+        )?;
+        Py::new(
+            py,
+            mixed_execution::MixedExecutionSession::new(
+                session,
+                bindings,
+                workers,
+                retain_results,
+                rust_actions.conditions.clone(),
+            )?,
+        )
+        .map(Py::into_any)
     }
 }
 
@@ -410,6 +430,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<ExecutionBatch>()?;
     module.add_class::<ExecutionSession>()?;
     module.add_class::<mixed_execution::RustActionBindings>()?;
+    module.add_class::<mixed_execution::_NativePredicate>()?;
     module.add_class::<result_values::RustResult>()?;
     module.add_class::<result_fixture::ResultFixtureKind>()?;
     module.add_function(wrap_pyfunction!(
@@ -422,7 +443,12 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     module.add_class::<mixed_execution::MixedExecutionBatch>()?;
     module.add_class::<mixed_execution::MixedExecutionSession>()?;
-    module.add_class::<mixed_execution::ConcurrencyLimits>()?;
-    module.add_class::<rust_graph::RustGraphStructure>()?;
+    module.add_class::<host_execution::HostExecutionSession>()?;
+    module.add_class::<host_execution::HostExecutionBatch>()?;
+    module.add_class::<host_execution::ConcurrencyLimits>()?;
+    module.add_class::<native_structure::_NativeStructure>()?;
+    module.add_class::<native_structure::_NativeStep>()?;
+    module.add_class::<native_structure::_NativeCondition>()?;
+    rivlet_python::register_importer(module, native_structure::import_node)?;
     Ok(())
 }

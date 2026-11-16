@@ -103,6 +103,9 @@ policy candidates are documented in [result lifetime](./result_lifetime.md).
 
 ## Python boundary
 
+Cross-language conversions belong to the [experimental mixed-execution feature](./mixed-execution.md),
+including the SDK and bridge. Pure Rust typed results are outside that designation.
+
 Python declarations keep the existing API:
 
 ```python
@@ -136,9 +139,10 @@ Custom conversion is an explicit PyO3 adapter responsibility. Internally, `Value
 composes paired Rust export/import functions for a concrete type. A type's converter
 cannot overwrite an existing or standard converter. Combining graphs can reuse the
 same converter object; conflicting registrations are rejected. There is no global
-mutable registry or public Python dynamic-registration plugin API. Independent
-adapter distribution/ABI remains a separate boundary, not implicit trait-object
-exchange between dynamic libraries.
+mutable registry or public Python dynamic-registration plugin API. Independent extensions use the explicit [C ABI/SDK boundary](./python-native.md),
+not implicit trait-object exchange between dynamic libraries. Builtins have defined
+binary conversions; custom payloads can remain opaque within one provider. The SDK
+currently has no custom cross-provider/Python converter registration API.
 
 A custom Rust value with no converter is valid on Rust-only edges. Reading it from
 Python fails at that reader with an explicit missing-converter error. An invalid
@@ -148,6 +152,6 @@ not shared mutable state.
 
 Tree/Mermaid and structural export show native result edges and argument positions
 without including values, commands, environments, or converter internals. These
-result bridges do not dispatch native predicates or expand graphs at runtime.
-[Native Rust predicates](./rust-conditions.md) run in the Rust Execution host;
-importing them into the Python mixed driver is explicitly rejected.
+result bridges do not expand native graphs at runtime.
+[Native Rust synchronous predicates](./rust-conditions.md) run in both the Rust
+Execution host and the Python mixed driver, keeping native values native.

@@ -69,6 +69,10 @@ cargo fmt --check
 During development, run the tests relevant to the changed boundary. Changes to
 shared compilation or execution logic warrant the full graph suite.
 
+For the independent-extension ABI, also run `just test-native-bridge`.
+It builds a separate wheel in a temporary directory and exercises the real
+[SDK boundary](./python-native.md), not only in-library native fixtures.
+
 ## Further reading
 
 - [Architecture and Python/Rust boundaries](./rust-architecture.md)

@@ -52,6 +52,7 @@ pub use interface::{
 };
 pub use node::{Graph, Node, NodeKind, Step};
 pub use projection::{
-    Compilation, ProjectedCondition, ProjectedKind, ProjectedNode, ProjectedScope, Projection,
+    Compilation, PredicateSite, ProjectedCondition, ProjectedKind, ProjectedNode, ProjectedScope,
+    Projection,
 };
 pub use structure::GraphStructure;

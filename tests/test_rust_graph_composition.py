@@ -36,7 +36,6 @@ from rivlet import (
 )
 from rivlet import run as run_execution
 from rivlet._native import (
-    RustGraphStructure,
     _compose_rust_graph,
     _rust_process_graph,
 )
@@ -45,13 +44,15 @@ from rivlet.compile import CompiledRustStep
 type Backend = Literal["serial", "thread", "async"]
 
 
-def test_native_predicates_are_not_silently_imported_without_a_mixed_evaluator():
+@pytest.mark.parametrize("backend", ("serial", "thread", "async"))
+def test_native_predicates_execute_in_the_mixed_session(backend: Backend) -> None:
     from rivlet._native import _rust_condition_fixture
 
-    with pytest.raises(
-        ValueError, match="Rust predicates require the Rust Execution host"
-    ):
-        _rust_condition_fixture()
+    structure = _rust_condition_fixture()
+    assert isinstance(structure, GraphStructure)
+    assert structure.describe()["conditions"]
+    execution = Execution(Graph(structure))
+    execute(execution, backend)
 
 
 def execute(execution: Execution, backend: Backend) -> None:
@@ -72,7 +73,7 @@ def processes(
     arcs: list[tuple[int, int]],
     inputs: list[tuple[str, list[int]]],
     outputs: list[tuple[str, int]],
-) -> RustGraphStructure:
+) -> GraphStructure:
     return _rust_process_graph(
         [
             (name, sys.executable, ["-c", script], str(directory), dict(os.environ))
@@ -314,10 +315,10 @@ def test_native_ports_reject_real_expanded_cycle_and_retain_scope_local_view(
     with pytest.raises(GraphError, match="cycle"):
         Execution(Graph(cyclic)).compile()
     nested = _compose_rust_graph([("inner", body)], [], [], [])
-    _, _, child_view = nested.nodes()[0]
+    _, _, child_view = nested._declaration.nodes()[0]
     assert child_view is not None
     assert child_view.output_path("out") == [0]
-    execution = Execution(Graph(child_view))
+    execution = Execution(Graph(GraphStructure._from_declaration(child_view)))
     run_execution(execution)
     assert len(execution.compile().steps) == 1
 

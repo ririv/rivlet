@@ -73,12 +73,12 @@ def test_graph_forwards_complete_or_selected_interface_without_flattening() -> N
     forwarded = (child >> finish).graph(interface=child)
     assert forwarded.interface.inputs[sdk].graph is forwarded
     assert forwarded.interface.inputs[sdk].nodes == (configure,)
-    assert forwarded.structure.nodes[0] is child
+    assert forwarded.structure._declaration.nodes[0] is child
     custom = (child >> finish).graph(
         interface=GraphInterface(inputs=child, outputs={final: finish})
     )
     assert custom.interface.inputs[sdk].nodes == (configure,)
-    assert dict(custom.structure.interface.outputs) == {final: finish}
+    assert dict(custom.structure._declaration.interface.outputs) == {final: finish}
     outputs_only = Graph(
         structure=GraphStructure(
             nodes=(child,), interface=GraphInterface(outputs=child)
@@ -86,7 +86,7 @@ def test_graph_forwards_complete_or_selected_interface_without_flattening() -> N
     )
     assert not outputs_only.interface.inputs
     assert (
-        outputs_only.structure.interface.outputs[library]
+        outputs_only.structure._declaration.interface.outputs[library]
         == child.interface.outputs[library]
     )
     # 不声明接口时，不自动暴露内部图的端口。

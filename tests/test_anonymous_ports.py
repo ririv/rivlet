@@ -49,7 +49,9 @@ def test_anonymous_shorthand_mapping_and_named_ports_share_one_declaration():
         (child.wire(),), interface=GraphInterface(inputs=child, outputs=child)
     )
     assert outer.interface.input.nodes == (start,)
-    assert outer.structure.interface.outputs[None] == child.interface.output
+    assert (
+        outer.structure._declaration.interface.outputs[None] == child.interface.output
+    )
     reused = GraphInterface(inputs=shared.inputs, outputs=shared.outputs)
     assert reused.inputs == shared.inputs
     assert reused.outputs == shared.outputs

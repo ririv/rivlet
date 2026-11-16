@@ -14,8 +14,8 @@ if TYPE_CHECKING:
     from .._native import (
         CompiledExecutionGraph,
         EncodedExecutionEvent,
-        MixedExecutionSession,
         RustActionBindings,
+        _DriverSession,
         _RustResult,
     )
     from ..model import NodePath
@@ -92,7 +92,7 @@ class SessionPhase(Enum):
 @dataclass(eq=False, slots=True)
 class SessionRun:
     definition: SessionDefinition
-    engine: MixedExecutionSession
+    engine: _DriverSession
     owner: RootSession | ChildSession
     phase: SessionPhase = SessionPhase.NEW
     rust_running: int = 0

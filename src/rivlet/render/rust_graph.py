@@ -7,13 +7,11 @@ from typing import TYPE_CHECKING
 from .formatting import escape_label, port_label
 
 if TYPE_CHECKING:
-    from .._native import RustGraphStructure
+    from .._native import _NativeStructure
     from ..model import NodePath
 
 
-def append_rust_tree(
-    lines: list[str], body: RustGraphStructure, *, prefix: str
-) -> None:
+def append_rust_tree(lines: list[str], body: _NativeStructure, *, prefix: str) -> None:
     nodes = body.nodes()
     incoming: dict[int, list[str]] = {}
     # O(V+E)：预索引入边，避免每个节点再次扫描整层边。
@@ -38,7 +36,7 @@ def append_rust_tree(
 
 def append_rust_mermaid(
     lines: list[str],
-    body: RustGraphStructure,
+    body: _NativeStructure,
     *,
     owner: NodePath,
     label: str,

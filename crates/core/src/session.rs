@@ -150,6 +150,16 @@ impl ExecutionUpdate {
             skipped: skipped.into_iter().collect(),
         }
     }
+
+    /// Appends executor completions without replacing any host outcomes.
+    #[must_use]
+    pub fn append_completions(
+        mut self,
+        completed: impl IntoIterator<Item = (NodeId, Result<(), ()>)>,
+    ) -> Self {
+        self.completed.extend(completed);
+        self
+    }
 }
 
 /// An invalid state transition supplied by an action executor.
@@ -402,6 +412,12 @@ impl ExecutionSession {
     #[must_use]
     pub fn state(&self, node: NodeId) -> Option<NodeState> {
         self.states.get(node.index()).copied()
+    }
+
+    /// Returns the immutable compilation used by this session.
+    #[must_use]
+    pub fn graph(&self) -> &CompiledExecutionGraph {
+        &self.graph
     }
 
     fn drive(&mut self, max_actions: usize) -> Result<ExecutionBatch, SessionError> {

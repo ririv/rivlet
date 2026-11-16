@@ -133,10 +133,10 @@ and the runnable `crates/execution/examples/conditions.rs` example.
 - ActionContext uses its default with no log path. Hosts needing custom contexts,
   live observers, control, or mixed-language dispatch can still compose
   ExecutionSession and ActionExecutor directly.
-- The Python/PyO3 mixed driver is unchanged. It continues to handle Python
+- The Python/PyO3 mixed driver is separate. It handles Python
   callables, predicates, host integration, and mixed-language conversion.
-  Native Rust predicates currently require the Rust Execution host; importing them
-  into Python explicitly fails rather than dropping their conditions.
+  It also dispatches native synchronous predicates directly; independent
+  extensions use the [binding SDK](./python-native.md).
 - Session creation currently clones the compiled core graph once, O(V + E), and
   initializes per-node state/results, O(V). The declaration is not compiled again.
   The driver processes each terminal result/event once and binds R result inputs
@@ -149,4 +149,6 @@ For the distinction from Python's on-demand recording and possible future
 retention policies (not implemented), see [result lifetime](./result_lifetime.md).
 
 Graph/action/core remain independently usable. The execution crate is a host
-composition, not a dependency of graph declarations or the Python extension.
+composition, not a graph-declaration dependency. Its separate coordinator module
+now serves the Python mixed adapter; this synchronous Execution::run driver remains
+separate. See [shared coordination](./rust-architecture.md#shared-native-execution-coordination).

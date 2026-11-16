@@ -42,8 +42,12 @@ two_runs = (left | right).graph(label="two runs")
 GraphStructure contains nodes, edges, GraphInterface declarations, observation
 messages, StaticConditions and StaticSelection. It has no identity, label, runtime
 condition or run state. Graph composes a structure and exposes `graph.interface`;
-Step has no interface attribute. RustGraphStructure is an opaque Rust-owned body,
-also composed with `Graph(native_structure, label="native")`.
+Step has no interface attribute. The same public GraphStructure can hold a
+Rust-owned body, composed with `Graph(native_structure, label="native")`.
+Its `nodes` / `edges` properties are detached structural-export snapshots, not
+language-specific executable objects. `describe()` returns one complete snapshot
+without compiling or evaluating static rules. Declare ports through the constructor's
+`interface=` and access mounted references through `Graph.interface`.
 
 Two Graph instances can share one structure. Their identities differ; shared inner
 declarations retain theirs, but each mount has independent paths, results and
@@ -250,5 +254,6 @@ relabeling completed work. Events are not persistence, messaging or recovery.
 
 DirectedTopology permits cycles; DAGTopology validates acyclicity. They know nothing
 about actions, ports or state. See [topology complexity](./topology_complexity.md).
-Rust adapters expose RustGraphStructure, whose actions remain Rust-owned while
-sharing one compiled execution graph. See [native graphs](./rust-graphs.md).
+Rust adapters expose the same public GraphStructure through the
+[experimental binding SDK](./python-native.md); actions remain Rust-owned while sharing one
+compiled execution graph. See [native graphs](./rust-graphs.md).

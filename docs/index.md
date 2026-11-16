@@ -32,12 +32,15 @@ domain workflows are connected explicitly, not read from implicit global facilit
 
 ## Documentation
 
+- [Experimental mixed execution, SDK and removal boundaries](./mixed-execution.md)
+
 - [Core model](./core_model.md)
 - [Versioned structural graph export](./graph_export.md)
 - [Static selection during compilation](./static_selection.md)
 - [Topology complexity and implementation costs](./topology_complexity.md)
 - [Execution semantics](./execution.md)
 - [Python graphs and Rust-native graphs](./rust-graphs.md)
+- [Independent Rust extensions in Python workflows](./python-native.md)
 - [Running Rust graphs](./rust-execution.md)
 - [Rust runtime predicates](./rust-conditions.md)
 - [Experimental Node.js API](./node-api.md)

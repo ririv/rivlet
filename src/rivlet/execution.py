@@ -153,7 +153,8 @@ class Execution:
         return next(iter(matches))
 
     def _index_mounted_step_paths(self) -> dict[Node, tuple[NodePath, ...]]:
-        from .model import Graph, GraphStructure, node_paths_for_mount
+        from .model import Graph, node_paths_for_mount
+        from .model.python_structure import _PythonStructure
 
         mounted_step_paths: dict[Node, list[NodePath]] = {}
 
@@ -164,7 +165,7 @@ class Execution:
             ).items():
                 mounted_step_paths.setdefault(candidate, []).append(candidate_id)
                 if isinstance(candidate, Graph) and isinstance(
-                    candidate.structure, GraphStructure
+                    candidate.structure._declaration, _PythonStructure
                 ):
                     _collect(candidate.structure, candidate_id)
 

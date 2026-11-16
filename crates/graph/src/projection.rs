@@ -68,14 +68,41 @@ impl ProjectedNode {
     }
 }
 
+/// A predicate's actual declaration use, independent of its callable identity.
+#[derive(Clone, Copy, Debug)]
+pub enum PredicateSite {
+    Node(NodeId),
+    Edge { target: NodeId, index: usize },
+}
+
 /// One predicate use resolved in its actual mounted declaration scope.
 #[derive(Clone, Debug)]
 pub struct ProjectedCondition {
     declaration: Condition,
     inputs: Vec<NodeId>,
+    site: PredicateSite,
 }
 
 impl ProjectedCondition {
+    #[must_use]
+    pub const fn target(&self) -> NodeId {
+        match self.site {
+            PredicateSite::Node(node) | PredicateSite::Edge { target: node, .. } => node,
+        }
+    }
+
+    #[must_use]
+    pub const fn edge_index(&self) -> Option<usize> {
+        match self.site {
+            PredicateSite::Node(_) => None,
+            PredicateSite::Edge { index, .. } => Some(index),
+        }
+    }
+
+    #[must_use]
+    pub fn input_types(&self) -> &[ValueType] {
+        self.declaration.input_types()
+    }
     #[must_use]
     pub fn inputs(&self) -> &[NodeId] {
         &self.inputs
@@ -302,11 +329,12 @@ impl Projection {
         for node in structure.nodes() {
             if let Some(condition) = node.condition() {
                 let target = self.scopes[scope.index()].local_node(node.id())?;
-                let condition = self.bind_condition(scope, condition)?;
+                let condition =
+                    self.bind_condition(scope, condition, PredicateSite::Node(target))?;
                 self.nodes[target.index()].condition = Some(condition);
             }
         }
-        for edge in structure.edges() {
+        for (edge_index, edge) in structure.edges().iter().enumerate() {
             match edge {
                 Edge::Completion { source, target } => {
                     let source = self.scopes[scope.index()].local_node(*source)?;
@@ -322,7 +350,14 @@ impl Projection {
                 } => {
                     let source = self.scopes[scope.index()].local_node(*source)?;
                     let target = self.scopes[scope.index()].local_node(*target)?;
-                    let condition = self.bind_condition(scope, condition)?;
+                    let condition = self.bind_condition(
+                        scope,
+                        condition,
+                        PredicateSite::Edge {
+                            target,
+                            index: edge_index,
+                        },
+                    )?;
                     self.nodes[target.index()]
                         .prerequisites
                         .push(Prerequisite::Conditional {
@@ -342,7 +377,15 @@ impl Projection {
                     condition,
                 } => {
                     let source = self.output_port(scope, source)?;
-                    let condition = self.bind_condition(scope, condition)?;
+                    let owner = self.scopes[scope.index()].local_node(target.owner())?;
+                    let condition = self.bind_condition(
+                        scope,
+                        condition,
+                        PredicateSite::Edge {
+                            target: owner,
+                            index: edge_index,
+                        },
+                    )?;
                     for target in self.input_port(scope, target)? {
                         self.ports
                             .push(PortConnection::conditional(source, target, condition));
@@ -426,6 +469,7 @@ impl Projection {
         &mut self,
         scope: GraphId,
         declaration: &Condition,
+        site: PredicateSite,
     ) -> Result<ConditionId, GraphError> {
         let inputs = declaration
             .inputs()
@@ -448,6 +492,7 @@ impl Projection {
         self.conditions.push(ProjectedCondition {
             declaration: declaration.clone(),
             inputs,
+            site,
         });
         Ok(id)
     }

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from . import static as static
-    from ._native import RustGraphStructure
     from .compile import (
         CompiledComposite,
         CompiledCompositeRef,
@@ -140,7 +139,6 @@ _EXPORT_GROUPS = (
     ),
     (".static", ("Case", "StaticSelection")),
     (".static_conditions", ("StaticConditions",)),
-    ("._native", ("RustGraphStructure",)),
     (
         ".events",
         (
@@ -354,7 +352,6 @@ __all__ = [
     "Results",
     "Step",
     "StepCallable",
-    "RustGraphStructure",
     "NodeId",
     "NodePath",
     "NodeLabelPath",

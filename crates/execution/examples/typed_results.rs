@@ -45,7 +45,9 @@ fn main() -> Result<(), Box<dyn Error>> {
     for (node, result) in outcome.nodes() {
         let metadata = outcome.compilation().node(node);
         match result {
-            NodeOutcome::Succeeded(value) if value.type_id() == std::any::TypeId::of::<usize>() => {
+            NodeOutcome::Succeeded(value)
+                if value.type_id() == action::ValueType::of::<usize>().id() =>
+            {
                 println!("{}: {}", metadata.label(), value.downcast::<usize>()?);
             }
             other => println!("{}: {other:?}", metadata.label()),

@@ -38,8 +38,10 @@ two_runs = (left | right).graph(label="two runs")
 
 GraphStructure 保存节点、边、GraphInterface 声明、观察消息、静态条件和选择；没有
 自身身份、label、运行时 condition 或状态。Graph 组合结构，通过 graph.interface
-暴露端口；Step 没有 interface 属性。Rust 的不透明结构 RustGraphStructure 也用
-`Graph(native_structure, label="native")` 组合。
+暴露端口；Step 没有 interface 属性。同一个公共 GraphStructure 也可持有 Rust 结构，
+用 `Graph(native_structure, label="native")` 组合。`nodes` / `edges` 返回分离的结构
+导出快照，不返回特定语言的可执行对象。`describe()` 一次返回完整快照，不编译或
+求值静态条件。声明端口用构造器 `interface=`，挂载后通过 `Graph.interface` 取引用。
 
 共享结构时创建不同 Graph 节点。内部共享声明的身份不变，但每次挂载有自己的
 路径、结果和条件求值。同一结构不能重复放入同一节点。DSL 不会偷偷创建替身。
@@ -219,5 +221,5 @@ payload。状态提交后同步发事件；发送失败停止执行，不改写�
 ## 纯拓扑与原生结构
 
 DirectedTopology 允许环，DAGTopology 校验无环；它们不含 action、端口或状态。
-见[拓扑复杂度](./topology_complexity.md)。Rust adapter 暴露 RustGraphStructure，
+见[拓扑复杂度](./topology_complexity.md)。Rust adapter 暴露 GraphStructure，
 action 留在 Rust，共用一个编译图。见[原生图](./rust-graphs.md)。

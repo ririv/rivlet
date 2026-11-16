@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from .graph_structure import GraphStructure
 from .identity import NodeId, NodePath
+from .python_structure import _PythonStructure
 
 if TYPE_CHECKING:
+    from .._native import _NativeCondition, _NativeStructure
     from . import GraphWiringOperand, NodePrerequisite
     from .condition import _RuntimeCondition
-    from .graph_structure import GraphStructure
     from .wiring import GraphWiring, NodeWiring
 
 
@@ -21,7 +23,7 @@ class Node(Protocol):
     def label(self) -> str | None: ...
 
     @property
-    def condition(self) -> _RuntimeCondition | None: ...
+    def condition(self) -> _RuntimeCondition | _NativeCondition | None: ...
 
     def wire(self, after: tuple[NodePrerequisite, ...] = ()) -> NodeWiring: ...
 
@@ -34,10 +36,13 @@ type NodeLabelPath = tuple[str, ...]
 
 
 def node_paths_for_mount(
-    graph: GraphStructure,
+    graph: GraphStructure | _PythonStructure | _NativeStructure,
     *,
     parent_node_path: NodePath | None = None,
 ) -> dict[Node, NodePath]:
+    graph = graph._declaration if isinstance(graph, GraphStructure) else graph
+    if not isinstance(graph, _PythonStructure):
+        raise TypeError("native mounted paths are resolved by the native compiler")
     return {
         node: (
             NodePath(

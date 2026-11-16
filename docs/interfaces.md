@@ -210,7 +210,7 @@ endpoints to bind Option arguments; see [result transport](#result-transport).
 
 ## Result transport
 
-GraphStructure.interface stores declarations; Graph.interface exposes read-only ports
+GraphStructure accepts `interface=` declarations; Graph.interface exposes read-only ports
 bound to that actual graph. Inputs return InputPort and outputs return OutputPort;
 Step has no interface. References preserve their owning graph without a
 (Step, "port") pair or a separate bind call. This example is independently runnable:
@@ -436,9 +436,10 @@ explicit selections without executing actions or providing failover.
 Explicit bindings enter declaration compilation and lowering. Final DAG validation
 and scheduling live in Rust; Python does not maintain a second provider solver.
 
-Ports reference Python-declared nodes, not Rust leaves inside an opaque RustGraphStructure.
-To publish completion of a native structure, compose it in a Graph and
-use that Graph node as an output. A dynamically returned graph cannot expose unknown
+Ports bind to concrete Graph instances, including native bodies exported through
+[the SDK](./python-native.md). Python does not receive internal executable Rust
+Step objects; use the native body's exposed ports. To publish whole-body completion,
+use its Graph node as an output. A dynamically returned graph cannot expose unknown
 internal ports before it exists.
 
 Provider components and their direct output nodes cannot use runtime `condition` to

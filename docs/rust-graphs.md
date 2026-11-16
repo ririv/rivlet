@@ -2,6 +2,10 @@
 
 English | [简体中文](./zh-CN/rust-graphs.md)
 
+> **Experimental:** Python/Rust mixed execution and the extension SDK, as one feature.
+> See [status and removal boundaries](./mixed-execution.md). This does not mark the
+> pure Rust declaration/Execution::run APIs experimental.
+
 A Python declaration can mount a complete Rust-native subgraph. Both enter one
 Rust CompiledExecutionGraph and share dependencies, hierarchy, failure propagation,
 and explicit concurrency scopes, when configured. Native subgraphs are not converted into
@@ -10,7 +14,7 @@ Python actions.
 ```text
 Python Graph / Step
     ├── Python Step
-    └── Graph(RustGraphStructure)
+    └── Graph(GraphStructure)
           ├── Rust Step
           └── Rust Graph → Rust Step / Graph
                 │
@@ -20,7 +24,7 @@ Python Graph / Step
         └── Rust step   → Rust worker
 ```
 
-Python holds an opaque RustGraphStructure, not individually callable Rust Step or
+Python uses the same public GraphStructure for Python and Rust bodies, not individually callable Rust Step or
 Rust action objects. Native action execution does not require a per-action Python
 callback. The mixed driver receives batches of native completion events for
 results, logs, and presentation. Internal nodes remain visible in compiled and
@@ -28,30 +32,31 @@ execution views; opacity does not hide them as a single undifferentiated action.
 
 ## Declaration boundary
 
-A Rust adapter constructs graph::GraphStructure. The Python adapter wraps it as
-RustGraphStructure; Python composes that body into a Graph alongside Python actions:
+A Rust adapter constructs a Step or Graph and exports it through the
+`rivlet-python` binding SDK's `export_node`. Python receives the corresponding
+ordinary node and composes it directly alongside Python actions:
 
 ```python
-from rivlet import Graph, RustGraphStructure, Step
+from rivlet import Graph, Step
 
 
-def make_workflow(body: RustGraphStructure) -> Graph:
+def make_workflow(rust_work: Graph) -> Graph:
     prepare = Step(lambda: print("prepare"), label="prepare")
     finish = Step(lambda: print("finish"), label="finish")
-    rust_work = Graph(body, label="rust-work")
     return (prepare >> rust_work >> finish).graph()
 ```
 
-`body` must come from an adapter that provides a RustGraphStructure. The function
-does not invent an importer or require any particular external build system.
-The Rust declaration API below shows how to construct the underlying graph in Rust.
+`rust_work` can be the real `demo_native.pipeline` attribute in
+[the independent-extension guide](./python-native.md). The declaration API below
+shows how to construct the underlying graph in Rust.
 
 Here rust_work is an outer composite. Rust sees the internal nodes and edges for
 global scheduling while preserving the composite boundary.
 
-RustGraphStructure is the smallest native unit exposed to Python. There is no public
-Python Action or ProcessAction API that would create a second per-action
-submission path.
+Step is the smallest native node exposed to Python. Its action remains Rust-owned
+and joins the same native driver; there is no Python Action or ProcessAction
+submission path. To reuse a Graph body, use `rust_work.structure` to create new
+Graph nodes with explicit metadata.
 
 ## Anonymous and named ports
 
@@ -88,12 +93,13 @@ Native actions still cannot read Python NodeRunContext or expand dynamic graphs.
 - graph: Rust Step/Graph nodes, Node trait, GraphStructure, typed ports, and GraphError.
 - topology: integer nodes and pure graph algorithms.
 - core: language-independent declaration compilation and execution sessions.
-- python: integration of Python Graph and complete RustGraphStructure declarations.
+- python: integration of concrete Python/imported nodes and reusable structures.
 
-Adapters may implement arbitrary Rust actions, but Rust trait objects are not
-passed between dynamic libraries. An independent adapter should provide a stable
-batch graph specification, from which the Graph extension constructs RustGraphStructure
-once. This preserves package boundaries without routing each action through Python.
+Adapters implement arbitrary Rust actions without passing Rust trait objects
+between dynamic libraries. `crates/bridge` carries versioned C-layout callbacks
+and batched metadata; `crates/python-sdk` exports concrete Step or Graph nodes.
+Graph body reuse uses `.structure`. Actions and values retain their originating library owner.
+See [the SDK boundary and value limitations](./python-native.md).
 
 ## Rust declaration API
 
@@ -187,5 +193,6 @@ complete ordered argument group. Actual step types/arity are checked after
 forwarding. [Rust runtime predicates](./rust-conditions.md) use typed closures held
 by the Rust projection and evaluated by the Rust Execution host; core gains neither
 opaque closures nor implicit serialization. An outer Python Graph retains its
-existing runtime/static conditions. Importing native Rust predicates into the Python
-mixed driver is explicitly rejected until native predicate dispatch is provided.
+existing runtime/static conditions. The Python mixed driver evaluates Rust synchronous predicates natively,
+without Python predicate callbacks or Python action worker slots. Rust async
+predicates remain unsupported.

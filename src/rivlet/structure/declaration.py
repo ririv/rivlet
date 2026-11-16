@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from .._native import RustGraphStructure
+from .._native import _NativeCondition, _NativeStep, _NativeStructure
 from ..errors import GraphError
 from ..interface import InputEndpoint, InputPort, OutputEndpoint, OutputPort
 from ..model import (
@@ -19,6 +19,7 @@ from ..model import (
     node_paths_for_mount,
     resolve_node_label,
 )
+from ..model.python_structure import _PythonStructure
 
 if TYPE_CHECKING:
     from ..model import Node
@@ -42,7 +43,7 @@ def edge_id(owner: NodePath | None, index: int) -> str:
 
 @dataclass(slots=True)
 class Scope:
-    graph: GraphStructure | RustGraphStructure
+    graph: _PythonStructure | _NativeStructure
     owner: NodePath | None
     label_path: tuple[str, ...]
     ids: dict[Node, NodePath] = field(default_factory=dict)
@@ -68,8 +69,8 @@ class DeclarationIndex:
     document: DeclarationDocument
     scopes: dict[str, Scope] = field(default_factory=dict)
     node_scopes: dict[str, Scope] = field(default_factory=dict)
-    condition_objects: dict[tuple[str, _RuntimeCondition], str] = field(
-        default_factory=dict
+    condition_objects: dict[tuple[str, _RuntimeCondition | _NativeCondition], str] = (
+        field(default_factory=dict)
     )
     edge_indexes: dict[str, int] = field(default_factory=dict)
 
@@ -83,7 +84,7 @@ class DeclarationIndex:
         return scope.require_descendant(endpoint)
 
     def output_port_node(self, scope: Scope, name: str | None) -> str:
-        if isinstance(scope.graph, RustGraphStructure):
+        if isinstance(scope.graph, _NativeStructure):
             return scope.mounted_path(scope.graph.output_path(name))
         return self.output_node(scope, scope.graph.interface.outputs[name])
 
@@ -97,7 +98,7 @@ class DeclarationIndex:
         return [scope.require_descendant(endpoint)]
 
     def input_port_nodes(self, scope: Scope, name: str | None) -> list[str]:
-        if isinstance(scope.graph, RustGraphStructure):
+        if isinstance(scope.graph, _NativeStructure):
             return [scope.mounted_path(path) for path in scope.graph.input_paths(name)]
         return [
             value
@@ -105,7 +106,9 @@ class DeclarationIndex:
             for value in self.input_nodes(scope, target)
         ]
 
-    def condition_id(self, target: str, condition: _RuntimeCondition) -> str:
+    def condition_id(
+        self, target: str, condition: _RuntimeCondition | _NativeCondition
+    ) -> str:
         key = (target, condition)
         if key not in self.condition_objects:
             identifier = f"{target}/condition:{len(self.condition_objects)}"
@@ -145,14 +148,14 @@ def index_declaration(
     # V/E/P 为节点、边和端口引用数，L 为全部身份/标签路径长度。
     # 按挂载遍历并建立索引，时间/空间 O(V + E + P + L)；不按每条边重扫子图。
     def visit(
-        current: GraphStructure | RustGraphStructure,
+        current: _PythonStructure | _NativeStructure,
         owner: NodePath | None,
         path: tuple[str, ...],
         ancestors: tuple[Scope, ...],
     ) -> None:
         scope = Scope(current, owner, path)
         index.scopes[scope.id] = scope
-        if isinstance(current, GraphStructure):
+        if isinstance(current, _PythonStructure):
             scope.ids = node_paths_for_mount(current, parent_node_path=owner)
             scope_label = (
                 ("<structure>" if label is None else label)
@@ -179,9 +182,11 @@ def index_declaration(
                     if step.condition is None
                     else index.condition_id(key, step.condition)
                 )
-                action = step.structure if isinstance(step, GraphNode) else step
+                action = (
+                    step.structure._declaration if isinstance(step, GraphNode) else step
+                )
                 node: NodeDocument
-                if isinstance(action, (GraphStructure, RustGraphStructure)):
+                if isinstance(action, (_PythonStructure, _NativeStructure)):
                     node = {
                         "kind": "subgraph",
                         "node_id": step.id.value,
@@ -202,7 +207,9 @@ def index_declaration(
                         "graph": scope.id,
                         "label": step_label,
                         "label_path": [*path, step_label],
-                        "action_kind": "python",
+                        "action_kind": "native"
+                        if isinstance(action.action, _NativeStep)
+                        else "python",
                         "condition": condition,
                     }
                     document["nodes"].append(node)
@@ -228,6 +235,25 @@ def index_declaration(
                 scope_document["ports"].append(output)
         else:
             rust_nodes = current.nodes()
+            node_conditions: dict[str, str] = {}
+            edge_conditions: dict[int, str] = {}
+            for target_path, edge_index, inputs in current.conditions():
+                target_key = scope.mounted_path(target_path)
+                condition_key = (
+                    f"condition:{target_key}"
+                    if edge_index is None
+                    else f"condition:{target_key}:edge:{edge_index}"
+                )
+                document["conditions"].append(
+                    {
+                        "id": condition_key,
+                        "inputs": [scope.mounted_path(source) for source in inputs],
+                    }
+                )
+                if edge_index is None:
+                    node_conditions[target_key] = condition_key
+                else:
+                    edge_conditions[edge_index] = condition_key
             ids = [
                 owner.child(i) if owner is not None else NodePath((i,))
                 for i in range(len(rust_nodes))
@@ -256,7 +282,7 @@ def index_declaration(
                             "label": rust_label,
                             "label_path": [*path, rust_label],
                             "action_kind": "native",
-                            "condition": None,
+                            "condition": node_conditions.get(key),
                         }
                     )
                 else:
@@ -269,7 +295,7 @@ def index_declaration(
                             "label": rust_label,
                             "label_path": [*path, rust_label],
                             "child_graph": scope_id(identifier),
-                            "condition": None,
+                            "condition": node_conditions.get(key),
                         }
                     )
                     visit(child, identifier, (*path, rust_label), (*ancestors, scope))
@@ -290,6 +316,7 @@ def index_declaration(
                     }
                 )
             for i, rust_edge in enumerate(current.edges()):
+                index.edge_indexes[edge_id(owner, i)] = i
                 source, target = rust_edge[:2]
                 item: EdgeDocument = {
                     "kind": "order",
@@ -298,6 +325,15 @@ def index_declaration(
                     "source": str(ids[source]),
                     "target": str(ids[target]),
                 }
+                if i in edge_conditions:
+                    item = {
+                        "kind": "conditional",
+                        "id": edge_id(owner, i),
+                        "graph": scope.id,
+                        "source": str(ids[source]),
+                        "target": str(ids[target]),
+                        "condition": edge_conditions[i],
+                    }
                 if len(rust_edge) == 4:
                     output_name, input_name = rust_edge[2:]
                     provider = index.scopes[scope_id(ids[source])]
@@ -312,7 +348,7 @@ def index_declaration(
                         "target_port": input_name,
                         "provider_node": index.output_port_node(provider, output_name),
                         "consumer_nodes": index.input_port_nodes(consumer, input_name),
-                        "condition": None,
+                        "condition": edge_conditions.get(i),
                     }
                 elif len(rust_edge) == 5:
                     _, _, argument, output_port, input_port = rust_edge
@@ -338,16 +374,16 @@ def index_declaration(
                         )
                 document["edges"].append(item)
 
-    visit(graph, parent, label_path, ())
+    visit(graph._declaration, parent, label_path, ())
     for scope in index.scopes.values():
-        if isinstance(scope.graph, GraphStructure):
+        if isinstance(scope.graph, _PythonStructure):
             _export_scope(index, scope)
     return index
 
 
 def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
     graph = scope.graph
-    assert isinstance(graph, GraphStructure)
+    assert isinstance(graph, _PythonStructure)
     document = index.document
     for i, edge in enumerate(graph.edges):
         source, target = str(scope.ids[edge.source]), str(scope.ids[edge.target])

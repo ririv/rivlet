@@ -54,8 +54,14 @@ def test_selection_preserves_sequence_and_captures_conditions(
     graph = (prepare >> choice >> finish).graph()
 
     assert not calls
-    assert graph.structure.nodes == (prepare, modern, legacy, linux, finish)
-    assert len(graph.structure.static_selections[0].cases) == 3
+    assert graph.structure._declaration.nodes == (
+        prepare,
+        modern,
+        legacy,
+        linux,
+        finish,
+    )
+    assert len(graph.structure._declaration.static_selections[0].cases) == 3
     assert len(compile_graph(graph.structure, root_label="root").steps) == 3
     run_execution(Execution(Graph(structure=graph.structure)), max_workers=4, mode=mode)
     assert calls == ["prepare", "modern" if version >= 3 else "legacy", "finish"]
@@ -84,7 +90,7 @@ def test_selection_is_checked_only_at_compile_and_not_cached(
     assert not selections
     for _ in range(2):
         assert len(compile_graph(graph.structure, root_label="root").steps) == 1
-    assert selections == [graph.structure.static_selections[0]] * 2
+    assert selections == [graph.structure._declaration.static_selections[0]] * 2
 
 
 @pytest.mark.parametrize("reverse", [False, True])
@@ -94,7 +100,7 @@ def test_overlapping_true_conditions_fail_without_precedence(reverse: bool) -> N
         Case(True, Step(lambda: pytest.fail("action ran"))),
     )
     graph = static.select(cases=cases[::-1] if reverse else cases).graph()
-    assert len(graph.structure.nodes) == 2
+    assert len(graph.structure._declaration.nodes) == 2
     with pytest.raises(
         MultipleStaticBranchesSelectedError, match="multiple are active"
     ):

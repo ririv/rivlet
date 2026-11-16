@@ -94,6 +94,8 @@ Python 侧记录按需启用，启用后不是只保留确实被消费的 Python
 
 ## Python 边界
 
+跨语言转换连同 SDK、桥接统一属于[实验性混合执行](./mixed-execution.md)；纯 Rust 类型化结果不在此标记范围。
+
 Python 继续使用现有 API：
 
 ```python
@@ -123,13 +125,15 @@ RustResult API。
 自定义类型的转换明确属于 PyO3 adapter。内部 `ValueCodecs` 为确定类型组合成对的
 Rust 导出/导入函数，不能覆盖已有或标准转换。组合图可以复用同一个转换器对象，
 冲突注册会报错。没有全局可变注册表，也没有公开的 Python 动态注册插件 API；独立
-adapter 的发布/ABI 边界仍需单独设计，不在动态库之间隐式交换 Rust trait object。
+扩展使用显式的 [C ABI/SDK 边界](./python-native.md)，不在动态库之间交换 Rust trait object。
+内置类型有明确的二进制转换；同一 provider 内自定义载荷可保持不透明。SDK 当前尚未
+开放跨 provider 或 Python 的自定义转换器注册 API。
 
 未提供转换器的自定义结构仍可在 Rust 内部传递；Python 读取时报明确的缺少转换器
 错误，归属读取节点。无效 Python 输入归属原生接收叶子失败。修改 Python 表示不会
 自动反映到原始 Rust 值：转换器表达值视图，不是自动同步的共享可变状态。
 
 树图、Mermaid 和结构导出会显示原生结果边与参数位置，不包含值、命令、环境或
-转换器内部信息。这套结果桥接不负责原生谓词分发或运行时图展开。
-[原生 Rust 谓词](./rust-conditions.md) 由 Rust Execution 宿主执行；导入 Python
-混合 driver 时会明确报错。
+转换器内部信息。这套结果桥接不负责运行时原生图展开。
+[原生 Rust 同步谓词](./rust-conditions.md) 可由 Rust Execution 宿主或 Python 混合
+驱动执行，原生值保持原生。

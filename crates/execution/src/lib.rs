@@ -15,6 +15,9 @@
 //! # }
 //! ```
 
+/// Experimental cross-language coordination; not required by the pure Rust driver.
+#[cfg(feature = "experimental-mixed-execution")]
+pub mod coordinator;
 mod driver;
 mod error;
 mod outcome;

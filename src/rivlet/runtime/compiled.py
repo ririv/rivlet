@@ -5,6 +5,7 @@ import inspect
 import logging
 from typing import TYPE_CHECKING
 
+from .._native import _NativePredicate
 from ..compile import (
     CompiledComposite,
     CompiledPythonStep,
@@ -266,6 +267,10 @@ class CompiledExecutionHost:
 
     def evaluate_condition(self, node: int, condition: int) -> bool | Awaitable[bool]:
         compiled_condition = self.compilation._execution_condition(condition)
+        if isinstance(compiled_condition.when, _NativePredicate):
+            raise GraphError(
+                "native predicate must be dispatched by the native session"
+            )
         # 编译引用已经绑定到具体挂载；每个输入只查询一次，不创建条件上下文。
         results = self.state.results
         if compiled_condition.inputs and results is None:

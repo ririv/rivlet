@@ -111,7 +111,7 @@ apply: 42
 本次不增加 Rust 异步谓词、静态选择、运行时生成 Rust 子图、取消或观察订阅。
 纯 Rust 条件可交给 Rust 高阶执行器，或由自定义低阶宿主处理。
 
-**Python 混合适配器尚未派发 Rust 谓词。** 带原生条件的图在 RustGraphStructure
-边界明确拒绝，不丢弃条件或静默变成无条件图。在无条件原生子图外层声明 Python 条件
-仍然支持。Node.js 前端也尚未注册 Rust 原生动作、谓词；这些语言绑定需要后续显式
-接通派发与值边界。
+**实验性的 Python 混合适配器直接派发 Rust 同步谓词。** 节点、子图、完成边与端口边的条件
+共享 core session；只有原生读取方需要时才转换 Python 结果。独立扩展使用
+[绑定 SDK](./python-native.md)，每个原生谓词无需 Python callable。谓词错误仍属于
+条件失败，不变成 false。Node.js 前端尚未注册 Rust 原生动作与谓词。

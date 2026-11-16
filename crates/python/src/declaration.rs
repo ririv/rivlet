@@ -10,9 +10,11 @@ use rivlet::{
 };
 
 use crate::CompiledExecutionGraph;
-use crate::mixed_execution::{RustActionBindings, RustActionDeclaration};
+use crate::mixed_execution::{
+    _NativePredicate, RustActionBindings, RustActionDeclaration, RustConditionDeclaration,
+};
+use crate::native_structure::{_NativeCondition, _NativeStep, _NativeStructure};
 use crate::result_values::ValueCodecs;
-use crate::rust_graph::RustGraphStructure;
 
 type ExportOrigins = (
     Vec<usize>,
@@ -33,7 +35,14 @@ impl<'py> PythonTypes<'py> {
         let interface = py.import("rivlet.interface")?;
         Ok(Self {
             graph: model.getattr("Graph")?,
-            runtime_condition: model.getattr("_RuntimeCondition")?,
+            runtime_condition: pyo3::types::PyTuple::new(
+                py,
+                [
+                    model.getattr("_RuntimeCondition")?,
+                    py.import("rivlet._native")?.getattr("_NativeCondition")?,
+                ],
+            )?
+            .into_any(),
             input_port: interface.getattr("InputPort")?,
             output_port: interface.getattr("OutputPort")?,
         })
@@ -86,10 +95,15 @@ impl NodeRecord {
 }
 
 struct ConditionRecord {
-    predicate: Py<PyAny>,
+    predicate: Predicate,
     reads: Vec<usize>,
     target: usize,
     edge_index: Option<usize>,
+}
+
+enum Predicate {
+    Python(Py<PyAny>),
+    Rust(crate::native_structure::NativePredicate, Arc<ValueCodecs>),
 }
 
 struct Collector<'py> {
@@ -150,9 +164,16 @@ impl<'py> Collector<'py> {
                             .bind(self.py)
                             .call_method1("validate_inputs", (node.inputs.len(),))?;
                     }
-                    NodeContent::Rust(action, _) => self.validate_rust_inputs(node, action)?,
+                    NodeContent::Rust(action, _) => {
+                        self.validate_rust_inputs(&node.inputs, action.input_types())?;
+                    }
                     NodeContent::Composite(_) => unreachable!(),
                 }
+            }
+        }
+        for condition in &self.conditions {
+            if let Predicate::Rust(predicate, _) = &condition.predicate {
+                self.validate_rust_inputs(&condition.reads, predicate.input_types())?;
             }
         }
         let graph_owners = self.graphs.iter().map(|graph| {
@@ -184,36 +205,8 @@ impl<'py> Collector<'py> {
             .enumerate()
             .map(|(index, node)| (node.index(), index))
             .collect();
-        let mut python_sources = HashSet::new();
-        let rust_actions = RustActionBindings::new(
-            compilation
-                .declaration_nodes()
-                .iter()
-                .map(|node| {
-                    let record = &self.nodes[node.index()];
-                    match &record.content {
-                        NodeContent::Python(_) | NodeContent::Composite(_) => None,
-                        NodeContent::Rust(action, codecs) => {
-                            for source in &record.inputs {
-                                if matches!(self.nodes[*source].content, NodeContent::Python(_)) {
-                                    python_sources.insert(compact[source]);
-                                }
-                            }
-                            Some(RustActionDeclaration {
-                                action: action.clone(),
-                                codecs: Arc::clone(codecs),
-                                inputs: record
-                                    .inputs
-                                    .iter()
-                                    .map(|source| compact[source])
-                                    .collect(),
-                            })
-                        }
-                    }
-                })
-                .collect(),
-            python_sources.into_iter().collect(),
-        );
+        let rust_actions =
+            Self::rust_bindings(&self.nodes, &self.conditions, &compilation, &compact);
         let graph = CompiledExecutionGraph {
             graph: Arc::new(compilation.into_graph()),
         };
@@ -230,15 +223,69 @@ impl<'py> Collector<'py> {
         })
     }
 
-    fn validate_rust_inputs(&self, node: &NodeRecord, action: &ActionHandle) -> PyResult<()> {
-        if action.input_types().len() != node.inputs.len() {
+    fn rust_bindings(
+        nodes: &[NodeRecord],
+        conditions: &[ConditionRecord],
+        compilation: &rivlet::GraphCompilation,
+        compact: &HashMap<usize, usize>,
+    ) -> RustActionBindings {
+        let mut python_sources = HashSet::new();
+        let actions = compilation
+            .declaration_nodes()
+            .iter()
+            .map(|node| {
+                let record = &nodes[node.index()];
+                match &record.content {
+                    NodeContent::Python(_) | NodeContent::Composite(_) => None,
+                    NodeContent::Rust(action, codecs) => {
+                        for source in &record.inputs {
+                            if matches!(nodes[*source].content, NodeContent::Python(_)) {
+                                python_sources.insert(compact[source]);
+                            }
+                        }
+                        Some(RustActionDeclaration {
+                            action: action.clone(),
+                            codecs: Arc::clone(codecs),
+                            inputs: record.inputs.iter().map(|source| compact[source]).collect(),
+                        })
+                    }
+                }
+            })
+            .collect();
+        let conditions = compilation
+            .declaration_conditions()
+            .iter()
+            .map(|condition| {
+                let record = &conditions[condition.index()];
+                match &record.predicate {
+                    Predicate::Python(_) => None,
+                    Predicate::Rust(condition, codecs) => {
+                        for source in &record.reads {
+                            if matches!(nodes[*source].content, NodeContent::Python(_)) {
+                                python_sources.insert(compact[source]);
+                            }
+                        }
+                        Some(RustConditionDeclaration {
+                            condition: condition.clone(),
+                            codecs: Arc::clone(codecs),
+                            inputs: record.reads.iter().map(|source| compact[source]).collect(),
+                        })
+                    }
+                }
+            })
+            .collect();
+        RustActionBindings::new(actions, python_sources.into_iter().collect(), conditions)
+    }
+
+    fn validate_rust_inputs(&self, sources: &[usize], expected: &[ValueType]) -> PyResult<()> {
+        if expected.len() != sources.len() {
             return Err(PyValueError::new_err(format!(
-                "native action expects {} result inputs, received {}",
-                action.input_types().len(),
-                node.inputs.len()
+                "native callable expects {} result inputs, received {}",
+                expected.len(),
+                sources.len()
             )));
         }
-        for (source, expected) in node.inputs.iter().zip(action.input_types()) {
+        for (source, expected) in sources.iter().zip(expected) {
             let actual = match &self.nodes[*source].content {
                 NodeContent::Rust(source, _) => Some(source.output_type()),
                 NodeContent::Composite(_) => Some(ValueType::of::<()>()),
@@ -396,8 +443,8 @@ impl<'py> Collector<'py> {
         let mut child_label_path = self.graphs[graph_index].label_path.clone();
         child_label_path.push(step_label.to_owned());
         let child_graph = if action.is_instance(&self.types.graph)? {
-            let structure = action.getattr("structure")?;
-            if let Ok(rust_graph) = structure.extract::<PyRef<'_, RustGraphStructure>>() {
+            let structure = action.getattr("structure")?.getattr("_declaration")?;
+            if let Ok(rust_graph) = structure.extract::<PyRef<'_, _NativeStructure>>() {
                 Some(self.collect_rust_graph(
                     &rust_graph,
                     &child_label_path,
@@ -416,6 +463,11 @@ impl<'py> Collector<'py> {
                 )?)
             }
         } else {
+            let callable = action.getattr("action")?;
+            if let Ok(native) = callable.extract::<PyRef<'_, _NativeStep>>() {
+                self.nodes[node_index].content =
+                    NodeContent::Rust(native.action()?, native.codecs());
+            }
             None
         };
         let Some(child_graph) = child_graph else {
@@ -433,156 +485,154 @@ impl<'py> Collector<'py> {
 
     fn collect_rust_graph(
         &mut self,
-        rust_graph: &RustGraphStructure,
+        rust_graph: &_NativeStructure,
         label_path: &[String],
         owner: usize,
         id_prefix: &[usize],
         parent_active: bool,
     ) -> PyResult<usize> {
-        let projection = rust_graph.projection()?;
+        let native = rust_graph.for_import()?;
+        let snapshot = &native.snapshot;
         let first_graph = self.graphs.len();
         let first_node = self.nodes.len();
-        // V/E/P/R/L 为挂载、边、端口名、展开端点与路径总长，K 为单层端口数：
-        // O(V+E+P*log(K+1)+R+L) 整批导入侧表，复用投影与 Rust action handles；
-        // Graph 直接登记为 Composite，不制造空 action 或 Python 回调。
-        self.collect_rust_scopes(
-            &projection,
-            rust_graph.codecs(),
-            label_path,
-            owner,
-            first_node,
-        )?;
-        for node in projection.nodes() {
-            let graph = first_graph + node.graph().index();
-            let (content, kind) = match node.kind() {
-                graph::ProjectedKind::Step(action) => (
-                    NodeContent::Rust(action.clone(), Arc::clone(rust_graph.codecs())),
+        let first_condition = self.conditions.len();
+        self.collect_native_scopes(&native, label_path, owner, first_node)?;
+        for (index, node) in snapshot.nodes.iter().enumerate() {
+            let (content, kind) = match node.kind {
+                rivlet_bridge::NodeKind::Step { .. } => (
+                    NodeContent::Rust(native.action(index)?, Arc::clone(&native.codecs)),
                     DeclaredNodeKind::Step,
                 ),
-                graph::ProjectedKind::Graph(child) => {
-                    let child = first_graph + child.index();
-                    (
-                        NodeContent::Composite(child),
-                        DeclaredNodeKind::Composite {
-                            child_graph: GraphId::new(child),
-                        },
-                    )
-                }
+                rivlet_bridge::NodeKind::Graph { scope } => (
+                    NodeContent::Composite(first_graph + scope),
+                    DeclaredNodeKind::Composite {
+                        child_graph: GraphId::new(first_graph + scope),
+                    },
+                ),
             };
             let mut path = id_prefix.to_vec();
-            path.extend(node.path());
+            path.extend(&node.path);
             self.nodes.push(NodeRecord {
-                identity: node.identity().value(),
+                identity: native.identity(index),
                 source_node: None,
                 content,
-                graph,
+                graph: first_graph + node.graph,
                 node_path: path,
-                label: node.label().to_owned(),
-                inputs: node
-                    .inputs()
-                    .iter()
-                    .map(|id| first_node + id.index())
-                    .collect(),
+                label: node.label.clone(),
+                inputs: node.inputs.iter().map(|node| first_node + node).collect(),
             });
             let activation = if parent_active {
                 NodeActivation::Active {
                     prerequisites: node
-                        .prerequisites()
+                        .prerequisites
                         .iter()
-                        .map(|id| {
-                            DeclarationPrerequisite::Required(NodeId::new(
-                                first_node + id.node().index(),
-                            ))
+                        .map(|prerequisite| match *prerequisite {
+                            rivlet_bridge::PrerequisiteInfo::Required { node } => {
+                                DeclarationPrerequisite::Required(NodeId::new(first_node + node))
+                            }
+                            rivlet_bridge::PrerequisiteInfo::Conditional { node, condition } => {
+                                DeclarationPrerequisite::RuntimeConditional {
+                                    node: NodeId::new(first_node + node),
+                                    condition: ConditionId::new(first_condition + condition),
+                                }
+                            }
                         })
                         .collect(),
-                    condition: None,
+                    condition: node
+                        .condition
+                        .map(|condition| ConditionId::new(first_condition + condition)),
                 }
             } else {
                 NodeActivation::Inactive
             };
             self.activations.push(activation.clone());
             self.declaration_nodes.push(DeclarationNode::new(
-                GraphId::new(graph),
+                GraphId::new(first_graph + node.graph),
                 kind,
                 activation,
             ));
         }
+        for (index, condition) in snapshot.conditions.iter().enumerate() {
+            let reads: Vec<_> = condition
+                .inputs
+                .iter()
+                .map(|node| first_node + node)
+                .collect();
+            self.runtime_conditions.push(RuntimeCondition::new(
+                reads.iter().copied().map(NodeId::new),
+            ));
+            self.conditions.push(ConditionRecord {
+                predicate: Predicate::Rust(native.predicate(index), Arc::clone(&native.codecs)),
+                reads,
+                target: first_node + condition.site.target(),
+                edge_index: condition.site.edge_index(),
+            });
+        }
         if parent_active {
-            for port in projection.port_connections() {
-                self.port_connections.push(PortConnection::new(
-                    NodeId::new(first_node + port.source().index()),
-                    NodeId::new(first_node + port.target().index()),
-                ));
+            for port in &snapshot.ports {
+                let source = NodeId::new(first_node + port.source);
+                let target = NodeId::new(first_node + port.target);
+                self.port_connections.push(match port.condition {
+                    Some(condition) => PortConnection::conditional(
+                        source,
+                        target,
+                        ConditionId::new(first_condition + condition),
+                    ),
+                    None => PortConnection::new(source, target),
+                });
             }
         }
         Ok(first_graph)
     }
 
-    fn collect_rust_scopes(
+    fn collect_native_scopes(
         &mut self,
-        projection: &Arc<graph::Projection>,
-        codecs: &Arc<ValueCodecs>,
+        native: &Arc<crate::native_structure::NativeGraph>,
         label_path: &[String],
         owner: usize,
         first_node: usize,
     ) -> PyResult<()> {
-        for (index, scope) in projection.scopes().iter().enumerate() {
-            let scope_owner = scope
-                .owner()
-                .map_or(owner, |node| first_node + node.index());
-            let (label, path) = if let Some(local_owner) = scope.owner() {
-                let node = &projection.nodes()[local_owner.index()];
-                let mut path = label_path.to_vec();
+        for (index, scope) in native.snapshot.scopes.iter().enumerate() {
+            let scope_owner = scope.owner.map_or(owner, |node| first_node + node);
+            let mut path = label_path.to_vec();
+            let label = if let Some(local_owner) = scope.owner {
                 let mut ancestors = Vec::new();
                 let mut current = Some(local_owner);
-                while let Some(id) = current {
-                    let ancestor = &projection.nodes()[id.index()];
-                    ancestors.push(ancestor.label().to_owned());
-                    current = projection.scopes()[ancestor.graph().index()].owner();
+                while let Some(node) = current {
+                    let ancestor = &native.snapshot.nodes[node];
+                    ancestors.push(ancestor.label.clone());
+                    current = native.snapshot.scopes[ancestor.graph].owner;
                 }
                 path.extend(ancestors.into_iter().rev());
-                (node.label().to_owned(), path)
+                native.snapshot.nodes[local_owner].label.clone()
             } else {
-                (self.nodes[owner].label.clone(), label_path.to_vec())
+                self.nodes[owner].label.clone()
             };
             self.graphs.push(GraphRecord {
-                source_graph: Py::new(
-                    self.py,
-                    RustGraphStructure::view(
-                        Arc::clone(projection),
-                        GraphId::new(index),
-                        Arc::clone(codecs),
-                    ),
-                )?
-                .into_any(),
+                source_graph: Py::new(self.py, _NativeStructure::view(Arc::clone(native), index))?
+                    .into_any(),
                 label,
                 label_path: path,
                 owner: Some(scope_owner),
                 local_nodes: HashMap::new(),
-                local_node_order: scope
-                    .nodes()
-                    .iter()
-                    .map(|id| first_node + id.index())
-                    .collect(),
+                local_node_order: scope.nodes.iter().map(|node| first_node + node).collect(),
                 descendant_nodes: HashMap::new(),
                 port_scopes: Vec::new(),
                 ports: PortDefinitions::Rust {
                     inputs: scope
-                        .inputs()
+                        .inputs
                         .iter()
                         .map(|(name, nodes)| {
                             (
-                                name.as_option().map(str::to_owned),
-                                nodes.iter().map(|id| first_node + id.index()).collect(),
+                                name.clone(),
+                                nodes.iter().map(|node| first_node + node).collect(),
                             )
                         })
                         .collect(),
                     outputs: scope
-                        .outputs()
+                        .outputs
                         .iter()
-                        .map(|(name, id)| {
-                            (name.as_option().map(str::to_owned), first_node + id.index())
-                        })
+                        .map(|(name, node)| (name.clone(), first_node + node))
                         .collect(),
                 },
             });
@@ -813,6 +863,17 @@ impl<'py> Collector<'py> {
         target: usize,
         edge_index: Option<usize>,
     ) -> PyResult<ConditionId> {
+        if let Ok(native) = condition.extract::<PyRef<'_, _NativeCondition>>() {
+            let condition_id = ConditionId::new(self.conditions.len());
+            self.conditions.push(ConditionRecord {
+                predicate: Predicate::Rust(native.predicate.clone(), Arc::clone(&native.codecs)),
+                reads: Vec::new(),
+                target,
+                edge_index,
+            });
+            self.runtime_conditions.push(RuntimeCondition::new([]));
+            return Ok(condition_id);
+        }
         // I 为条件的输入引用数。按当前挂载的局部索引一次解析，时间/空间 O(I)，
         // 不从结果边反查，也不把条件输入加入 action 的无条件前置。
         let graph_index = self.nodes[target].graph;
@@ -839,7 +900,7 @@ impl<'py> Collector<'py> {
         }
         let condition_id = ConditionId::new(self.conditions.len());
         self.conditions.push(ConditionRecord {
-            predicate: condition.getattr("when")?.unbind(),
+            predicate: Predicate::Python(condition.getattr("when")?.unbind()),
             reads: reads.iter().map(|node| node.index()).collect(),
             target,
             edge_index,
@@ -1172,17 +1233,31 @@ impl DeclarationCompilation {
             .collect()
     }
 
-    fn source_graphs(&self, py: Python<'_>) -> Vec<Py<PyAny>> {
+    fn source_graphs(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         self.graphs
             .iter()
-            .map(|graph| graph.source_graph.clone_ref(py))
+            .map(|graph| {
+                if let Some(source) = graph
+                    .owner
+                    .and_then(|node| self.nodes[node].source_node.as_ref())
+                {
+                    return source.bind(py).getattr("structure").map(Bound::unbind);
+                }
+                py.import("rivlet.model")?
+                    .getattr("GraphStructure")?
+                    .call_method1("_from_declaration", (graph.source_graph.bind(py),))
+                    .map(Bound::unbind)
+            })
             .collect()
     }
 
-    fn predicates(&self, py: Python<'_>) -> Vec<Py<PyAny>> {
+    fn predicates(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
         self.declaration_conditions
             .iter()
-            .map(|&index| self.conditions[index].predicate.clone_ref(py))
+            .map(|&index| match &self.conditions[index].predicate {
+                Predicate::Python(predicate) => Ok(predicate.clone_ref(py)),
+                Predicate::Rust(_, _) => Py::new(py, _NativePredicate).map(Py::into_any),
+            })
             .collect()
     }
 
@@ -1211,7 +1286,7 @@ pub(crate) fn compile_declaration(
     id_prefix: Vec<usize>,
 ) -> PyResult<DeclarationCompilation> {
     Collector::new(source_graph.py())?.collect_root(
-        source_graph,
+        &source_graph.getattr("_declaration")?,
         root_label,
         root_label_path,
         &id_prefix,

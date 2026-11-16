@@ -13,7 +13,7 @@ from .session_tree import DynamicSubgraph, RootSession, SessionDefinition
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from .._native import MixedExecutionBatch, MixedExecutionSession
+    from .._native import _DriverBatch, _DriverSession
     from .session_tree import BatchExecutionHost
 
 
@@ -26,8 +26,8 @@ class _Child:
 @dataclass(slots=True)
 class _Frame:
     definition: SessionDefinition
-    engine: MixedExecutionSession
-    batch: MixedExecutionBatch
+    engine: _DriverSession
+    batch: _DriverBatch
     owner: RootSession | _Child
     held_actions: list[int] = field(default_factory=list)
 

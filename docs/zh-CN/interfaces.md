@@ -206,7 +206,7 @@ Edge(source=a, target=b, ports=("sdk-ready", "toolchain-ready"), condition=neede
 
 ## 跨图结果
 
-GraphStructure.interface 保存声明；Graph.interface 返回绑定该图节点的只读端口视图。
+GraphStructure 的 `interface=` 参数接收声明；Graph.interface 返回归属该图节点的只读端口视图。
 输入端口是 InputPort，输出端口是 OutputPort；Step 没有 interface。端口引用保留所属
 Graph，不用 (Step, "port") 或额外 bind。以下是独立可执行的例子：
 
@@ -460,9 +460,9 @@ provider 的隐式策略。
 得到的显式 binding 随图进入声明编译器，定位内部端口并 lower 为执行依赖。最终 DAG
 校验与执行状态机都在 Rust；Python 不维护另一套 provider 选择或 binding lowering 规则。
 
-当前端口引用的是 Python 声明中的 Node，不能直接引用不透明 RustGraphStructure 内部的
-Rust Step。需要公开原生子图整体完成状态时，可以由 Python Graph 组合它，并以该
-Node 作为出口。运行期才返回的子图也不能提前向外公开尚不存在的内部端口。
+端口归属具体 Graph 实例，包括 [SDK](./python-native.md) 导出的原生体。Python 不接收
+内部可执行 Rust Step 对象，通过原生体公开的端口连接；需要公开整个原生体完成时，
+使用其 Graph 节点作为出口。运行期才返回的子图也不能提前向外公开尚不存在的内部端口。
 
 端口提供组件及其直接出口不允许使用运行时 `condition` 来决定是否存在；这与“执行失败”
 不同。provider 的选择必须在编译前确定，不能靠运行时跳过来实现候选切换。

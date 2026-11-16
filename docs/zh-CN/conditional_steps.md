@@ -5,7 +5,7 @@
 ## 用途
 
 条件边决定依赖是否成立；Node.condition 决定节点自身是否参与执行。
-它适用于 Python 叶子、Python Graph 子图和 RustGraphStructure 子图。
+它适用于 Python 动作节点和 Graph 子图，也包括持有原生结构的 Graph。
 
 ## 声明
 
@@ -107,7 +107,7 @@ child_graph = static.when(
 条件为假时，编译器移除节点及关联边，不自动把前驱接到后继。声明图保持不变，
 可继续查看原始条件。子图必须先构造，静态规则不会延迟其 Python 构造函数。
 
-不用 DSL 时，同一个 API 通过 GraphStructure.static 接入：
+不用 DSL 时，同一个 API 通过 GraphStructure 的 `static=` 参数接入：
 
 ```python
 graph = Graph(

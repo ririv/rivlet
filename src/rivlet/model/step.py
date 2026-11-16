@@ -5,12 +5,14 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeGuard
+from typing import TYPE_CHECKING, TypeGuard, cast
 
+from .._native import _NativeStep
 from ..errors import GraphError
 from .metadata import _NodeMeta
 
 if TYPE_CHECKING:
+    from .._native import _NativeCondition
     from ..option import Option
     from ..results import NodeRunContext
     from . import ConditionInput, GraphWiringOperand, NodePrerequisite
@@ -71,7 +73,7 @@ class Step:
     完整签名在图接线后校验，不按参数名或类型标注猜测调用方式。
     """
 
-    _call: _StepCall
+    _call: _StepCall | _NativeStep
     _meta: _NodeMeta
 
     def __init__(
@@ -111,12 +113,27 @@ class Step:
         return self._meta.label
 
     @property
-    def condition(self) -> _RuntimeCondition | None:
+    def condition(self) -> _RuntimeCondition | _NativeCondition | None:
         return self._meta.condition
 
     @property
-    def action(self) -> StepCallable:
-        return self._call.fn
+    def action(self) -> StepCallable | _NativeStep:
+        return self._call if isinstance(self._call, _NativeStep) else self._call.fn
+
+    @classmethod
+    def _from_native(
+        cls,
+        action: _NativeStep,
+        identity: int,
+        label: str,
+        condition: _NativeCondition | None,
+    ) -> Step:
+        from .identity import NodeId
+
+        node = object.__new__(cls)
+        object.__setattr__(node, "_call", action)
+        object.__setattr__(node, "_meta", _NodeMeta(NodeId(identity), label, condition))
+        return node
 
     def wire(self, after: tuple[NodePrerequisite | Results, ...] = ()) -> NodeWiring:
         from .wiring import NodeWiring
@@ -134,9 +151,16 @@ class Step:
         return _parallel_wiring(self, other)
 
     def validate_inputs(self, count: int) -> None:
+        if isinstance(self._call, _NativeStep):
+            expected = self._call.input_count()
+            if count != expected:
+                raise GraphError(
+                    f"native action expects {expected} result inputs, received {count}"
+                )
+            return
         try:
             if count:
-                inspect.signature(self.action).bind(object(), *([object()] * count))
+                inspect.signature(self._call.fn).bind(object(), *([object()] * count))
             elif isinstance(self._call, _ResultCall):
                 raise TypeError("action requires result inputs")
         except TypeError as exc:
@@ -147,8 +171,10 @@ class Step:
     def invoke(
         self, run_ctx: NodeRunContext, inputs: tuple[Option[object], ...] = ()
     ) -> object:
+        if isinstance(self._call, _NativeStep):
+            raise GraphError("native steps must execute through the native driver")
         if inputs:
-            return self.action(run_ctx, *inputs)
+            return cast("StepCallable", self._call.fn)(run_ctx, *inputs)
         match self._call:
             case _NoArgsCall(fn=fn):
                 return fn()

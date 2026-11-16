@@ -73,7 +73,7 @@ def test_static_scopes_compose_without_replacing_evaluators() -> None:
     graph = (yes.when(ENABLED, left) | no.when(ENABLED, right)).graph()
 
     assert len(compile_graph(graph.structure, root_label="root").steps) == 1
-    assert graph.structure.nodes == (left, right)
+    assert graph.structure._declaration.nodes == (left, right)
 
 
 def test_result_edge_static_rule_is_evaluated_once() -> None:

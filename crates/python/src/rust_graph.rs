@@ -1,21 +1,24 @@
-//! Opaque Rust graph declarations and whole-graph adapter entry points.
+//! Private graph fixtures; public producers use rivlet-python's structure exporter.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use action::{ActionHandle, ProcessAction};
-use graph::{
-    Edge, Graph, GraphInterface, GraphStructure, Node, NodeKind, PortName, Projection, Step,
-};
+use graph::{Edge, Graph, GraphInterface, GraphStructure, NodeKind, PortName, Step};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rivlet::GraphId;
 
+use crate::native_structure::_NativeStructure;
 use crate::result_values::ValueCodecs;
 
-type ProcessDeclaration = (String, String, Vec<String>, String, HashMap<String, String>);
-type NodeMetadata = (u64, String, Option<RustGraphStructure>);
+type ProcessDeclaration = (
+    String,
+    String,
+    Vec<String>,
+    String,
+    std::collections::HashMap<String, String>,
+);
 type PortReference = (usize, Option<String>);
 type InputDeclaration = (Option<String>, Vec<PortReference>);
 type OutputDeclaration = (Option<String>, usize, Option<String>);
@@ -31,245 +34,15 @@ fn invalid(error: impl std::fmt::Display) -> PyErr {
     PyValueError::new_err(error.to_string())
 }
 
-/// Opaque ownership of a complete Rust declaration, or a shared nested view.
-#[pyclass(frozen, module = "rivlet._native", skip_from_py_object)]
-#[derive(Clone)]
-pub(crate) struct RustGraphStructure {
-    projection: Arc<Projection>,
-    scope: GraphId,
-    codecs: Arc<ValueCodecs>,
-}
-
-impl RustGraphStructure {
-    fn new(structure: GraphStructure) -> PyResult<Self> {
-        Self::with_codecs(structure, Arc::new(ValueCodecs::default()))
-    }
-
-    pub(crate) fn with_codecs(
-        structure: GraphStructure,
-        codecs: Arc<ValueCodecs>,
-    ) -> PyResult<Self> {
-        let projection = Projection::from_structure(Arc::new(structure)).map_err(invalid)?;
-        // Python 混合 session 尚无 Rust 谓词侧表；禁止把带条件的原生图当作无条件图导入。
-        if !projection.conditions().is_empty() {
-            return Err(invalid(
-                "Rust predicates require the Rust Execution host; Python mixed predicate dispatch is not implemented",
-            ));
-        }
-        Ok(Self {
-            projection: Arc::new(projection),
-            scope: GraphId::new(0),
-            codecs,
-        })
-    }
-
-    pub(crate) fn graph(&self) -> &Arc<GraphStructure> {
-        self.projection.scopes()[self.scope.index()].structure()
-    }
-    pub(crate) fn codecs(&self) -> &Arc<ValueCodecs> {
-        &self.codecs
-    }
-
-    pub(crate) fn projection(&self) -> PyResult<Arc<Projection>> {
-        if self.scope.index() == 0 {
-            Ok(Arc::clone(&self.projection))
-        } else {
-            // 仅当用户把嵌套视图作为新的根挂载时重新定位；普通遍历共享一次投影。
-            Ok(Arc::new(
-                Projection::from_structure(Arc::clone(self.graph())).map_err(invalid)?,
-            ))
-        }
-    }
-
-    pub(crate) fn view(
-        projection: Arc<Projection>,
-        scope: GraphId,
-        codecs: Arc<ValueCodecs>,
-    ) -> Self {
-        Self {
-            projection,
-            scope,
-            codecs,
-        }
-    }
-
-    fn relative_path(&self, node: rivlet::NodeId) -> Vec<usize> {
-        let scope = &self.projection.scopes()[self.scope.index()];
-        let prefix = scope.owner().map_or(0, |owner| {
-            self.projection.nodes()[owner.index()].path().len()
-        });
-        self.projection.nodes()[node.index()].path()[prefix..].to_vec()
-    }
-}
-
-#[pymethods]
-impl RustGraphStructure {
-    fn node_ids(&self) -> Vec<u64> {
-        self.graph()
-            .nodes()
-            .iter()
-            .map(|node| node.id().value())
-            .collect()
-    }
-
-    /// Returns metadata and shared child views, never commands or environments.
-    fn nodes(&self) -> Vec<NodeMetadata> {
-        let scope = &self.projection.scopes()[self.scope.index()];
-        scope
-            .nodes()
-            .iter()
-            .map(|id| {
-                let node = &self.projection.nodes()[id.index()];
-                let child = match node.kind() {
-                    graph::ProjectedKind::Step(_) => None,
-                    graph::ProjectedKind::Graph(scope) => Some(Self::view(
-                        Arc::clone(&self.projection),
-                        *scope,
-                        Arc::clone(&self.codecs),
-                    )),
-                };
-                (node.identity().value(), node.label().to_owned(), child)
-            })
-            .collect()
-    }
-
-    fn edges(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-        let indexes: HashMap<_, _> = self
-            .graph()
-            .nodes()
-            .iter()
-            .enumerate()
-            .map(|(index, node)| (node.id(), index))
-            .collect();
-        let mut edges = Vec::new();
-        for edge in self.graph().edges() {
-            let target = indexes[&edge.target()];
-            match edge {
-                Edge::Completion { source, .. } => {
-                    edges.push(
-                        (indexes[source], target)
-                            .into_pyobject(py)?
-                            .into_any()
-                            .unbind(),
-                    );
-                }
-                Edge::Ports {
-                    source: output,
-                    target: input,
-                } => edges.push(
-                    (
-                        indexes[&output.owner()],
-                        target,
-                        output.name().as_option(),
-                        input.name().as_option(),
-                    )
-                        .into_pyobject(py)?
-                        .into_any()
-                        .unbind(),
-                ),
-                Edge::Results {
-                    sources,
-                    target: receiver,
-                } => {
-                    // None 表示直连节点；Some((None,)) 表示经过匿名端口，不可合并。
-                    let input = match receiver {
-                        graph::ResultTarget::Step(_) => None,
-                        graph::ResultTarget::Port(port) => Some((port.name().as_option(),)),
-                    };
-                    for (index, source) in sources.iter().enumerate() {
-                        let (owner, output) = match source {
-                            graph::OutputEndpoint::Node(id) => (*id, None),
-                            graph::OutputEndpoint::Port(port) => {
-                                (port.owner(), Some((port.name().as_option(),)))
-                            }
-                        };
-                        edges.push(
-                            (indexes[&owner], target, index, output, input)
-                                .into_pyobject(py)?
-                                .into_any()
-                                .unbind(),
-                        );
-                    }
-                }
-                Edge::ConditionalCompletion { .. } | Edge::ConditionalPorts { .. } => {
-                    return Err(invalid("Rust predicates require the Rust Execution host"));
-                }
-            }
-        }
-        Ok(edges)
-    }
-
-    fn input_ports(&self) -> Vec<Option<String>> {
-        self.graph()
-            .interface()
-            .inputs()
-            .keys()
-            .map(|name| name.as_option().map(str::to_owned))
-            .collect()
-    }
-    fn has_input_port(&self, name: Option<String>) -> bool {
-        self.graph()
-            .interface()
-            .inputs()
-            .contains_key(&PortName::from(name))
-    }
-    fn has_output_port(&self, name: Option<String>) -> bool {
-        self.graph()
-            .interface()
-            .outputs()
-            .contains_key(&PortName::from(name))
-    }
-    fn output_ports(&self) -> Vec<Option<String>> {
-        self.graph()
-            .interface()
-            .outputs()
-            .keys()
-            .map(|name| name.as_option().map(str::to_owned))
-            .collect()
-    }
-    fn input_paths(&self, name: Option<String>) -> PyResult<Vec<Vec<usize>>> {
-        let name = PortName::from(name);
-        self.projection.scopes()[self.scope.index()]
-            .inputs()
-            .get(&name)
-            .map(|nodes| nodes.iter().map(|node| self.relative_path(*node)).collect())
-            .ok_or_else(|| invalid(format!("unknown input port: {name}")))
-    }
-    fn output_path(&self, name: Option<String>) -> PyResult<Vec<usize>> {
-        let name = PortName::from(name);
-        self.projection.scopes()[self.scope.index()]
-            .outputs()
-            .get(&name)
-            .map(|node| self.relative_path(*node))
-            .ok_or_else(|| invalid(format!("unknown output port: {name}")))
-    }
-
-    fn input_arities(&self, name: Option<String>) -> PyResult<Vec<usize>> {
-        let name = PortName::from(name);
-        let nodes = self.projection.scopes()[self.scope.index()]
-            .inputs()
-            .get(&name)
-            .ok_or_else(|| invalid(format!("unknown input port: {name}")))?;
-        nodes
-            .iter()
-            .map(|id| match self.projection.nodes()[id.index()].kind() {
-                graph::ProjectedKind::Step(action) => Ok(action.input_types().len()),
-                graph::ProjectedKind::Graph(_) => {
-                    Err(invalid("result target must be a native leaf"))
-                }
-            })
-            .collect()
-    }
-}
-
 /// Whole-graph importer boundary; no Python wrapper for individual Rust actions.
 #[pyfunction(name = "_rust_process_graph", signature = (processes, arcs, inputs=Vec::new(), outputs=Vec::new()))]
 pub(crate) fn rust_process_graph(
+    py: Python<'_>,
     processes: Vec<ProcessDeclaration>,
     arcs: Vec<(usize, usize)>,
     inputs: Vec<(Option<String>, Vec<usize>)>,
     outputs: Vec<(Option<String>, usize)>,
-) -> PyResult<RustGraphStructure> {
+) -> PyResult<Py<PyAny>> {
     let nodes = processes
         .into_iter()
         .map(|(label, program, arguments, cwd, environment)| {
@@ -305,27 +78,40 @@ pub(crate) fn rust_process_graph(
     for (name, index) in outputs {
         interface = interface.output(name, require(index)?).map_err(invalid)?;
     }
-    RustGraphStructure::new(
+    _NativeStructure::new(
         GraphStructure::with_interface(nodes.into_iter().map(NodeKind::from), edges, interface)
             .map_err(invalid)?,
-    )
+    )?
+    .into_public(py)
 }
 
 /// Composes complete Rust graph bodies and their explicit interfaces.
 #[pyfunction(name = "_compose_rust_graph")]
 pub(crate) fn compose_rust_graph(
-    components: Vec<(String, PyRef<'_, RustGraphStructure>)>,
+    py: Python<'_>,
+    components: Vec<(String, Bound<'_, PyAny>)>,
     edges: Vec<EdgeDeclaration>,
     inputs: Vec<InputDeclaration>,
     outputs: Vec<OutputDeclaration>,
-) -> PyResult<RustGraphStructure> {
+) -> PyResult<Py<PyAny>> {
+    let components = components
+        .into_iter()
+        .map(|(label, body)| {
+            Ok((
+                label,
+                body.getattr("_declaration")?
+                    .extract::<PyRef<'_, _NativeStructure>>()?
+                    .clone(),
+            ))
+        })
+        .collect::<PyResult<Vec<_>>>()?;
     let mut codecs = ValueCodecs::default();
     for (_, body) in &components {
         codecs.combine(body.codecs())?;
     }
     let nodes = components
         .into_iter()
-        .map(|(label, body)| Graph::new(label, Arc::clone(body.graph())).map_err(invalid))
+        .map(|(label, body)| Graph::new(label, body.graph()?).map_err(invalid))
         .collect::<PyResult<Vec<_>>>()?;
     let require = |index: usize| {
         nodes
@@ -393,9 +179,10 @@ pub(crate) fn compose_rust_graph(
             )
             .map_err(invalid)?;
     }
-    RustGraphStructure::with_codecs(
+    _NativeStructure::with_codecs(
         GraphStructure::with_interface(nodes.into_iter().map(NodeKind::from), edges, interface)
             .map_err(invalid)?,
         Arc::new(codecs),
-    )
+    )?
+    .into_public(py)
 }

@@ -29,6 +29,8 @@
 
 ## 文档
 
+- [实验性混合执行、SDK 与移除边界](./mixed-execution.md)
+
 - [核心模型](./core_model.md)
 - [版本化结构导出](./graph_export.md)
 - [图内静态选择](./static_selection.md)
@@ -37,6 +39,7 @@
 - [失败事件与直接原因](./failure_events.md)
 - [Python 图与 Rust 原生图](./rust-graphs.md)
 - [执行 Rust 图](./rust-execution.md)
+- [Python 工作流中的独立 Rust 扩展](./python-native.md)
 - [Rust 运行时谓词](./rust-conditions.md)
 - [实验性 Node.js API](./node-api.md)
 - [原生结果值与跨语言转换](./rust-results.md)

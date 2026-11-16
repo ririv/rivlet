@@ -10,6 +10,7 @@ from .condition import _normalize_condition, _RuntimeCondition
 from .identity import NodeId
 
 if TYPE_CHECKING:
+    from .._native import _NativeCondition
     from . import ConditionInput
 
 
@@ -17,7 +18,7 @@ if TYPE_CHECKING:
 class _NodeMeta:
     id: NodeId
     label: str | None
-    condition: _RuntimeCondition | None
+    condition: _RuntimeCondition | _NativeCondition | None
 
     @classmethod
     def create(cls, label: str | None, condition: ConditionInput | None) -> _NodeMeta:

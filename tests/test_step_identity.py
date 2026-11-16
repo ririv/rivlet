@@ -145,6 +145,12 @@ def test_native_declaration_ids_survive_compilation_and_repeated_mounts():
         if node["kind"] == "leaf" and node["action_kind"] == "native"
     ]
     assert [node["id"] for node in execution_nodes] == ["0.0.0", "0.1.0"]
-    assert [node["node_id"] for node in execution_nodes] == [native.node_ids()[0]] * 2
-    assert native.node_ids()[0] not in {step.id.value for step in graph.structure.nodes}
-    assert NodeId().value not in {step.id.value for step in graph.structure.nodes}
+    assert [node["node_id"] for node in execution_nodes] == [
+        native._declaration.node_ids()[0]
+    ] * 2
+    assert native._declaration.node_ids()[0] not in {
+        step.id.value for step in graph.structure._declaration.nodes
+    }
+    assert NodeId().value not in {
+        step.id.value for step in graph.structure._declaration.nodes
+    }

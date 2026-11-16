@@ -1,77 +1,26 @@
-"""GraphStructure declaration boundaries and graph-scoped interfaces."""
+"""One public structure type, independent of its declaration language."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
-from ..interface import GraphInterface, GraphInterfaceInput
-from ..static import Case, StaticSelection, resolve_selection_bindings
-from ..static_conditions import (
-    BoundStaticCondition,
-    StaticConditions,
-    StaticConditionsInput,
-    StaticTarget,
-    resolve_static_bindings,
-    static_groups,
-)
-from .edge import GraphEdge, _condition_uses
-from .wiring import (
-    GraphWiring,
-    _graph_wiring_from_node_wirings,
-)
+from .python_structure import GraphMode, GraphObservationMessages, _PythonStructure
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from . import GraphWiringInput, NodeKind
-    from .node import Node
-
-
-type GraphMode = Literal["dynamic", "compiled"]
-
-
-@dataclass(frozen=True, slots=True)
-class GraphObservationMessages:
-    before: str | None = None
-    after_success: str | None = None
+    from .._native import _NativeStructure
+    from ..interface import GraphInterfaceInput
+    from ..static import StaticSelection
+    from ..static_conditions import StaticConditionsInput
+    from ..structure.schema import DeclarationDocument, EdgeDocument, NodeDocument
+    from . import GraphEdge, GraphWiringInput, NodeKind
 
 
 @dataclass(frozen=True, slots=True, init=False)
 class GraphStructure:
-    """DAG 图结构本体。
+    """An immutable reusable body with a language-independent structural snapshot."""
 
-    `GraphStructure` 表达的是一张有向无环图（DAG），描述图结构本体，
-    以及这张图的静态条件与选择声明。
-
-    它表达的是：
-    - 这张图有哪些 step
-    - step 之间有哪些依赖边
-    - 哪些 step 挂子图
-    - 图级 observation
-    - 这张图的节点和边在哪些静态条件下参与
-    - 哪些候选分支在编译时必须恰好一个条件成立
-
-    它不表达的是：
-    - 图挂载后的结构身份
-    - 这次执行的 results / skip 状态
-    - Execution 的展示与 composite 记录模式
-    """
-
-    nodes: tuple[NodeKind, ...] = field(default_factory=tuple)
-    edges: tuple[GraphEdge, ...] = field(default_factory=tuple)
-    interface: GraphInterface = field(default_factory=GraphInterface)
-    observation: GraphObservationMessages = field(
-        default_factory=GraphObservationMessages
-    )
-    static: tuple[StaticConditions, ...] = ()
-    static_selections: tuple[StaticSelection, ...] = ()
-    _selection_bindings: Mapping[Node, tuple[StaticSelection, Case]] = field(
-        init=False, repr=False, compare=False
-    )
-    _static_bindings: Mapping[StaticTarget, BoundStaticCondition] = field(
-        init=False, repr=False, compare=False
-    )
+    _declaration: _PythonStructure | _NativeStructure = field(repr=False)
 
     def __init__(
         self,
@@ -82,49 +31,21 @@ class GraphStructure:
         static: StaticConditionsInput = (),
         static_selections: tuple[StaticSelection, ...] = (),
     ) -> None:
-        object.__setattr__(self, "nodes", nodes)
-        object.__setattr__(self, "edges", edges)
         object.__setattr__(
             self,
-            "interface",
-            GraphInterface()
-            if interface is None
-            else GraphInterface.resolve(interface),
-        )
-        object.__setattr__(
-            self,
-            "observation",
-            GraphObservationMessages() if observation is None else observation,
-        )
-        object.__setattr__(self, "static", static_groups(static))
-        object.__setattr__(self, "static_selections", static_selections)
-        # 完整声明建好后直接调用校验器，不再增加一层转发方法。
-        from .validation import validate_graph
-
-        validate_graph(self)
-        object.__setattr__(
-            self,
-            "_selection_bindings",
-            resolve_selection_bindings(self.static_selections, nodes=self.nodes),
-        )
-        object.__setattr__(
-            self,
-            "_static_bindings",
-            resolve_static_bindings(
-                self.static,
-                nodes=self.nodes,
-                edge_pairs={
-                    *((edge.source, edge.target) for edge in self.edges),
-                    *(
-                        (source, target)
-                        for target, condition in _condition_uses(self.nodes, self.edges)
-                        for source in condition.inputs
-                    ),
-                }
-                if self.static
-                else set(),
+            "_declaration",
+            _PythonStructure(
+                nodes, edges, interface, observation, static, static_selections
             ),
         )
+
+    @classmethod
+    def _from_declaration(
+        cls, declaration: _PythonStructure | _NativeStructure
+    ) -> GraphStructure:
+        structure = object.__new__(cls)
+        object.__setattr__(structure, "_declaration", declaration)
+        return structure
 
     @classmethod
     def from_wiring(
@@ -136,35 +57,59 @@ class GraphStructure:
         static: StaticConditionsInput = (),
         static_selections: tuple[StaticSelection, ...] = (),
     ) -> GraphStructure:
-        normalized = (
-            wiring
-            if isinstance(wiring, GraphWiring)
-            else _graph_wiring_from_node_wirings(wiring)
-        )
-        return cls(
-            nodes=normalized.nodes,
-            edges=normalized.edges,
-            interface=interface,
-            observation=(
-                GraphObservationMessages() if observation is None else observation
+        structure = object.__new__(cls)
+        object.__setattr__(
+            structure,
+            "_declaration",
+            _PythonStructure.from_wiring(
+                wiring,
+                interface=interface,
+                observation=observation,
+                static=static,
+                static_selections=static_selections,
             ),
-            static=(*normalized.static, *static_groups(static)),
-            static_selections=(*normalized.static_selections, *static_selections),
         )
+        return structure
 
-    def _resolve_static_selections(self) -> tuple[Node, ...]:
-        """Return inactive cases once per active graph mount during compilation."""
+    def describe(self) -> DeclarationDocument:
+        """Return a detached snapshot without compiling or executing host code."""
+        from ..structure import export_graph
 
-        # 全部分支扫描两次：时间 O(C)，返回的未选节点占 O(C) 空间。
-        inactive: list[Node] = []
-        for declaration in self.static_selections:
-            selected = declaration.selected_node()
-            inactive.extend(
-                case.node for case in declaration.cases if case.node is not selected
+        return export_graph(self)
+
+    @property
+    def observation(self) -> GraphObservationMessages:
+        if isinstance(self._declaration, _PythonStructure):
+            return self._declaration.observation
+        return GraphObservationMessages()
+
+    @property
+    def nodes(self) -> tuple[NodeDocument, ...]:
+        """Inspect descriptions rather than language-specific executable objects."""
+        return tuple(self.describe()["nodes"])
+
+    @property
+    def edges(self) -> tuple[EdgeDocument, ...]:
+        """Inspect descriptions using the common structural export schema."""
+        return tuple(self.describe()["edges"])
+
+    def append_edges(self, edges: tuple[GraphEdge, ...]) -> GraphStructure:
+        """Compose edges without replacing existing declarations."""
+        from dataclasses import replace
+
+        if not edges:
+            return self
+        if not isinstance(self._declaration, _PythonStructure):
+            raise TypeError(
+                "opaque structures must be composed through their public ports"
             )
-        return tuple(inactive)
-
-    def incoming_edges(self, node: Node) -> tuple[GraphEdge, ...]:
-        return tuple(
-            edge for edge in self.edges if edge.target is node and edge.ports is None
+        structure = object.__new__(type(self))
+        object.__setattr__(
+            structure,
+            "_declaration",
+            replace(self._declaration, edges=(*self._declaration.edges, *edges)),
         )
+        return structure
+
+
+__all__ = ["GraphMode", "GraphObservationMessages", "GraphStructure"]

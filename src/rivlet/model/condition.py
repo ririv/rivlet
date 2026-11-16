@@ -6,6 +6,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .._native import _NativeCondition
 from ..errors import GraphError
 
 if TYPE_CHECKING:
@@ -30,7 +31,11 @@ class _RuntimeCondition:
         return (self.when, self.inputs[0], *self.inputs[1:])
 
 
-def _normalize_condition(condition: ConditionInput) -> _RuntimeCondition:
+def _normalize_condition(
+    condition: ConditionInput,
+) -> _RuntimeCondition | _NativeCondition:
+    if isinstance(condition, _NativeCondition):
+        return condition
     if callable(condition):
         return _RuntimeCondition(when=condition, inputs=())
     if not isinstance(condition, tuple) or len(condition) < 2:

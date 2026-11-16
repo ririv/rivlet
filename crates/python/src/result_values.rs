@@ -2,7 +2,7 @@ use std::any::TypeId;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use action::{Value, ValueType};
+use action::{Value, ValueType, ValueTypeId};
 use pyo3::BoundObject;
 use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
@@ -56,7 +56,7 @@ enum Builtin {
     Bytes,
 }
 
-fn builtin(id: TypeId) -> Option<Builtin> {
+fn builtin(id: ValueTypeId) -> Option<Builtin> {
     [
         (TypeId::of::<()>(), Builtin::Unit),
         (TypeId::of::<bool>(), Builtin::Bool),
@@ -78,13 +78,13 @@ fn builtin(id: TypeId) -> Option<Builtin> {
         (TypeId::of::<Vec<u8>>(), Builtin::Bytes),
     ]
     .into_iter()
-    .find_map(|(candidate, kind)| (candidate == id).then_some(kind))
+    .find_map(|(candidate, kind)| (ValueTypeId::Rust(candidate) == id).then_some(kind))
 }
 
 /// Explicit adapter-owned converters; core and action never depend on `PyO3`.
 #[derive(Clone, Default)]
 pub(crate) struct ValueCodecs {
-    custom: HashMap<TypeId, Arc<dyn ErasedCodec>>,
+    custom: HashMap<ValueTypeId, Arc<dyn ErasedCodec>>,
 }
 
 impl ValueCodecs {
@@ -93,7 +93,7 @@ impl ValueCodecs {
         export: Export<T>,
         import: Import<T>,
     ) -> PyResult<Self> {
-        let id = TypeId::of::<T>();
+        let id = ValueTypeId::Rust(TypeId::of::<T>());
         if builtin(id).is_some() || self.custom.contains_key(&id) {
             return Err(PyTypeError::new_err(
                 "native result codec must not be replaced",

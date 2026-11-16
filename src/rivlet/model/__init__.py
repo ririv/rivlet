@@ -1,5 +1,6 @@
 """Public graph-model declarations, assembled from their owning modules."""
 
+from .._native import _NativeCondition
 from .condition import (
     ConditionalEdgePredicate,
 )
@@ -35,7 +36,9 @@ from .wiring import (
 # 类型检查和运行时读取 TypeAliasType.__value__ 使用同一组类型身份。
 type NodeKind = Step | Graph
 type ConditionInput = (
-    ConditionalEdgePredicate | tuple[ConditionalEdgePredicate, Node, *tuple[Node, ...]]
+    ConditionalEdgePredicate
+    | tuple[ConditionalEdgePredicate, Node, *tuple[Node, ...]]
+    | _NativeCondition
 )
 type NodePrerequisite = Node | ConditionalPrerequisite
 type GraphWiringOperand = NodeKind | GraphWiring

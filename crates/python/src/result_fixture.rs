@@ -9,8 +9,8 @@ use pyo3::exceptions::PyTypeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+use crate::native_structure::_NativeStructure;
 use crate::result_values::ValueCodecs;
-use crate::rust_graph::RustGraphStructure;
 
 // 这些仅供 FFI 集成测试构造整图，不向 rivlet 根包公开单个 Rust action。
 #[pyclass(
@@ -91,7 +91,7 @@ fn import_plan(value: &Bound<'_, PyAny>) -> PyResult<Plan> {
 fn pair<T: Clone + Send + Sync + 'static>(
     value: T,
     codecs: ValueCodecs,
-) -> PyResult<(RustGraphStructure, RustGraphStructure)> {
+) -> PyResult<(_NativeStructure, _NativeStructure)> {
     let seed = Step::new("seed", ActionHandle::new(Constant(value))).map_err(invalid)?;
     let echo = Step::new("echo", ActionHandle::new(Echo::<T>(PhantomData))).map_err(invalid)?;
     bodies(seed, echo, codecs)
@@ -102,21 +102,22 @@ fn invalid(error: impl std::fmt::Display) -> PyErr {
 }
 
 #[pyfunction(name = "_rust_condition_fixture")]
-pub(crate) fn rust_condition_fixture() -> PyResult<RustGraphStructure> {
+pub(crate) fn rust_condition_fixture(py: Python<'_>) -> PyResult<Py<PyAny>> {
     let condition = Condition::new(|()| Ok(true), []).map_err(invalid)?;
     let step = Step::with_condition("guarded", ActionHandle::new(Constant(42_i64)), condition)
         .map_err(invalid)?;
-    RustGraphStructure::with_codecs(
+    _NativeStructure::with_codecs(
         GraphStructure::new([step.into()], []).map_err(invalid)?,
         Arc::new(ValueCodecs::default()),
-    )
+    )?
+    .into_public(py)
 }
 
 fn bodies(
     seed: Step,
     echo: Step,
     codecs: ValueCodecs,
-) -> PyResult<(RustGraphStructure, RustGraphStructure)> {
+) -> PyResult<(_NativeStructure, _NativeStructure)> {
     let output = GraphInterface::default()
         .output("value", &seed)
         .map_err(invalid)?;
@@ -127,11 +128,11 @@ fn bodies(
         .map_err(invalid)?;
     let codecs = Arc::new(codecs);
     Ok((
-        RustGraphStructure::with_codecs(
+        _NativeStructure::with_codecs(
             GraphStructure::with_interface([seed.into()], [], output).map_err(invalid)?,
             Arc::clone(&codecs),
         )?,
-        RustGraphStructure::with_codecs(
+        _NativeStructure::with_codecs(
             GraphStructure::with_interface([echo.into()], [], interface).map_err(invalid)?,
             codecs,
         )?,
@@ -140,10 +141,11 @@ fn bodies(
 
 #[pyfunction(name = "_rust_result_fixture")]
 pub(crate) fn rust_result_fixture(
+    py: Python<'_>,
     kind: ResultFixtureKind,
-) -> PyResult<(RustGraphStructure, RustGraphStructure)> {
+) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
     let codecs = ValueCodecs::default();
-    match kind {
+    let (source, target) = match kind {
         ResultFixtureKind::I64 => pair(42_i64, codecs),
         ResultFixtureKind::U64 => pair(u64::MAX, codecs),
         ResultFixtureKind::Bool => pair(true, codecs),
@@ -159,5 +161,6 @@ pub(crate) fn rust_result_fixture(
             Step::new("presence", ActionHandle::new(Present)).map_err(invalid)?,
             codecs,
         ),
-    }
+    }?;
+    Ok((source.into_public(py)?, target.into_public(py)?))
 }

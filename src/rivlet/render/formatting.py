@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
+from .._native import _NativeCondition
 from ..compile import (
     CompiledComposite,
     CompiledCompositeRef,
@@ -34,6 +35,7 @@ from ..static_condition import StaticCondition
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from ..model.python_structure import _PythonStructure
     from ..results import ResultView
 
 
@@ -87,7 +89,7 @@ def render_after_suffix(
 
 
 def render_graph_after_suffix(
-    graph: GraphStructure,
+    graph: _PythonStructure,
     step: Node,
     *,
     step_paths: Mapping[Node, NodePath],
@@ -115,7 +117,7 @@ def render_graph_after_suffix(
     return "" if not deps else f" [after: {', '.join(deps)}]"
 
 
-def render_static_suffix(graph: GraphStructure, step: Node) -> str:
+def render_static_suffix(graph: _PythonStructure, step: Node) -> str:
     binding = graph._static_bindings.get(step)
     condition = (
         ""
@@ -125,7 +127,7 @@ def render_static_suffix(graph: GraphStructure, step: Node) -> str:
     return condition + render_selection_suffix(graph, step)
 
 
-def render_selection_suffix(graph: GraphStructure, step: Node) -> str:
+def render_selection_suffix(graph: _PythonStructure, step: Node) -> str:
     binding = graph._selection_bindings.get(step)
     if binding is None:
         return ""
@@ -138,7 +140,7 @@ def port_label(name: str | None) -> str:
     return "(anonymous)" if name is None else name
 
 
-def render_graph_port_suffix(graph: GraphStructure, step: Node) -> str:
+def render_graph_port_suffix(graph: _PythonStructure, step: Node) -> str:
     bindings = tuple(
         edge
         for edge in graph.edges
@@ -163,7 +165,7 @@ def render_graph_port_suffix(graph: GraphStructure, step: Node) -> str:
 def format_graph_edge(
     edge: GraphEdge,
     *,
-    graph: GraphStructure,
+    graph: _PythonStructure,
     step_paths: Mapping[Node, NodePath],
 ) -> str:
     dep_id = resolve_node_label(edge.source, step_paths[edge.source])
@@ -231,8 +233,13 @@ def prerequisite_step_label(dep: NodePrerequisite) -> str | None:
 
 
 def condition_name(
-    condition: StaticCondition | _RuntimeCondition | CompiledRuntimeCondition,
+    condition: StaticCondition
+    | _RuntimeCondition
+    | _NativeCondition
+    | CompiledRuntimeCondition,
 ) -> str:
+    if isinstance(condition, _NativeCondition):
+        return "runtime:native"
     if isinstance(
         condition,
         (_RuntimeCondition, CompiledRuntimeCondition),

@@ -7,6 +7,9 @@ set shell := ["python", "-c"]
 default:
     import subprocess; subprocess.run(["just", "--list"], check=True)
 
+test-native-bridge *args:
+    import subprocess, sys; subprocess.run([sys.executable, "scripts/check_native_bridge.py", *sys.argv[2:]], check=True)
+
 sdist out="dist/source":
     import subprocess, sys; subprocess.run([sys.executable, "scripts/build_dist.py", "sdist", *sys.argv[2:]], check=True)
 

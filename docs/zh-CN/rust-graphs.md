@@ -2,6 +2,9 @@
 
 [English](../rust-graphs.md) | 简体中文
 
+> **实验性：** Python/Rust 混合执行及扩展 SDK 整体标注，见[状态与移除边界](./mixed-execution.md)。
+> 此标记不包括纯 Rust 声明与 Execution::run。
+
 `rivlet` 允许一张 Python 声明图挂载完整的 Rust 原生子图。两者最终进入同一份
 Rust `CompiledExecutionGraph`，共享依赖、层级、失败传播及显式配置的并发范围，但不会把原生子图
 拆成一组 Python action：
@@ -9,7 +12,7 @@ Rust `CompiledExecutionGraph`，共享依赖、层级、失败传播及显式配
 ```text
 Python Graph / Step
     ├── Python Step
-    └── Graph(RustGraphStructure)
+    └── Graph(GraphStructure)
           ├── Rust Step
           └── Rust Graph → Rust Step / Graph
                 │
@@ -19,7 +22,7 @@ Python Graph / Step
         └── Rust step   → Rust worker
 ```
 
-Python 只看见一个不透明的 `RustGraphStructure`。它不能取得并逐个调用其中的 Rust `Step`
+Python 统一使用公共 `GraphStructure`，其内部可持有 Python 或 Rust 声明。它不能取得并逐个调用其中的 Rust `Step`
 和 Rust action 对象，也不会先把它们翻译成 Python `Node`。因此原生图无论包含十个还是上万
 个 action，执行 action 本身都不需要逐项回调 Python。混合图的 Python driver 仍会按批次
 接收原生完成事件，以便统一维护结果、日志和展示状态。内部节点仍可以出现在编译图
@@ -27,29 +30,28 @@ Python 只看见一个不透明的 `RustGraphStructure`。它不能取得并逐�
 
 ## 声明边界
 
-Rust adapter 构造 graph::GraphStructure；Python adapter 将其包装为不透明的
-RustGraphStructure，再由 Python Graph 节点与 Python action 组合：
+Rust adapter 构造 Step 或 Graph，通过 `rivlet-python` SDK 的 `export_node` 导出为
+对应的普通 Python 节点，直接与 Python action 组合：
 
 ```python
-from rivlet import Graph, RustGraphStructure, Step
+from rivlet import Graph, Step
 
 
-def make_workflow(body: RustGraphStructure) -> Graph:
+def make_workflow(rust_work: Graph) -> Graph:
     prepare = Step(lambda: print("prepare"), label="prepare")
     finish = Step(lambda: print("finish"), label="finish")
-    rust_work = Graph(body, label="rust-work")
     return (prepare >> rust_work >> finish).graph()
 ```
 
-`body` 必须由能够提供 RustGraphStructure 的 adapter 传入。这个函数不虚构导入 API，
-也不要求使用某个外部构建系统。如何在 Rust 中构造底层图，见下方 Rust 声明 API。
+`rust_work` 可以是[独立扩展指南](./python-native.md)中的真实
+`demo_native.pipeline` 属性。下文展示 Rust 侧的声明 API。
 
 这里 `rust_work` 是外层 composite。它保留子图边界；原生图内部的节点和边仍由 Rust
 编译器看到并参与全局调度。Graph 不会隐式展开并丢掉这个边界。
 
-`RustGraphStructure` 是 Python 可以持有的最小原生单位。Python 包不公开 `Action` 或
-`ProcessAction`；否则同一个原生 action 会同时拥有“Rust 直接执行”和“Python 逐项提交”
-两套入口，重新产生跨语言往返和重复事实来源。
+Step 是 Python 可以持有的最小原生节点；其动作仍进入同一个原生 driver，不提供
+Python Action 或 ProcessAction 的逐项提交入口。需要复用结构时，通过
+`rust_work.structure` 显式创建拥有独立元信息的新 Graph。
 
 ## 匿名与具名端口
 
@@ -86,11 +88,12 @@ Python 使用 `None` 表示同一匿名身份，原生 Rust 图的只读接口�
 - `crates/graph`：Rust `Step/Graph` 节点、`Node` trait、`GraphStructure`、有方向的端口与错误。
 - `crates/topology`：整数节点与纯拓扑算法。
 - `crates/core`：语言无关的声明编译和 execution session。
-- `crates/python`：把 Python `Graph` 和整体 `RustGraphStructure` 接入同一编译过程。
+- `crates/python`：把 Python/导入的具体节点和可复用结构接入同一编译过程。
 
-adapter 可以在 Rust 中实现任意 action，但动态库之间不传递 Rust trait object。独立
-adapter 应输出一份批量、稳定的原生图规格，再由 graph extension 一次构造
-`RustGraphStructure`。这会保留包边界，也避免每个 action 经过 Python 调度。
+adapter 可以实现任意 Rust action，但动态库之间不传递 Rust trait object。
+`crates/bridge` 提供版本化 C 布局回调和批量元数据，`crates/python-sdk` 导出具体的
+Step 或 Graph；图体通过 `.structure` 复用。动作和值始终保留创建库的所有权，详见
+[SDK 边界与值传递限制](./python-native.md)。
 
 ## Rust 声明 API
 
@@ -173,4 +176,5 @@ Python adapter 把该投影与 Python 节点放进同一次编译。Python 可�
 `Edge::results` 还绑定完整、有序的参数组，转发后校验真实 Step 的类型和数量。
 [Rust 运行时谓词](./rust-conditions.md) 由 Rust 投影持有类型化闭包，交给 Rust
 Execution 宿主求值；core 不引入不透明闭包或隐式序列化。外层 Python Graph 保留
-既有运行时/静态条件。混合 driver 尚未接入原生谓词分发，因此导入 Rust 谓词会明确报错。
+既有运行时/静态条件。混合 driver 直接在原生侧求值 Rust 同步谓词，不调用 Python
+谓词函数，也不占 Python 动作 worker。Rust 异步谓词尚不支持。

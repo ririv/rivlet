@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from .._native import RustGraphStructure
+from .._native import _NativeStructure
 from ..compile import GraphCompilation, compiled_prerequisite_node
 from ..errors import GraphError
 from ..model import (
@@ -18,6 +18,7 @@ from ..model import (
 from ..model import (
     Graph as GraphNode,
 )
+from ..model.python_structure import _PythonStructure
 from .formatting import (
     ensure_compilation,
     escape_label,
@@ -111,13 +112,23 @@ def render_graph_compilation_mermaid(
 
 def append_graph_mermaid(
     lines: list[str],
-    graph: GraphStructure,
+    graph: GraphStructure | _PythonStructure | _NativeStructure,
     *,
     graph_label: str,
     graph_path: tuple[str, ...],
     parent_node_path: NodePath | None,
     indent: str,
 ) -> None:
+    graph = graph._declaration if isinstance(graph, GraphStructure) else graph
+    if isinstance(graph, _NativeStructure):
+        append_rust_mermaid(
+            lines,
+            graph,
+            owner=parent_node_path or NodePath(()),
+            label=graph_label,
+            indent=indent,
+        )
+        return
     lines.append(
         f'{indent}subgraph {mermaid_graph_node_id(graph_path)}["{escape_label(graph_label)}"]'
     )
@@ -129,12 +140,12 @@ def append_graph_mermaid(
         selection_suffix = render_selection_suffix(graph, step)
         node_id = mermaid_step_node_id(graph_path, step_label, index)
         node_ids[step] = node_id
-        action = step.structure if isinstance(step, GraphNode) else step
-        if isinstance(action, (GraphStructure, RustGraphStructure)):
+        action = step.structure._declaration if isinstance(step, GraphNode) else step
+        if isinstance(action, (_PythonStructure, _NativeStructure)):
             lines.append(
                 f'{indent}    {node_id}["{escape_label(step_label + selection_suffix)}"]'
             )
-            if isinstance(action, RustGraphStructure):
+            if isinstance(action, _NativeStructure):
                 append_rust_mermaid(
                     lines,
                     action,

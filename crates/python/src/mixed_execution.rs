@@ -1,13 +1,16 @@
+//! Experimental Python/Rust mixed execution; ordinary Python sessions bypass this module.
+
 use std::collections::{HashMap, HashSet};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
-use action::{ActionContext, ActionExecutor, ActionHandle, CompletionWait, Value};
+use crate::native_structure::NativePredicate;
+use action::{ActionContext, ActionHandle, CompletionWait, ValueType};
+use execution::coordinator as coordination;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use rivlet::{
-    ConditionId, ConditionResolution, ExecutionBatch as CoreExecutionBatch, ExecutionEvent,
-    ExecutionSession, ExecutionUpdate, NodeId, NodeState, SessionStatus,
+    ConditionId, ConditionResolution, ExecutionSession, ExecutionUpdate, NodeId, SessionStatus,
 };
 
 use crate::result_values::{RustResult, ValueCodecs};
@@ -15,35 +18,7 @@ use crate::{ExecutionBatch, events::EncodedEvent};
 
 const RUST_ACTION_STARTED: u8 = 5;
 const RUST_ACTION_COMPLETED: u8 = 6;
-type ActionOutcome = (NodeId, Result<(), ()>);
 type RustFailure = (usize, String);
-
-/// Shared admission counters owned by one Python execution driver.
-#[pyclass(frozen, module = "rivlet._native", name = "_ConcurrencyLimits")]
-pub(crate) struct ConcurrencyLimits {
-    pub(crate) limits: rivlet::ConcurrencyLimits,
-}
-
-#[pymethods]
-impl ConcurrencyLimits {
-    #[new]
-    fn new(maxima: Vec<usize>) -> PyResult<Self> {
-        let maxima = maxima
-            .into_iter()
-            .map(|maximum| {
-                NonZeroUsize::new(maximum)
-                    .ok_or_else(|| PyValueError::new_err("concurrency limits must be positive"))
-            })
-            .collect::<PyResult<Vec<_>>>()?;
-        Ok(Self {
-            limits: rivlet::ConcurrencyLimits::new(maxima),
-        })
-    }
-
-    fn revision(&self) -> u64 {
-        self.limits.revision()
-    }
-}
 
 #[derive(Clone)]
 pub(crate) struct RustActionDeclaration {
@@ -51,6 +26,17 @@ pub(crate) struct RustActionDeclaration {
     pub(crate) codecs: Arc<ValueCodecs>,
     pub(crate) inputs: Vec<usize>,
 }
+
+#[derive(Clone)]
+pub(crate) struct RustConditionDeclaration {
+    pub(crate) condition: NativePredicate,
+    pub(crate) codecs: Arc<ValueCodecs>,
+    pub(crate) inputs: Vec<usize>,
+}
+
+/// A structural marker; native predicates are never invoked as Python callables.
+#[pyclass(frozen, module = "rivlet._native")]
+pub(crate) struct _NativePredicate;
 
 #[derive(Clone)]
 pub(crate) struct RustActionBinding {
@@ -64,16 +50,42 @@ pub(crate) struct RustActionBinding {
 pub(crate) struct RustActionBindings {
     actions: Vec<Option<RustActionDeclaration>>,
     python_sources: Vec<usize>,
+    pub(crate) conditions: Vec<Option<RustConditionDeclaration>>,
 }
 
 impl RustActionBindings {
+    pub(crate) fn has_native(&self) -> bool {
+        self.actions.iter().any(Option::is_some) || self.conditions.iter().any(Option::is_some)
+    }
+
+    pub(crate) fn validate_host_only(
+        &self,
+        node_count: usize,
+        contexts: &[(usize, Option<String>)],
+        workers: Option<usize>,
+    ) -> PyResult<()> {
+        if self.actions.len() != node_count || !contexts.is_empty() {
+            return Err(PyValueError::new_err(
+                "host-only dispatch table does not match execution graph",
+            ));
+        }
+        if workers == Some(0) {
+            return Err(PyValueError::new_err(
+                "native action workers must be greater than zero",
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn new(
         actions: Vec<Option<RustActionDeclaration>>,
         python_sources: Vec<usize>,
+        conditions: Vec<Option<RustConditionDeclaration>>,
     ) -> Self {
         Self {
             actions,
             python_sources,
+            conditions,
         }
     }
 }
@@ -82,35 +94,64 @@ impl RustActionBindings {
 impl RustActionBindings {
     #[new]
     fn empty(node_count: usize) -> Self {
-        Self::new(vec![None; node_count], Vec::new())
+        Self::new(vec![None; node_count], Vec::new(), Vec::new())
     }
     fn python_sources(&self) -> Vec<usize> {
         self.python_sources.clone()
     }
 }
 
+struct HostCodecs {
+    actions: Vec<Option<Arc<ValueCodecs>>>,
+    conditions: Vec<Option<Arc<ValueCodecs>>>,
+}
+
+impl HostCodecs {
+    fn require(
+        &self,
+        site: coordination::InputSite,
+    ) -> Result<&Arc<ValueCodecs>, action::ActionError> {
+        let codec = match site {
+            coordination::InputSite::Action(node) => self.actions.get(node.index()),
+            coordination::InputSite::Condition(condition) => self.conditions.get(condition.index()),
+        };
+        codec
+            .and_then(Option::as_ref)
+            .ok_or_else(|| action::ActionError::new("native receiver has no owning host codec"))
+    }
+}
+
+struct PythonValues<'a> {
+    values: &'a HashMap<usize, Py<PyAny>>,
+    codecs: &'a HostCodecs,
+}
+
+impl coordination::HostValues for PythonValues<'_> {
+    fn import(
+        &mut self,
+        source: NodeId,
+        expected: ValueType,
+        site: coordination::InputSite,
+    ) -> Result<action::Value, action::ActionError> {
+        let value = self.values.get(&source.index()).ok_or_else(|| {
+            action::ActionError::new("completed source has no Python result value")
+        })?;
+        let codec = self.codecs.require(site)?;
+        Python::attach(|py| codec.import(expected, value.bind(py)))
+            .map_err(|error| action::ActionError::new(error.to_string()))
+    }
+}
+
 struct MixedExecutionState {
-    session: ExecutionSession,
-    rust_running: usize,
-    values: HashMap<usize, Value>,
+    coordinator: coordination::Coordinator,
     python_values: HashMap<usize, Py<PyAny>>,
 }
 
-enum ActionDispatch {
-    PythonOnly,
-    Mixed {
-        executor: ActionExecutor,
-        bindings: Vec<Option<RustActionBinding>>,
-        result_sources: HashSet<usize>,
-    },
-}
-
-/// Rust-owned session that dispatches Rust actions without a Python callback.
+/// Thin Python adaptation of the language-independent native coordinator.
 #[pyclass(frozen, module = "rivlet._native")]
 pub(crate) struct MixedExecutionSession {
     state: Mutex<MixedExecutionState>,
-    actions: ActionDispatch,
-    retain_results: bool,
+    codecs: HostCodecs,
 }
 
 #[pyclass(frozen, module = "rivlet._native")]
@@ -154,21 +195,21 @@ impl MixedExecutionBatch {
     }
 }
 
+fn coordination_error(error: &coordination::CoordinationError) -> PyErr {
+    match error {
+        coordination::CoordinationError::Session(_)
+        | coordination::CoordinationError::Binding(_) => PyValueError::new_err(error.to_string()),
+        _ => PyRuntimeError::new_err(error.to_string()),
+    }
+}
+
 impl MixedExecutionSession {
-    fn completion_wait(&self) -> PyResult<Option<CompletionWait>> {
-        let state = self
-            .state
+    fn completion_wait(&self) -> Option<CompletionWait> {
+        self.state
             .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner);
-        if state.rust_running == 0 {
-            return Ok(None);
-        }
-        match &self.actions {
-            ActionDispatch::PythonOnly => Err(PyRuntimeError::new_err(
-                "Python-only session contains native work",
-            )),
-            ActionDispatch::Mixed { executor, .. } => Ok(Some(executor.prepare_wait())),
-        }
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .coordinator
+            .prepare_wait()
     }
 
     pub(crate) fn new(
@@ -176,54 +217,31 @@ impl MixedExecutionSession {
         bindings: Vec<Option<RustActionBinding>>,
         workers: Option<usize>,
         retain_results: bool,
+        conditions: Vec<Option<RustConditionDeclaration>>,
     ) -> PyResult<Self> {
-        let workers = workers
-            .map(|value| {
-                NonZeroUsize::new(value).ok_or_else(|| {
+        let workers = match workers {
+            None => coordination::Workers::Automatic,
+            Some(value) => {
+                coordination::Workers::Fixed(NonZeroUsize::new(value).ok_or_else(|| {
                     PyValueError::new_err("native action workers must be greater than zero")
-                })
-            })
-            .transpose()?;
-        let rust_action_count = bindings.iter().filter(|binding| binding.is_some()).count();
-        // 纯 Python session 不启动 Rust worker，也不构造原生值包装。
-        let actions = if rust_action_count == 0 {
-            ActionDispatch::PythonOnly
-        } else {
-            // 默认策略属于托管宿主，不下沉到图内核或要求显式容量的 ActionExecutor。
-            // 无 Rust 动作时不探测 CPU；显式容量不参与默认的 32 上限策略。
-            let capacity = match workers {
-                Some(workers) => workers.get(),
-                None => std::thread::available_parallelism()
-                    .map_err(|error| {
-                        PyRuntimeError::new_err(format!(
-                            "failed to determine native action parallelism: {error}"
-                        ))
-                    })?
-                    .get()
-                    .min(32),
-            }
-            .min(rust_action_count);
-            let result_sources = bindings
-                .iter()
-                .flatten()
-                .flat_map(|binding| binding.declaration.inputs.iter().copied())
-                .collect();
-            ActionDispatch::Mixed {
-                executor: ActionExecutor::new(capacity)
-                    .map_err(|error| PyValueError::new_err(error.to_string()))?,
-                bindings,
-                result_sources,
+                })?)
             }
         };
+        let (actions, action_codecs) = native_actions(bindings)?;
+        let (conditions, condition_codecs) =
+            native_conditions(session.graph().conditions().len(), conditions)?;
+        let coordinator =
+            coordination::Coordinator::new(session, actions, conditions, workers, retain_results)
+                .map_err(|error| coordination_error(&error))?;
         Ok(Self {
             state: Mutex::new(MixedExecutionState {
-                session,
-                rust_running: 0,
-                values: HashMap::new(),
+                coordinator,
                 python_values: HashMap::new(),
             }),
-            actions,
-            retain_results,
+            codecs: HostCodecs {
+                actions: action_codecs,
+                conditions: condition_codecs,
+            },
         })
     }
 
@@ -262,191 +280,128 @@ impl MixedExecutionSession {
         Ok(bindings)
     }
 
-    fn inputs(
-        py: Python<'_>,
-        state: &MixedExecutionState,
-        binding: &RustActionBinding,
-    ) -> Result<Vec<Option<Value>>, String> {
-        // O(I) 个槽位查询；Rust 值只克隆 Arc。跨语言转换的载荷成本由 codec 决定。
-        binding
-            .declaration
-            .inputs
-            .iter()
-            .zip(binding.declaration.action.input_types())
-            .map(
-                |(source, expected)| match state.session.state(NodeId::new(*source)) {
-                    Some(NodeState::Skipped) => Ok(None),
-                    Some(NodeState::Finished) => {
-                        if let Some(value) = state.values.get(source) {
-                            return Ok(Some(value.clone()));
-                        }
-                        let value = state
-                            .python_values
-                            .get(source)
-                            .ok_or_else(|| "completed source has no result value".to_owned())?;
-                        binding
-                            .declaration
-                            .codecs
-                            .import(*expected, value.bind(py))
-                            .map(Some)
-                            .map_err(|error| error.to_string())
-                    }
-                    _ => Err(
-                        "native result source is not successfully completed or skipped".to_owned(),
-                    ),
-                },
-            )
-            .collect()
-    }
-
-    fn dispatch(
+    fn encode_batch(
         &self,
         py: Python<'_>,
-        state: &mut MixedExecutionState,
-        mut batch: CoreExecutionBatch,
+        batch: coordination::CoordinationBatch,
     ) -> PyResult<MixedExecutionBatch> {
-        let mut result = MixedExecutionBatch {
-            actions: Vec::new(),
-            conditions: Vec::new(),
-            events: Vec::new(),
-            finished: false,
-            rust_running: 0,
-            failures: Vec::new(),
-            results: Vec::new(),
-        };
-        loop {
-            for event in batch.events() {
-                if let (
-                    ExecutionEvent::CompositeCompleted(node),
-                    ActionDispatch::Mixed { result_sources, .. },
-                ) = (event, &self.actions)
-                {
-                    // 子图完成的结果是 ()；不是用空值掩盖缺失的叶子结果。
-                    if result_sources.contains(&node.index()) {
-                        state.values.insert(node.index(), Value::new(()));
-                    }
+        use coordination::CoordinationEvent;
+        let events = batch
+            .events
+            .into_iter()
+            .map(|event| match event {
+                CoordinationEvent::Scheduler(event) => super::encode_event(&event),
+                CoordinationEvent::ActionStarted(node) => {
+                    EncodedEvent::Lifecycle(RUST_ACTION_STARTED, node.index())
                 }
-                result.events.push(super::encode_event(event));
-            }
-            let mut failed = Vec::new();
-            for node in batch.actions() {
-                let binding = match &self.actions {
-                    ActionDispatch::PythonOnly => None,
-                    ActionDispatch::Mixed {
-                        executor, bindings, ..
-                    } => bindings[node.index()]
-                        .as_ref()
-                        .map(|binding| (executor, binding)),
-                };
-                if let Some((executor, binding)) = binding {
-                    result
-                        .events
-                        .push(EncodedEvent::Lifecycle(RUST_ACTION_STARTED, node.index()));
-                    match Self::inputs(py, state, binding) {
-                        Ok(inputs) => {
-                            executor
-                                .submit(
-                                    node.index(),
-                                    binding.declaration.action.clone(),
-                                    binding.context.clone(),
-                                    inputs,
-                                )
-                                .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
-                            state.rust_running += 1;
-                        }
-                        Err(error) => {
-                            // 转换错误属于接收节点失败，不取消无关分支。
-                            failed.push((*node, Err(())));
-                            result.failures.push((node.index(), error));
-                        }
-                    }
-                } else {
-                    result.actions.push(node.index());
+                CoordinationEvent::ActionCompleted(node) => {
+                    EncodedEvent::Lifecycle(RUST_ACTION_COMPLETED, node.index())
                 }
-            }
-            result.conditions.extend(
-                batch
-                    .conditions()
-                    .iter()
-                    .map(|request| (request.node().index(), request.condition().index())),
-            );
-            if failed.is_empty() {
-                break;
-            }
-            let available = failed.len();
-            batch = state
-                .session
-                .advance(ExecutionUpdate::new(failed, [], []), available)
-                .map_err(|error| PyValueError::new_err(error.to_string()))?;
-        }
-        result.finished = batch.status() != SessionStatus::Running;
-        result.rust_running = state.rust_running;
-        Ok(result)
+            })
+            .collect();
+        let results = batch
+            .results
+            .into_iter()
+            .map(|(node, value)| {
+                let codec = self
+                    .codecs
+                    .require(coordination::InputSite::Action(node))
+                    .map_err(|error| PyRuntimeError::new_err(error.to_string()))?;
+                Ok((
+                    node.index(),
+                    Py::new(py, RustResult::new(value, Arc::clone(codec)))?,
+                ))
+            })
+            .collect::<PyResult<_>>()?;
+        Ok(MixedExecutionBatch {
+            actions: batch.actions.into_iter().map(NodeId::index).collect(),
+            conditions: batch
+                .conditions
+                .into_iter()
+                .map(|request| (request.node().index(), request.condition().index()))
+                .collect(),
+            events,
+            finished: batch.status != SessionStatus::Running,
+            rust_running: batch.native_running,
+            failures: batch
+                .failures
+                .into_iter()
+                .map(|failure| match failure {
+                    coordination::NativeFailure::Action { node, error }
+                    | coordination::NativeFailure::Condition { node, error, .. } => {
+                        (node.index(), error.to_string())
+                    }
+                })
+                .collect(),
+            results,
+        })
     }
+}
 
-    #[allow(clippy::type_complexity)]
-    fn drain_rust_completions(
-        &self,
-        py: Python<'_>,
-        state: &mut MixedExecutionState,
-    ) -> PyResult<(
-        Vec<ActionOutcome>,
-        Vec<EncodedEvent>,
-        Vec<RustFailure>,
-        Vec<(usize, Py<RustResult>)>,
-    )> {
-        let ActionDispatch::Mixed {
-            executor,
-            bindings,
-            result_sources,
-        } = &self.actions
-        else {
-            return Ok((Vec::new(), Vec::new(), Vec::new(), Vec::new()));
-        };
-        let completions = executor.drain_completions();
-        // O(B) 处理本批完成，Rust-only 不创建 Python 包装，也不扫描整张图。
-        let mut completed = Vec::with_capacity(completions.len());
-        let mut events = Vec::with_capacity(completions.len());
-        let mut failures = Vec::new();
-        let mut exports = Vec::new();
-        for completion in completions {
-            state.rust_running = state
-                .rust_running
-                .checked_sub(1)
-                .expect("native completion count exceeds submitted action count");
-            let node = completion.node();
-            match completion.into_result() {
-                Ok(value) => {
-                    // 先保存值，再 advance；Rust→Rust 只克隆 Arc，不经过 Python。
-                    if self.retain_results {
-                        let binding = bindings[node]
-                            .as_ref()
-                            .expect("completion belongs to a native action");
-                        exports.push((
-                            node,
-                            Py::new(
-                                py,
-                                RustResult::new(
-                                    value.clone(),
-                                    Arc::clone(&binding.declaration.codecs),
-                                ),
-                            )?,
-                        ));
-                    }
-                    if result_sources.contains(&node) {
-                        state.values.insert(node, value);
-                    }
-                    completed.push((NodeId::new(node), Ok(())));
-                    events.push(EncodedEvent::Lifecycle(RUST_ACTION_COMPLETED, node));
-                }
-                Err(error) => {
-                    completed.push((NodeId::new(node), Err(())));
-                    failures.push((node, error.to_string()));
-                }
+type NativeActions = (
+    Vec<coordination::ActionDispatch>,
+    Vec<Option<Arc<ValueCodecs>>>,
+);
+type NativeConditions = (
+    Vec<coordination::ConditionDispatch>,
+    Vec<Option<Arc<ValueCodecs>>>,
+);
+
+fn native_actions(bindings: Vec<Option<RustActionBinding>>) -> PyResult<NativeActions> {
+    let mut actions = Vec::with_capacity(bindings.len());
+    let mut codecs = Vec::with_capacity(bindings.len());
+    for binding in bindings {
+        match binding {
+            None => {
+                actions.push(coordination::ActionDispatch::Host);
+                codecs.push(None);
+            }
+            Some(binding) => {
+                let action = coordination::ActionBinding::new(
+                    binding.declaration.action,
+                    binding.context,
+                    binding
+                        .declaration
+                        .inputs
+                        .into_iter()
+                        .map(NodeId::new)
+                        .collect(),
+                )
+                .map_err(|error| PyValueError::new_err(error.to_string()))?;
+                actions.push(coordination::ActionDispatch::Native(action));
+                codecs.push(Some(binding.declaration.codecs));
             }
         }
-        Ok((completed, events, failures, exports))
     }
+    Ok((actions, codecs))
+}
+
+fn native_conditions(
+    count: usize,
+    bindings: Vec<Option<RustConditionDeclaration>>,
+) -> PyResult<NativeConditions> {
+    // 私有 empty bindings 明确表示纯宿主条件；非空表必须与编译侧表完整对齐。
+    if !bindings.is_empty() && bindings.len() != count {
+        return Err(PyValueError::new_err(
+            "native predicate table does not match execution graph",
+        ));
+    }
+    let mut conditions = vec![coordination::ConditionDispatch::Host; count];
+    let mut codecs = vec![None; count];
+    for (index, declaration) in bindings.into_iter().enumerate() {
+        if let Some(declaration) = declaration {
+            let predicate = declaration.condition;
+            let condition = coordination::ConditionBinding::new(
+                predicate.input_types().to_vec(),
+                declaration.inputs.into_iter().map(NodeId::new).collect(),
+                move |values| predicate.evaluate(values),
+            )
+            .map_err(|error| PyValueError::new_err(error.to_string()))?;
+            conditions[index] = coordination::ConditionDispatch::Native(condition);
+            codecs[index] = Some(declaration.codecs);
+        }
+    }
+    Ok((conditions, codecs))
 }
 
 #[pymethods]
@@ -455,7 +410,7 @@ impl MixedExecutionSession {
         self.state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .session
+            .coordinator
             .suspend_action(NodeId::new(node))
             .map_err(|error| PyValueError::new_err(error.to_string()))
     }
@@ -465,11 +420,22 @@ impl MixedExecutionSession {
             .state
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let batch = state
-            .session
-            .start(capacity)
-            .map_err(|error| PyValueError::new_err(error.to_string()))?;
-        self.dispatch(py, &mut state, batch)
+        let MixedExecutionState {
+            coordinator,
+            python_values,
+        } = &mut *state;
+        let mut values = PythonValues {
+            values: python_values,
+            codecs: &self.codecs,
+        };
+        // 仅原生谓词可能在当前线程执行用户 Rust 代码；纯宿主路径不承担释放/重取 GIL。
+        let batch = if coordinator.evaluates_native_conditions() {
+            py.detach(|| coordinator.start(capacity, &mut values))
+        } else {
+            coordinator.start(capacity, &mut values)
+        }
+        .map_err(|error| coordination_error(&error))?;
+        self.encode_batch(py, batch)
     }
 
     #[pyo3(signature = (completed, conditions, skipped, available, values=Vec::new()))]
@@ -498,52 +464,45 @@ impl MixedExecutionSession {
             }
             state.python_values.insert(node, value);
         }
-        let (rust_completed, mut rust_events, mut failures, results) =
-            self.drain_rust_completions(py, &mut state)?;
-        let newly_available = rust_completed.len();
-        let batch = state
-            .session
-            .advance(
-                ExecutionUpdate::new(
-                    completed
-                        .into_iter()
-                        .map(|(node, success)| {
-                            (NodeId::new(node), if success { Ok(()) } else { Err(()) })
-                        })
-                        .chain(rust_completed),
-                    conditions
-                        .into_iter()
-                        .map(|(condition, value)| match value {
-                            Some(value) => {
-                                ConditionResolution::new(ConditionId::new(condition), value)
-                            }
-                            None => ConditionResolution::failed(ConditionId::new(condition)),
-                        }),
-                    skipped.into_iter().map(NodeId::new),
-                ),
-                available + newly_available,
-            )
-            .map_err(|error| PyValueError::new_err(error.to_string()))?;
-        let mut result = self.dispatch(py, &mut state, batch)?;
-        rust_events.append(&mut result.events);
-        result.events = rust_events;
-        failures.append(&mut result.failures);
-        result.failures = failures;
-        result.results = results;
-        Ok(result)
+        let update = ExecutionUpdate::new(
+            completed
+                .into_iter()
+                .map(|(node, success)| (NodeId::new(node), if success { Ok(()) } else { Err(()) })),
+            conditions
+                .into_iter()
+                .map(|(condition, value)| match value {
+                    Some(value) => ConditionResolution::new(ConditionId::new(condition), value),
+                    None => ConditionResolution::failed(ConditionId::new(condition)),
+                }),
+            skipped.into_iter().map(NodeId::new),
+        );
+        let MixedExecutionState {
+            coordinator,
+            python_values,
+        } = &mut *state;
+        let mut values = PythonValues {
+            values: python_values,
+            codecs: &self.codecs,
+        };
+        let batch = if coordinator.evaluates_native_conditions() {
+            py.detach(|| coordinator.advance(update, available, &mut values))
+        } else {
+            coordinator.advance(update, available, &mut values)
+        }
+        .map_err(|error| coordination_error(&error))?;
+        self.encode_batch(py, batch)
     }
 
     /// Waits for actual Rust completion without retaining the Python interpreter.
-    fn wait_rust(&self, py: Python<'_>) -> PyResult<()> {
-        if let Some(wait) = self.completion_wait()? {
+    fn wait_rust(&self, py: Python<'_>) {
+        if let Some(wait) = self.completion_wait() {
             py.detach(move || wait.wait());
         }
-        Ok(())
     }
 
     /// Delivers one completion notification without borrowing a Python action worker.
     fn notify_rust(&self, py: Python<'_>, callback: Py<PyAny>) -> PyResult<()> {
-        let Some(wait) = self.completion_wait()? else {
+        let Some(wait) = self.completion_wait() else {
             callback.call0(py)?;
             return Ok(());
         };

@@ -17,13 +17,19 @@ integration.
   Adapters connect complete graphs rather than exposing individual actions to Python.
 - `crates/execution` composes graph/action/core into a single-use synchronous Rust
   Execution with typed terminal outcomes and synchronous predicate evaluation.
-  It depends on no Python or third-party
-  runtime; declarations and the Python adapter do not depend on it.
+  Its independent `coordinator` module also supplies native execution coordination
+  for language adapters. It depends on no Python or third-party runtime;
+  declarations do not depend on it, while the Python adapter uses the coordinator.
 - `crates/topology` uses only the Rust standard library for integer nodes,
   adjacency indexes, and DAG algorithms. It knows nothing about actions or domains.
 - `crates/core` (package `rivlet`) depends on the workspace topology crate,
   not third-party libraries. It owns declaration compilation, port resolution,
   the compiled execution graph, and scheduling.
+- `crates/bridge` defines a versioned C ABI for independent native libraries;
+  only this transport owns serde and scoped unsafe pointer code. Core remains
+  standard-library-only and forbids unsafe code.
+- `crates/python-sdk` (package `rivlet-python`) exports native bodies through a
+  capsule into the host. It does not depend on the main Python adapter crate.
 - `crates/python` is the private PyO3 adapter. It converts declarations into integer
   IDs in batches, retains Python action/predicate/observation side tables, connects
   host control, and dispatches native actions to their Rust implementation.
@@ -45,15 +51,47 @@ Rust public types describe their role, not their implementation language:
 `Value`, and `ValueType`. The ordered input protocol is `ActionInputs`, distinct
 from an action's `Inputs` associated type.
 
-Python types that distinguish ownership use an explicit Rust qualifier:
-`RustGraphStructure`, `CompiledRustStep`, and `RustActionBindings`. Private
-compiler/session bindings instead use their role: `CompiledExecutionGraph`,
+Python uses the same Step/Graph node types for Python declarations and SDK imports.
+The SDK exports concrete nodes; an imported Graph's `.structure` remains the single
+public `GraphStructure` type with closed Python/native storage. Execution adapter records such as
+`CompiledRustStep` and `RustActionBindings` retain an ownership qualifier. Private
+compiler/session bindings use their role: `CompiledExecutionGraph`,
 `DeclarationCompilation`, `ExecutionSession`, and `MixedExecutionSession`.
 The lazy Rust result view is private `_RustResult`; application code uses the public
 result APIs rather than handling this adapter wrapper.
 
 The binary extension module is `rivlet._native`. Structural export keeps its
 versioned `action_kind="native"` wire tag independently of declaration type names.
+
+## Shared native execution coordination
+
+This module belongs to the [experimental mixed-execution feature](./mixed-execution.md).
+It is behind the non-default `experimental-mixed-execution` Cargo feature.
+Ordinary Python sessions bypass it through the core-only host adapter.
+
+`execution::coordinator::Coordinator` owns an existing core ExecutionSession,
+native action workers, completion accounting, native values and synchronous
+predicate dispatch. It does not create another scheduler: core still decides
+readiness, admission, skips and failure propagation.
+
+ActionDispatch and ConditionDispatch explicitly distinguish Host and Native.
+The coordinator returns only host-owned action/predicate requests, ordered events,
+native results and typed action/condition failures. HostValues converts a successful
+host result only when a native receiver needs it; InputSite identifies that concrete
+action or predicate. Skipped sources bypass conversion and remain absent.
+
+The Python adapter retains PyO3 objects, codecs, lazy result wrappers and asyncio
+notification. Native predicates execute outside the GIL; the host-value converter
+briefly attaches only when it needs a Python object. With no native predicate,
+ordinary host dispatch does not release/reacquire the GIL unnecessarily. Pure host
+sessions create no native worker pool or CPU-capacity probe.
+
+The same coordinator can support a Node adapter without importing Python types.
+That Node integration is not implemented. The synchronous Rust Execution::run
+entry remains a separate host driver over the same core/action primitives;
+this extraction migrates the Python mixed path, not that high-level Rust driver.
+See the runtime-independent tests in
+[`crates/execution/tests/coordinator.rs`](../crates/execution/tests/coordinator.rs).
 
 ## External-library boundary
 
@@ -81,8 +119,10 @@ inheritance. Rust NodeIdentity is the process-local declaration identity; indexe
 NodeId is the compiler/topology reference. Rust graph::GraphStructure holds a closed
 NodeKind union of Step/Graph. A Graph has its own identity and typed interface,
 while its body can be shared with Arc. Projection resolves mounted scopes and
-ports and calls the existing GraphDeclaration compiler. Python's RustGraphStructure
-wraps that opaque body, composed into a Python Graph for mixed declarations.
+ports and calls the existing GraphDeclaration compiler. Python's GraphStructure
+wraps either a Python declaration or an opaque native body; a Graph node composes
+that reusable body. Detached structural snapshots do not expose executable Rust
+objects. See [the independent-extension SDK](./python-native.md).
 Native composites have no action handle, not a synthetic no-op. See the
 [Rust declaration API](./rust-graphs.md#rust-declaration-api) for examples and limits.
 
@@ -90,8 +130,8 @@ Pure Rust hosts can use [Execution::run](./rust-execution.md) instead of writing
 their own session/worker loop. It uses the same core session and action executor;
 the mixed-language Python driver remains independent. Rust predicates stay in the
 Rust projection side table and are evaluated by this host, outside action worker
-capacity. Native predicate import into Python is explicitly rejected until mixed
-dispatch is implemented. See [Rust runtime predicates](./rust-conditions.md).
+capacity. Python mixed dispatch also evaluates native synchronous predicates
+directly, releasing the GIL around evaluation. See [Rust runtime predicates](./rust-conditions.md).
 
 All production paths share the same compiler and session implementation:
 
@@ -198,7 +238,8 @@ Python retains host-facing objects:
 - Compilation side tables for actions, predicates, observations, paths, and scopes.
 - Execution state snapshots, explicit skips, and results.
 
-Native actions form a separate branch owned by RustGraphStructure. Their typed
+Native actions form a separate binding branch, both for imported Steps and inside
+native GraphStructure bodies. Their typed
 results stay native on Rust edges. Only the Python adapter converts values when
 crossing the language boundary; process-action unit maps to Python None.
 

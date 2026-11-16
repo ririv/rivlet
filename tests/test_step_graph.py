@@ -32,7 +32,10 @@ def test_graph_allows_duplicate_step_labels() -> None:
         ),
     )
 
-    assert tuple(step.label for step in graph.structure.nodes) == ("build", "build")
+    assert tuple(step.label for step in graph.structure._declaration.nodes) == (
+        "build",
+        "build",
+    )
 
 
 def test_graph_rejects_duplicate_step_objects() -> None:
@@ -84,7 +87,7 @@ def test_graph_allows_nested_graphs() -> None:
         ),
     )
 
-    assert root.structure.nodes[1].structure is nested.structure
+    assert root.structure._declaration.nodes[1].structure is nested.structure
 
 
 def test_step_can_be_declared_with_different_predecessors() -> None:
@@ -105,12 +108,12 @@ def test_step_can_be_declared_with_different_predecessors() -> None:
         )
     )
 
-    assert normal_graph.structure.nodes[1] is compile_step
-    assert cached_graph.structure.nodes[1] is compile_step
-    assert normal_graph.structure.edges == (
+    assert normal_graph.structure._declaration.nodes[1] is compile_step
+    assert cached_graph.structure._declaration.nodes[1] is compile_step
+    assert normal_graph.structure._declaration.edges == (
         Edge(source=configure, target=compile_step),
     )
-    assert cached_graph.structure.edges == (
+    assert cached_graph.structure._declaration.edges == (
         Edge(source=restore_cache, target=compile_step),
     )
 
@@ -124,8 +127,8 @@ def test_graph_wiring_sequences_steps() -> None:
     graph = wiring.graph()
 
     assert isinstance(wiring, GraphWiring)
-    assert graph.structure.nodes == (prepare, compile_step, install)
-    assert graph.structure.edges == (
+    assert graph.structure._declaration.nodes == (prepare, compile_step, install)
+    assert graph.structure._declaration.edges == (
         Edge(source=prepare, target=compile_step),
         Edge(source=compile_step, target=install),
     )
@@ -139,8 +142,13 @@ def test_graph_wiring_fans_out_and_in() -> None:
 
     graph = (prepare >> (compile_a | compile_b) >> install).graph()
 
-    assert graph.structure.nodes == (prepare, compile_a, compile_b, install)
-    assert graph.structure.edges == (
+    assert graph.structure._declaration.nodes == (
+        prepare,
+        compile_a,
+        compile_b,
+        install,
+    )
+    assert graph.structure._declaration.edges == (
         Edge(source=prepare, target=compile_a),
         Edge(source=prepare, target=compile_b),
         Edge(source=compile_a, target=install),
@@ -156,8 +164,13 @@ def test_graph_wiring_preserves_independent_branches() -> None:
 
     graph = ((prepare_a >> compile_a) | (prepare_b >> compile_b)).graph()
 
-    assert graph.structure.nodes == (prepare_a, compile_a, prepare_b, compile_b)
-    assert graph.structure.edges == (
+    assert graph.structure._declaration.nodes == (
+        prepare_a,
+        compile_a,
+        prepare_b,
+        compile_b,
+    )
+    assert graph.structure._declaration.edges == (
         Edge(source=prepare_a, target=compile_a),
         Edge(source=prepare_b, target=compile_b),
     )
@@ -191,13 +204,13 @@ def test_graph_wiring_wraps_graph_operand_without_expanding_it() -> None:
 
     outer = (before >> child >> after).graph()
 
-    assert len(outer.structure.nodes) == 3
-    mounted_child = outer.structure.nodes[1]
+    assert len(outer.structure._declaration.nodes) == 3
+    mounted_child = outer.structure._declaration.nodes[1]
     assert mounted_child.label is None
     assert mounted_child is child
-    assert child_prepare not in outer.structure.nodes
-    assert child_compile not in outer.structure.nodes
-    assert outer.structure.edges == (
+    assert child_prepare not in outer.structure._declaration.nodes
+    assert child_compile not in outer.structure._declaration.nodes
+    assert outer.structure._declaration.edges == (
         Edge(source=before, target=mounted_child),
         Edge(source=mounted_child, target=after),
     )
@@ -211,7 +224,7 @@ def test_graph_wiring_wraps_unlabeled_graph_operand() -> None:
     graph = (before >> child >> after).graph()
     compilation = compile_graph(graph.structure, root_label="root")
 
-    mounted_child = graph.structure.nodes[1]
+    mounted_child = graph.structure._declaration.nodes[1]
     assert mounted_child.label is None
     assert mounted_child is child
     assert compilation.composites[0].graph_label == "1"
@@ -227,11 +240,15 @@ def test_graph_wiring_composes_each_node_kind(
     parallel = (left | right).graph()
 
     for graph in (sequence, parallel):
-        assert len(graph.structure.nodes) == 2
-        for declared, mounted in zip((left, right), graph.structure.nodes, strict=True):
+        assert len(graph.structure._declaration.nodes) == 2
+        for declared, mounted in zip(
+            (left, right), graph.structure._declaration.nodes, strict=True
+        ):
             assert mounted is declared
-    assert sequence.structure.edges == (Edge(*sequence.structure.nodes),)
-    assert parallel.structure.edges == ()
+    assert sequence.structure._declaration.edges == (
+        Edge(*sequence.structure._declaration.nodes),
+    )
+    assert parallel.structure._declaration.edges == ()
 
 
 def test_shared_structure_has_distinct_graph_nodes_and_executes_each_time() -> None:
@@ -245,7 +262,7 @@ def test_shared_structure_has_distinct_graph_nodes_and_executes_each_time() -> N
     right = Graph(structure)
     graph = (Step(action) >> left >> Step(action) >> right).graph()
 
-    assert len({mounted.id for mounted in graph.structure.nodes}) == 4
+    assert len({mounted.id for mounted in graph.structure._declaration.nodes}) == 4
     assert left.structure is right.structure
     run_execution(Execution(graph))
     assert calls == ["leaf", "child", "leaf", "child"]
@@ -259,8 +276,11 @@ def test_composing_normalized_wiring_preserves_existing_mounts() -> None:
 
     combined = (wiring >> finish).graph()
 
-    assert combined.structure.nodes == (*wiring.nodes, finish)
-    assert combined.structure.edges == (*wiring.edges, Edge(wiring.nodes[-1], finish))
+    assert combined.structure._declaration.nodes == (*wiring.nodes, finish)
+    assert combined.structure._declaration.edges == (
+        *wiring.edges,
+        Edge(wiring.nodes[-1], finish),
+    )
 
 
 @pytest.mark.parametrize("enabled", (True, False))
@@ -277,8 +297,8 @@ def test_graph_wiring_step_mounts_complete_graph_with_its_own_condition(
 
     assert root.label == "pipeline"
     assert isinstance(root.structure, GraphStructure)
-    assert root.structure.nodes == wiring.nodes
-    assert root.structure.edges == wiring.edges
+    assert root.structure._declaration.nodes == wiring.nodes
+    assert root.structure._declaration.edges == wiring.edges
     assert root.id != another_mount.id
     assert another_mount.label is None
     assert another_mount.condition is None
@@ -294,8 +314,10 @@ def test_graph_from_wiring_accepts_composed_wiring() -> None:
         prepare >> compile_step,
     )
 
-    assert graph.structure.nodes == (prepare, compile_step)
-    assert graph.structure.edges == (Edge(source=prepare, target=compile_step),)
+    assert graph.structure._declaration.nodes == (prepare, compile_step)
+    assert graph.structure._declaration.edges == (
+        Edge(source=prepare, target=compile_step),
+    )
 
 
 def test_graph_wiring_rejects_duplicate_step_object() -> None:
@@ -318,8 +340,10 @@ def test_step_decorator_uses_function_name_and_composes() -> None:
 
     assert prepare.label == "prepare"
     assert compile_step.label == "compile_step"
-    assert graph.structure.nodes == (prepare, compile_step)
-    assert graph.structure.edges == (Edge(source=prepare, target=compile_step),)
+    assert graph.structure._declaration.nodes == (prepare, compile_step)
+    assert graph.structure._declaration.edges == (
+        Edge(source=prepare, target=compile_step),
+    )
 
 
 def test_step_function_accepts_normalized_step_action() -> None:
