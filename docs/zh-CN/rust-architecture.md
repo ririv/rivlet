@@ -16,7 +16,6 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 不依赖 PyO3、Tokio 或 Graph core
 - `crates/graph`
   - 提供真实 Rust `Step/Graph`、共同 `Node` trait、`GraphStructure`、类型化端口/边/谓词与错误
-  - 原生 adapter 以整图为边界接入，不向 Python 暴露单个 action
 - `crates/execution`
   - 组合 graph/action/core，提供单次使用的同步 Rust Execution、类型化终态与同步谓词求值
   - 不依赖 Python 或第三方 runtime；图声明和 Python adapter 不依赖它
@@ -32,7 +31,6 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 独占 PyO3 依赖
   - 把 Python 声明对象批量转换成连续整数 ID
   - 把条件 predicate、Python action、观察事件和宿主停止控制接回 Python
-  - 把 Rust action 交给原生实现执行
 - `crates/tokio-runtime`
   - 私有实验 crate，不属于正式 API
   - 独占 Tokio 依赖，用于测量“Rust runtime 逐 action 回调 Python”的成本
@@ -52,17 +50,14 @@ Rust 公共类型表达职责，不重复标注实现语言：`action::Action`�
 `ActionHandle`、`ActionError`、`ActionExecutor`、`Value`、`ValueType`。
 有序输入协议叫 `ActionInputs`，与 action 自身的 `Inputs` 关联类型区分。
 
-Python 中需要区分所有权的类型使用明确的 Rust 限定：`RustGraphStructure`、
-`CompiledRustStep`、`RustActionBindings`。私有编译/执行绑定则按职责命名：
-`CompiledExecutionGraph`、`DeclarationCompilation`、`ExecutionSession`、
-`MixedExecutionSession`。惰性结果视图是私有 `_RustResult`，应用使用公开结果 API，
-不直接处理此适配包装。
+Python 声明使用 Step/Graph；私有编译和执行绑定按职责命名：
+CompiledExecutionGraph、DeclarationCompilation、ExecutionSession。纯 Rust 声明与
+执行 API 独立使用，不通过 Python 动作或结果桥接。
 
-二进制扩展模块为 `rivlet._native`。结构导出使用有版本的 `action_kind="native"`
-wire tag，与声明类型的命名独立。
+二进制扩展模块为 `rivlet._native`；Python 声明使用 core 编译器和 session，
+不通过动作或结果桥接接入 Rust 声明。
 
-原生结果先保存，再通知 session 完成。Rust 消费方直接共享值；跨语言转换器和
-Python 惰性视图属于 Python adapter，不进入 core，详见[原生结果值](./rust-results.md)。
+Rust 类型化结果由纯 Rust 执行层持有，见 [Rust 结果值](./rust-results.md)。
 
 ## 外部库约束
 
@@ -86,75 +81,21 @@ executor adapter crate
 
 ## 当前执行边界
 
-Step/Graph 是真实节点，Node 只是协议，不是包装；GraphStructure 保存复用结构。
-PyO3 直接收集节点并 lower 到现有 Rust step/composite 和类型，不增加第二套调度器
-或实现继承。Rust NodeIdentity 是进程内声明身份，整数 NodeId 是编译/拓扑索引。
-Rust graph::GraphStructure 持有封闭的 NodeKind（Step/Graph）联合。Graph 拥有独立身份
-和有方向的接口，结构通过 Arc 复用；Projection 解析挂载作用域与端口后，调用现有
-GraphDeclaration 编译器。Python 的 RustGraphStructure 只是该不透明结构的适配包装，
-混合语言时由 Python Graph 节点组合。原生 composite 没有 action handle，不使用空动作
-占位。写法与限制见 [Rust 声明 API](./rust-graphs.md#rust-声明-api)。
+Python Step/Graph 经 PyO3 批量接入 core 声明编译器。core 持有执行依赖、层级、
+就绪判断和状态转换；Python driver 管理自己的 callable、线程池、asyncio、结果和异常。
+Python 运行时条件可以同步返回 bool 或返回 awaitable，不占动作 worker 名额。
 
-纯 Rust 宿主可以使用 [Execution::run](./rust-execution.md)，无需自己写 session/worker
-循环。它复用同一 core session 和 action executor，Python 混合语言 driver 保持独立。
-Rust 谓词保留在 Rust 投影侧表，由该宿主求值，不占动作 worker 名额。Python 尚未接入
-原生谓词分发，导入时明确报错。见 [Rust 运行时谓词](./rust-conditions.md)。
+Python driver 使用 core 的 start/advance 交换批量动作、条件和事件，没有逐节点回调。
+运行时返回的 Graph 物化后仍进入同一个编译器；Python 协调动态 session，共用请求的
+线程池和事件循环。父动作等待子图期间不占动作名额。显式子图限额使用 core 的共享
+计数，动态子图继承父范围，不另设一套限额算法。
 
-所有正式执行路径共享同一套 Rust 声明编译器和 execution session 实现：
+纯 Rust Step/Graph 由 graph crate 投影，再进入同一 core 编译器；execution crate
+提供同步 Execution::run，拥有自己的 Rust 动作执行和类型化结果，不依赖 Python。
+Node.js 前端同样独立接入 core，使用自己的 JS 回调和事件循环。
 
-```text
-Python Graph 声明
-    │ 单次 PyO3 编译调用
-    ▼
-Rust GraphDeclaration
-    ├── 静态节点裁剪
-    ├── 层级与声明作用域收集
-    ├── 显式 端口连接 的端口定位
-    └── 条件与 prerequisite 投影
-    │
-    ▼
-Rust CompiledExecutionGraph
-    ├── 层级 ExecutionGraphDeclaration lowering
-    ├── 连续 NodeId / GraphId
-    ├── graph membership → owner / roots / children
-    ├── 条件 reads 与 prerequisite 索引
-    ├── dependents 索引
-    ├── 端口连接 lowering
-    └── DAG 校验
-    │
-    ▼
-Rust ExecutionSession
-    ├── Python action → 批量返回 Python execution driver
-    │                   ├── 任意 Python callable
-    │                   ├── ThreadPoolExecutor
-    │                   └── asyncio task
-    └── RustGraphStructure 中的 Rust action → Rust worker 直接执行 Action
-                        └── 完成进入 Rust completion queue
-```
-
-正式 runtime 不逐 action 反向调用 Python；编译时静态条件叶子的求值仍会调用 Python。
-Python 运行时谓词可直接返回 bool 或等待布尔值；同步结果立即回传，awaitable 进入与
-协程动作相同的事件循环。core 在收到回应前保留在途请求，即使最后一个普通动作已经
-完成，也不能判定停滞。谓词不成为动作节点，不占动作准入名额。
-Python 在有状态变化时通过 `start/advance` 与 session
-交换一批数据：
-
-- Rust 只把 ready 的 Python action、待求值 predicate 和生命周期 event 批量返回 Python
-- `RustGraphStructure` 在声明编译时一次接入；内部 action handle 留在 Rust
-- driver 只把 Python action 的完成节点、predicate 结果和显式 skip 批量交回 Rust
-- 混合 driver 批量取走 Rust completion，再和 Python 完成节点一起推进同一 session
-- 没有 timer polling；没有工作时，线程或 asyncio executor 等待实际 action 完成
-
-声明期已知子图由 Rust 编译为 composite 与 step；子图边界不会被隐式删除。action 在
-运行期返回的新 `Graph` 无法提前编译，因此会以当前 step id、label path 和父作用域作为
-显式输入，再次进入同一个 Rust 编译器，并创建嵌套 session，而不是回到 Python dynamic scheduler。
-Python driver 协调活跃 session，共用本次执行的 Python 线程池及必要时的事件循环。
-不设置隐式全局动作预算；显式 `max_concurrency` 由 Rust 在派发前检查，运行时子图继承
-相应范围。父 action 等待子图期间不占线程或准入名额。纯 Python session 不创建空的
-Rust worker 池。详见[执行限额](./execution.md#可选的子图并发上限)。
-
-`mode="dynamic"` 与 `mode="compiled"` 目前保留的是兼容的展示和 composite 记录语义，
-不再代表两套执行引擎。端口连接 在两种模式下进入同一 lowering。
+主线没有 RustGraphStructure、原生结果 codec、SDK 或跨语言混合执行入口。完整实验
+保留在 codex/experimental-mixed-execution 分支，不属于当前主线 API。
 
 ## 运行时实验
 
@@ -207,8 +148,6 @@ requirement 与 selection 映射成连续整数 ID。provider 索引、任意 pr
 
 - 静态条件叶子和运行时条件 predicate 是 Python callable
 - Python action、结果对象、observe、日志路径和展示 label 是 Python 对象
-- Rust action 是 `RustGraphStructure` 内部的独立和类型分支；类型化结果在 Rust 边上
-  保持原生，只有跨语言时才由适配层转换；进程 action 的 unit 对应 Python None
 - PyO3 adapter 在一次编译调用中遍历声明对象；静态 predicate 的业务求值仍调用 Python
 - Python `GraphCompilation` 只恢复 action、predicate、observe、label path 与结果作用域侧表
 - `ExecutionState` 保存宿主显式请求的 skip、执行结果与渲染快照

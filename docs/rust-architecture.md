@@ -14,7 +14,6 @@ integration.
   Python callbacks. It does not depend on PyO3, Tokio, or Graph core.
 - `crates/graph` exposes actual Rust Step/Graph nodes, the common Node trait,
   reusable GraphStructure, typed interfaces/edges/predicates, and GraphError.
-  Adapters connect complete graphs rather than exposing individual actions to Python.
 - `crates/execution` composes graph/action/core into a single-use synchronous Rust
   Execution with typed terminal outcomes and synchronous predicate evaluation.
   It depends on no Python or third-party
@@ -26,7 +25,7 @@ integration.
   the compiled execution graph, and scheduling.
 - `crates/python` is the private PyO3 adapter. It converts declarations into integer
   IDs in batches, retains Python action/predicate/observation side tables, connects
-  host control, and dispatches native actions to their Rust implementation.
+  host control.
 - `crates/node` is the experimental Node-API adapter in its own Cargo workspace
   and lockfile, excluded from the Python distribution workspace. It owns napi-rs/serde and
   converts JS declarations and completion batches into the existing core compiler
@@ -45,15 +44,12 @@ Rust public types describe their role, not their implementation language:
 `Value`, and `ValueType`. The ordered input protocol is `ActionInputs`, distinct
 from an action's `Inputs` associated type.
 
-Python types that distinguish ownership use an explicit Rust qualifier:
-`RustGraphStructure`, `CompiledRustStep`, and `RustActionBindings`. Private
-compiler/session bindings instead use their role: `CompiledExecutionGraph`,
-`DeclarationCompilation`, `ExecutionSession`, and `MixedExecutionSession`.
-The lazy Rust result view is private `_RustResult`; application code uses the public
-result APIs rather than handling this adapter wrapper.
+Python Step/Graph declarations use role-based private compiler/session bindings:
+CompiledExecutionGraph, DeclarationCompilation and ExecutionSession. Pure Rust
+declaration and execution APIs remain independent.
 
-The binary extension module is `rivlet._native`. Structural export keeps its
-versioned `action_kind="native"` wire tag independently of declaration type names.
+The binary extension module is `rivlet._native`; Python graph declarations use the
+core compiler and session without an action/value bridge to Rust declarations.
 
 ## External-library boundary
 
@@ -74,82 +70,25 @@ model. Replacing an adapter should not require changing graph declarations.
 
 ## Production execution
 
-Python Step/Graph are concrete nodes; Node is their protocol, not a wrapper.
-GraphStructure holds the reusable body. PyO3 collects these nodes directly into
-existing Rust step/composite variants, without a second scheduler or implementation
-inheritance. Rust NodeIdentity is the process-local declaration identity; indexed
-NodeId is the compiler/topology reference. Rust graph::GraphStructure holds a closed
-NodeKind union of Step/Graph. A Graph has its own identity and typed interface,
-while its body can be shared with Arc. Projection resolves mounted scopes and
-ports and calls the existing GraphDeclaration compiler. Python's RustGraphStructure
-wraps that opaque body, composed into a Python Graph for mixed declarations.
-Native composites have no action handle, not a synthetic no-op. See the
-[Rust declaration API](./rust-graphs.md#rust-declaration-api) for examples and limits.
+Python Step/Graph declarations enter the core compiler through batched PyO3 calls.
+Core owns execution dependencies, hierarchy, readiness and state transitions.
+The Python driver owns callables, borrowed pools, asyncio, objects and exceptions.
+Python runtime conditions may return bool or an awaitable and do not consume action slots.
 
-Pure Rust hosts can use [Execution::run](./rust-execution.md) instead of writing
-their own session/worker loop. It uses the same core session and action executor;
-the mixed-language Python driver remains independent. Rust predicates stay in the
-Rust projection side table and are evaluated by this host, outside action worker
-capacity. Native predicate import into Python is explicitly rejected until mixed
-dispatch is implemented. See [Rust runtime predicates](./rust-conditions.md).
+The driver exchanges batched work, condition requests and events through core's
+start/advance API. Runtime-returned graphs use the same compiler; the host manages
+dynamic sessions sharing its pool and event loop. A parent waiting for its returned
+graph releases action admission. Explicit subtree limits and dynamic inheritance
+use the existing core's shared counters.
 
-All production paths share the same compiler and session implementation:
+Pure Rust Step/Graph declarations use the graph projection and the same compiler.
+The execution crate supplies synchronous Execution::run, native workers and typed
+outcomes, independently of Python. The Node.js frontend independently uses its JS
+callbacks and event loop with the same core.
 
-```text
-Python Graph
-    ↓ one PyO3 compilation call
-Rust GraphDeclaration
-    ├── static pruning
-    ├── hierarchy and declaration scopes
-    ├── explicit port-port location
-    └── conditions and prerequisites
-    ↓
-Rust CompiledExecutionGraph
-    ├── hierarchy lowering
-    ├── contiguous NodeId / GraphId
-    ├── membership → owners / roots / children
-    ├── reads, prerequisite, and dependent indexes
-    ├── port connection lowering
-    └── DAG validation
-    ↓
-Rust ExecutionSession
-    ├── Python leaves → batched Python driver
-    │                    ├── arbitrary callables
-    │                    ├── ThreadPoolExecutor
-    │                    └── asyncio tasks
-    └── native leaves → Rust workers → completion queue
-```
-
-Production runtime does not call back into Python per action. Static condition
-leaves do call Python during compilation. At runtime, start/advance exchanges
-batches when state changes:
-
-Python runtime predicates can return bool directly or await a boolean. The Python
-driver returns synchronous resolutions immediately and tracks awaitable resolutions
-on the same loop as coroutine actions. Core retains the outstanding request until
-its response arrives, even when the last ordinary action has already completed.
-Predicates do not become action nodes or consume action admission slots.
-
-- Ready Python actions, predicates to evaluate, and lifecycle events go to Python.
-- Native action handles remain in Rust after graph registration.
-- Python completions, predicate results, and explicit skips return in batches.
-- Native completions are collected in batches and advance the same session.
-- Rust results are stored before advancing completion. Native consumers share
-  those values directly; language converters and lazy Python views belong to the
-  Python adapter, not core. See [native result values](./rust-results.md).
-- There is no timer-based polling loop; idle drivers wait for actual work completion.
-
-Known subgraphs compile as composites and leaves without losing their boundaries.
-A graph returned by an action is compiled later with the current path and ancestor
-scopes, in a nested Rust session. The Python driver coordinates active sessions
-using the same Python pool and, when needed, event loop. There is no implicit
-global action budget. Explicit `max_concurrency` scopes are checked by Rust before
-dispatch and inherited by runtime children. Waiting parent actions consume no worker
-or admission slot. Python-only sessions create no empty Rust worker pool. See
-[execution limits](./execution.md#optional-subtree-concurrency-limits).
-
-Dynamic and compiled modes retain different presentation/composite-recording
-behavior, not different execution engines.
+Mainline has no RustGraphStructure, foreign-result codecs, SDK or cross-language
+mixed execution entry. The complete experiment remains on the
+codex/experimental-mixed-execution branch, not in the current mainline API.
 
 ## Runtime experiment
 
@@ -198,9 +137,6 @@ Python retains host-facing objects:
 - Compilation side tables for actions, predicates, observations, paths, and scopes.
 - Execution state snapshots, explicit skips, and results.
 
-Native actions form a separate branch owned by RustGraphStructure. Their typed
-results stay native on Rust edges. Only the Python adapter converts values when
-crossing the language boundary; process-action unit maps to Python None.
 
 Readiness, scheduling states, condition blocking, hierarchy lifecycle, execution
 DAG validation, provider resolution, and binding lowering have one Rust

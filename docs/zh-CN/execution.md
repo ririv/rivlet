@@ -128,16 +128,7 @@ with ThreadPoolExecutor(max_workers=4) as pool:
 
 这里只支持同一解释器中的 ThreadPoolExecutor。ProcessPoolExecutor 和
 InterpreterPoolExecutor 不可直接替换：闭包、上下文、共享状态和扩展对象没有建立
-序列化或隔离契约。Rust 动作继续在 Rust worker 中执行，不经过 Python action 回调；
-其 session 内部资源与借入的 Python 池分开。
-Rust 托管 session 使用 `std::thread::available_parallelism()` 决定默认容量，
-最多 32 个 worker，且不超过当前 Rust 动作数。查询失败直接报告执行错误，不静默降为 1。
-纯 Python session 不查询原生并行度，也不创建 Rust worker。显式容量不执行默认 CPU
-查询，也不受默认的 32 上限约束；低阶 ActionExecutor 仍要求明确的正数容量。
-串行执行显式使用一个 worker。Python `max_workers` 和 Python 的 CPU 计数覆盖设置
-均不决定 Rust 容量；Rust 的建议并行度不保证与 Python 进程 CPU 计数完全相同。
-Rust 批次完成通知不占用 Python 动作线程，池已满也不会阻止协程消费已经完成的
-Rust 结果。
+序列化或隔离契约。Python 执行不创建 Rust 动作 worker。
 
 运行时返回的子图复用父执行的 Python 池和事件循环。父动作返回子图后释放线程，
 不在线程里递归等待子图；独立分支不保证先后顺序。不传 `max_concurrency` 时，不自动限制
@@ -163,10 +154,10 @@ run(
 
 借用池时，将同一字典传给 `Execution(workflow).run(pool=pool, max_concurrency=limits)`；
 两个 `arun` 入口的参数一致。图与已经缓存的编译实例不变，不为子图额外创建 Python
-线程池，已有的 Rust worker 所有权也不变。包含关系完全来自真实图，不重复声明配置树。
+线程池，包含关系完全来自真实图，不重复声明配置树。
 
 并发上限指“已经获准派发、尚未完成或失败”的 action 数量，包含排在线程池队列中的
-任务，以及等待 I/O 的协程。同步 Python、异步和 Rust action 共用所在范围的额度。
+任务，以及等待 I/O 的协程。同步 Python 动作和协程共用所在范围的额度。
 每个 action 必须同时满足所有受限祖先和自身的上限。上例中，下载最多 2 个、处理最多
 3 个，合计最多 4 个。它只是上限，不预留名额，不保证启动数量，也不保证独立分支公平。
 
@@ -233,7 +224,7 @@ action 可以调用 `ctx.control.stop_requested()` 或 `ctx.control.require_runn
 挂载 node_path（标签由 .labels 读取）、
 结构化 `state_detail` 及派生 `state: NodeExecutionState` 的 `NodeExecutionEvent`：
 `STARTED`、`COMPLETED`、`FAILED`、
-`BLOCKED`、`SKIPPED`。静态子图、动态子图和原生动作使用同一接口。通知发生在状态
+`BLOCKED`、`SKIPPED`。静态子图和动态子图使用同一接口。通知发生在状态
 提交之后，组合边界的事件不依赖展示模式。回调同步、串行执行；回调失败以
 `EventDeliveryError` 停止执行，不撤销已提交状态。未订阅时不创建事件对象或事件
 标签索引。原有 `GraphObserver` 继续独立负责图级展示消息。示例见[核心模型](./core_model.md)。
@@ -255,7 +246,6 @@ C（成功）→ D（继续执行）
 - 端口连接遵循实际接线：出口步骤已成功，则该端口仍就绪，不因其子图内其他步骤失败而撤销。
   如果出口失败，消费它的入口被阻断；消费者子图内不依赖该入口的准备工作仍可执行。
 - 动态 action 返回的子图使用相同规则；其失败最终使外层 action 失败。
-- Python action 与 Rust action 共享以上语义。Rust 批量回传失败状态和错误，不增加逐节点异常查询。
 
 包含多个出入口、出口提前就绪和整个子图依赖的对比，见
 [端口依赖：出入口遇到失败时](./interfaces.md#出入口遇到失败时)。
@@ -478,7 +468,7 @@ Rust compiler 会转换所有声明期已知子图：
 - 已经开始执行的同步 worker 或异步 task 不会被 Graph 强制取消
 - 运行期返回图使用独立 Rust session，由同一驱动推进
 - 等待子图的父步骤不占线程；Python 子图共用线程池和事件循环
-- 不隐式设置 Python / Rust / 协程合计额度；显式 `max_concurrency` 跨 session 生效
+- 不隐式设置 Python 同步动作 / 协程合计额度；显式 `max_concurrency` 跨 session 生效
 - 节点 ready 判定仍在 Rust，串行嵌套 session 使用显式栈推进
 - action 对宿主共享状态的并发写入安全由宿主负责
 

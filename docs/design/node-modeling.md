@@ -42,7 +42,6 @@ interface through wrapping. Forwarded port references retain their owning graph.
 | wiring.step(label=...) | wiring.graph(label=...) |
 | StepWiring | NodeWiring |
 | StepRunContext / step_id / step_path | NodeRunContext / node_id / node_path |
-| NativeGraph (opaque body) | RustGraphStructure |
 
 Execution receives an actual Step or Graph directly; application factory return
 contracts are not part of this node model.

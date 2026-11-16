@@ -92,44 +92,5 @@ Python 侧记录按需启用，启用后不是只保留确实被消费的 Python
 又有自己的所有权边界。当前启用／保留规则与明确尚未实现的策略候选，见
 [结果生命周期](./result_lifetime.md)。
 
-## Python 边界
-
-Python 继续使用现有 API：
-
-```python
-edges = Edge.results(
-    (producer.interface.outputs["plan"],),
-    consumer.interface.inputs["apply"],
-)
-```
-
-| 方向 | 处理方式 |
-| --- | --- |
-| Rust → Rust | 原生值直接传递，不转 Python |
-| Python → Python | 保持任意 Python 对象 |
-| Rust → Python | 在适配层惰性转换，同一结果缓存一次 |
-| Python → Rust | 按接收方类型显式转换，再提交原生 worker |
-
-标准转换覆盖 unit/None、bool、Rust 各有符号/无符号整数宽度、f32/f64、String/str、
-Vec<u8>/bytes。整数检查范围，bool 不当整数，字符串不解析成数值，也不在其它数值
-类别之间偷偷转换。bytes 转换可能复制载荷；Rust 内部 Arc 的零复制共享不等于 FFI
-在任何类型上都零复制。
-
-只导入原生结果边确实引用的 Python 值，无关的任意对象不序列化。纯原生图在没有
-Python 结果保留需求时，不创建 Python 结果包装。需要保留时先记录原生引用，实际
-读取时才创建 Python 值。Python action 仍接收既有 Option 并解包，不需要引入公开
-RustResult API。
-
-自定义类型的转换明确属于 PyO3 adapter。内部 `ValueCodecs` 为确定类型组合成对的
-Rust 导出/导入函数，不能覆盖已有或标准转换。组合图可以复用同一个转换器对象，
-冲突注册会报错。没有全局可变注册表，也没有公开的 Python 动态注册插件 API；独立
-adapter 的发布/ABI 边界仍需单独设计，不在动态库之间隐式交换 Rust trait object。
-
-未提供转换器的自定义结构仍可在 Rust 内部传递；Python 读取时报明确的缺少转换器
-错误，归属读取节点。无效 Python 输入归属原生接收叶子失败。修改 Python 表示不会
-自动反映到原始 Rust 值：转换器表达值视图，不是自动同步的共享可变状态。
-
-树图、Mermaid 和结构导出会显示原生结果边与参数位置，不包含值、命令、环境或
-转换器内部信息。这套结果桥接不负责原生谓词分发或运行时图展开。
-[原生 Rust 谓词](./rust-conditions.md) 由 Rust Execution 宿主执行；导入 Python
-混合 driver 时会明确报错。
+原生结果查询见 [Rust 执行](./rust-execution.md)，Python 对象使用独立的
+[结果记录与生命周期](./result_lifetime.md)。主线不提供跨语言结果转换。

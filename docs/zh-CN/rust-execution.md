@@ -118,8 +118,7 @@ let outcome = Execution::new(compilation, options).run()?;
   运行时生成子图或取消 API。
 - ActionContext 使用无日志路径的缺省值。需要定制上下文、实时观察、停止控制或
   混合语言分发的宿主，仍可直接组合 ExecutionSession 和 ActionExecutor。
-- Python/PyO3 混合 driver 不变，继续负责 Python callable、条件、宿主集成和跨语言转换。
-  原生 Rust 谓词目前要求 Rust Execution 宿主，导入 Python 时会明确报错，不会丢弃条件。
+
 - 当前创建 session 时会复制一次 core 编译图，O(V + E)，初始化节点状态和结果表为
   O(V)，不会重新编译声明。驱动对每个终态结果/事件处理一次，R 个结果输入绑定为
   O(R)；这些复杂度不包含已有调度器和 action 自身开销。

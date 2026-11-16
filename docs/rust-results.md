@@ -101,53 +101,6 @@ retain only consumed Python results. Standalone Rust outcomes have their own
 ownership boundary. Current activation/retention rules and explicitly unimplemented
 policy candidates are documented in [result lifetime](./result_lifetime.md).
 
-## Python boundary
-
-Python declarations keep the existing API:
-
-```python
-edges = Edge.results(
-    (producer.interface.outputs["plan"],),
-    consumer.interface.inputs["apply"],
-)
-```
-
-| Direction | Transport |
-| --- | --- |
-| Rust → Rust | Original native value, no Python conversion |
-| Python → Python | Existing arbitrary Python objects |
-| Rust → Python | Lazy adapter conversion, cached once per result |
-| Python → Rust | Explicit receiver-type conversion before native dispatch |
-
-Standard conversions cover unit/None, bool, signed/unsigned Rust integer widths,
-f32/f64, String/str and Vec<u8>/bytes. Integer bounds are checked. Bool is not
-accepted as an integer; strings are not parsed as numbers; other numeric categories
-are not silently interchanged. Bytes conversion may copy the payload. Arc sharing
-is zero-copy ownership inside Rust, not a claim of universal zero-copy FFI.
-
-Only Python results referenced by native input edges are imported. Arbitrary
-unrelated Python objects remain Python objects and are not serialized. Native-only
-graphs with no Python result retention do not create Python result wrappers.
-Retaining Python results stores an opaque native reference; the concrete Python
-value is constructed only when read. Python result inputs use the existing Option
-and unwrap API, not a new public RustResult API.
-
-Custom conversion is an explicit PyO3 adapter responsibility. Internally, `ValueCodecs`
-composes paired Rust export/import functions for a concrete type. A type's converter
-cannot overwrite an existing or standard converter. Combining graphs can reuse the
-same converter object; conflicting registrations are rejected. There is no global
-mutable registry or public Python dynamic-registration plugin API. Independent
-adapter distribution/ABI remains a separate boundary, not implicit trait-object
-exchange between dynamic libraries.
-
-A custom Rust value with no converter is valid on Rust-only edges. Reading it from
-Python fails at that reader with an explicit missing-converter error. An invalid
-Python input fails its native receiving step. Python representation mutation is not
-automatically mirrored into the original Rust value; converters define value views,
-not shared mutable state.
-
-Tree/Mermaid and structural export show native result edges and argument positions
-without including values, commands, environments, or converter internals. These
-result bridges do not dispatch native predicates or expand graphs at runtime.
-[Native Rust predicates](./rust-conditions.md) run in the Rust Execution host;
-importing them into the Python mixed driver is explicitly rejected.
+See [Rust execution](./rust-execution.md) for native result inspection. Python
+objects use their separate [result lifetime](./result_lifetime.md) contract. Mainline
+does not provide cross-language result conversion.

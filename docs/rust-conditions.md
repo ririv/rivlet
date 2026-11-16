@@ -128,9 +128,5 @@ This change does not add Rust async predicates, static selection, runtime-create
 Rust graphs, cancellation, or observation subscriptions. Pure Rust conditions can
 be consumed by the Rust high-level driver or a custom low-level host.
 
-**The Python mixed adapter does not yet dispatch Rust predicates.** It explicitly
-rejects a native graph containing them at its RustGraphStructure boundary, rather
-than dropping the conditions or treating it as unconditional. Existing Python
-conditions around unconditional native subgraphs remain supported. The Node.js
-frontend likewise does not yet register Rust-native actions/predicates. These
-language bindings require separate explicit dispatch/value-boundary work.
+The Python and Node.js frontends execute their own language predicates; they do
+not register Rust-native actions or predicates.

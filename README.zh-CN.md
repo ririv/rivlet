@@ -98,9 +98,8 @@ with ThreadPoolExecutor(max_workers=4) as pool:
 
 在 async 函数中使用 `await execution.arun(pool=pool)`。Rivlet 等待本次工作退出，
 但从不关闭借入的池。不隐式设置全图协程额度。需要限制子图在途动作时，可向高阶或
-低阶入口传 `max_concurrency={workflow: 4, checks: 2}`，不需要另建池；Python、协程与
-Rust action 根据真实图的嵌套关系共同计数。进程池和独立
-解释器池不能直接替换这里的共享内存执行模型。详见
+低阶入口传 `max_concurrency={workflow: 4, checks: 2}`，不需要另建池；Python 同步动作和协程
+根据真实图的嵌套关系共同计数。进程池和独立解释器池不能直接替换这里的共享内存执行模型。详见
 [执行资源](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/execution.md#托管与借用执行资源)
 及[子图并发上限](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/execution.md#可选的子图并发上限)。
 

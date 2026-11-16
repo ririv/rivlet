@@ -152,7 +152,6 @@ rather than interpreting the old document as the new format.
 Events and execution snapshots remain separate. Join them with the exact frozen
 node ID; do not import arbitrary return values, shared objects, exception messages,
 log paths, command lines, environments, or function objects into this document.
-Rust-native subgraphs expose declaration identities, labels and topology, never their process details.
 
 Each Execution binds its declaration and host references immutably. Its first
 successful `compile()`/`run()`/`arun()` fixes the root compilation; subsequent calls

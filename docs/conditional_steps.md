@@ -6,7 +6,7 @@ English | [简体中文](./zh-CN/conditional_steps.md)
 
 Conditional edges control whether a dependency applies. `Node.condition` controls
 whether the Node itself participates. It works for Python leaves, Python Graph
-composites, and Graph nodes containing RustGraphStructure.
+composites, and Graph nodes.
 
 ## Declaration
 
@@ -148,7 +148,7 @@ invoking its action or producing an action result.
 Skipped is a terminal state, not simultaneous Skipped and Finished states.
 A false condition is not an action returning False.
 
-For a Graph or RustGraphStructure composite, false means its subgraph is not entered.
+For a Graph composite, false means its subgraph is not entered.
 A runtime-skipped composite and its descendants become skipped.
 
 ## Why a conditional edge is different

@@ -460,9 +460,7 @@ provider 的隐式策略。
 得到的显式 binding 随图进入声明编译器，定位内部端口并 lower 为执行依赖。最终 DAG
 校验与执行状态机都在 Rust；Python 不维护另一套 provider 选择或 binding lowering 规则。
 
-当前端口引用的是 Python 声明中的 Node，不能直接引用不透明 RustGraphStructure 内部的
-Rust Step。需要公开原生子图整体完成状态时，可以由 Python Graph 组合它，并以该
-Node 作为出口。运行期才返回的子图也不能提前向外公开尚不存在的内部端口。
+当前端口引用 Python 声明中的 Node。运行期返回的子图不能提前公开尚不存在的内部端口。
 
 端口提供组件及其直接出口不允许使用运行时 `condition` 来决定是否存在；这与“执行失败”
 不同。provider 的选择必须在编译前确定，不能靠运行时跳过来实现候选切换。

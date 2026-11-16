@@ -133,10 +133,7 @@ and the runnable `crates/execution/examples/conditions.rs` example.
 - ActionContext uses its default with no log path. Hosts needing custom contexts,
   live observers, control, or mixed-language dispatch can still compose
   ExecutionSession and ActionExecutor directly.
-- The Python/PyO3 mixed driver is unchanged. It continues to handle Python
-  callables, predicates, host integration, and mixed-language conversion.
-  Native Rust predicates currently require the Rust Execution host; importing them
-  into Python explicitly fails rather than dropping their conditions.
+
 - Session creation currently clones the compiled core graph once, O(V + E), and
   initializes per-node state/results, O(V). The declaration is not compiled again.
   The driver processes each terminal result/event once and binds R result inputs

@@ -43,8 +43,7 @@ Run this in a fresh checkout and environment for each Python version. `dist` mus
 contain exactly one wheel for that interpreter. The shared verification script
 checks metadata, installs the exact wheel, verifies the installed native extension
 in isolated mode, and runs the full Python suite. It works without shell globbing.
-It never uploads artifacts. Python subprocesses, dynamic graphs, native actions,
-their independent worker resources, and optional shared admission limits are covered
+It never uploads artifacts. Python subprocesses, dynamic graphs and optional shared admission limits are covered
 by the same cross-platform tests. Do not infer target support merely from skipping
 platform-specific tests; installed artifacts require native validation.
 

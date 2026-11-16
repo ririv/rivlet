@@ -122,20 +122,8 @@ work to exit, not unrelated work belonging to the pool's owner.
 
 Only same-interpreter ThreadPoolExecutor instances are supported. Process pools
 and InterpreterPoolExecutor are not interchangeable: closures, contexts, shared
-state and extension values have no serialization/isolation contract here. Native
-Rust actions still execute in Rust workers without Python action callbacks; their
-session-owned resources are separate from the borrowed Python pool.
-The Rust managed session selects its default capacity with
-`std::thread::available_parallelism()`, capped at 32 and at its number of Rust
-actions. A failed query is an execution error, not a silent single-worker default.
-Python-only sessions neither query native parallelism nor create Rust workers.
-Explicit capacities bypass the default CPU query and 32-worker cap; the low-level
-ActionExecutor still requires a positive capacity. Serial execution explicitly uses
-one worker. Python `max_workers` and Python CPU-count overrides do not set Rust
-capacity; this native estimate is not necessarily equal to Python's process CPU count.
-Rust batch completion notifications do not occupy Python action workers, so a
-full Python pool cannot prevent a coroutine from consuming an already finished
-Rust result.
+state and extension values have no serialization/isolation contract here. Python
+execution does not create a Rust action worker pool.
 
 Runtime-generated subgraphs use the same Python pool and event loop as their
 parent execution. Returning a child graph releases the parent worker rather than
@@ -245,7 +233,7 @@ values with declaration `node_id`, mounted `node_path` (including `.labels`),
 typed `state_detail`, and a derived
 `state: NodeExecutionState`:
 `STARTED`, `COMPLETED`, `FAILED`, `BLOCKED`, or `SKIPPED`.
-Static and runtime-generated subgraphs and Rust-native actions use the same
+Static and runtime-generated subgraphs use the same
 interface. Events describe committed transitions; composite events do not depend
 on presentation mode. An event callback is synchronous and serialized. A callback
 failure stops the execution with `EventDeliveryError`, preserving the
@@ -274,7 +262,6 @@ The overall run still reports failure.
   provider subgraph later fails. A failed output blocks its bound inputs, not
   unrelated preparation inside the consumer.
 - Failure in a dynamically returned graph fails its outer action.
-- Python and Rust actions follow the same rules. Native errors and failure states
   cross the boundary in batches, not per-node exception queries.
 
 See [port failure examples](./interfaces.md#failures-at-interface-ports).
@@ -477,7 +464,7 @@ does not imply simultaneous execution.
 
 Blocking and awaitable entry points share the same mixed-action scheduling model;
 they do not select thread-versus-async modes. Python `max_workers` bounds synchronous
-Python threads, not coroutine tasks or Rust workers. Resource ownership is described
+Python threads, not coroutine tasks. Resource ownership is described
 in [managed and borrowed execution](#managed-and-borrowed-execution-resources).
 ContextVar isolates action log scopes per task.
 

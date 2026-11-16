@@ -88,7 +88,7 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 ## 边的语义
 
 schema v2 保留 `"leaf"`/`"subgraph"` wire tag；`"leaf"` 对应 Step 声明的动作节点，
-包括 Rust 不透明结构中的动作。声明 API 改名不改变这些标签或 schema 版本。跨端口结果边保留外层
+声明 API 改名不改变这些标签或 schema 版本。跨端口结果边保留外层
 source/target，并按方向包含 source_port/provider_node 或 target_port/consumer_nodes，
 这些解析字段指向真实内部端点，转发不会丢失归属。
 
@@ -131,8 +131,7 @@ source/target，并按方向包含 source_port/provider_node 或 target_port/con
 当时不存在的节点，更不能把无法证明执行过的工作标成已执行。
 
 运行事件和快照仍然独立，通过当次冻结图中的节点 ID 关联。图文档不包含返回值、共享状态、
-异常正文、日志路径、命令行、环境变量或函数对象。Rust 原生子图也只暴露标签和拓扑，
-不暴露进程执行详情。
+异常正文、日志路径、命令行、环境变量或函数对象。不暴露进程执行详情。
 
 `Execution` 的声明与宿主引用绑定后不可替换。首次成功的 `compile()`、`run()` 或
 `arun()` 固定根编译结果，后续复用；编译异常不提交半成品，可以重试。这只是本次准备结果

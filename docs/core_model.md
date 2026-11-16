@@ -42,8 +42,7 @@ two_runs = (left | right).graph(label="two runs")
 GraphStructure contains nodes, edges, GraphInterface declarations, observation
 messages, StaticConditions and StaticSelection. It has no identity, label, runtime
 condition or run state. Graph composes a structure and exposes `graph.interface`;
-Step has no interface attribute. RustGraphStructure is an opaque Rust-owned body,
-also composed with `Graph(native_structure, label="native")`.
+Step has no interface attribute.
 
 Two Graph instances can share one structure. Their identities differ; shared inner
 declarations retain theirs, but each mount has independent paths, results and
@@ -250,5 +249,4 @@ relabeling completed work. Events are not persistence, messaging or recovery.
 
 DirectedTopology permits cycles; DAGTopology validates acyclicity. They know nothing
 about actions, ports or state. See [topology complexity](./topology_complexity.md).
-Rust adapters expose RustGraphStructure, whose actions remain Rust-owned while
-sharing one compiled execution graph. See [native graphs](./rust-graphs.md).
+See [Rust graph declarations](./rust-graphs.md) for the independent Rust API.
