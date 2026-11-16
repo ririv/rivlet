@@ -48,7 +48,9 @@ type Backend = Literal["serial", "thread", "async"]
 def test_native_predicates_are_not_silently_imported_without_a_mixed_evaluator():
     from rivlet._native import _rust_condition_fixture
 
-    with pytest.raises(ValueError, match="Rust predicates require the Rust Execution host"):
+    with pytest.raises(
+        ValueError, match="Rust predicates require the Rust Execution host"
+    ):
         _rust_condition_fixture()
 
 
