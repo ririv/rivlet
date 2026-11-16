@@ -171,5 +171,6 @@ Python adapter 把该投影与 Python 节点放进同一次编译。Python 可�
 
 就绪连接和结果连接复用同一接口，但语义由边显式决定：`Edge::ports` 等待就绪；
 `Edge::results` 还绑定完整、有序的参数组，转发后校验真实 Step 的类型和数量。
-Rust predicate 执行仍未实现。外层 Python Graph 保留既有运行时/静态条件，
-core 不引入不透明闭包或隐式序列化。
+[Rust 运行时谓词](./rust-conditions.md) 由 Rust 投影持有类型化闭包，交给 Rust
+Execution 宿主求值；core 不引入不透明闭包或隐式序列化。外层 Python Graph 保留
+既有运行时/静态条件。混合 driver 尚未接入原生谓词分发，因此导入 Rust 谓词会明确报错。

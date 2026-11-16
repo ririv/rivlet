@@ -184,6 +184,8 @@ public Python declaration API.
 Readiness connections and result connections remain distinct uses of the same
 interface: `Edge::ports` waits for readiness; `Edge::results` additionally binds a
 complete ordered argument group. Actual step types/arity are checked after
-forwarding. Rust predicate execution is still outside this API. An outer Python
-Graph retains its existing runtime/static conditions; core gains neither opaque
-closures nor implicit serialization.
+forwarding. [Rust runtime predicates](./rust-conditions.md) use typed closures held
+by the Rust projection and evaluated by the Rust Execution host; core gains neither
+opaque closures nor implicit serialization. An outer Python Graph retains its
+existing runtime/static conditions. Importing native Rust predicates into the Python
+mixed driver is explicitly rejected until native predicate dispatch is provided.

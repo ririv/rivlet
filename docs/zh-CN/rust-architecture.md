@@ -15,10 +15,10 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 提供不回调 Python 的进程 action
   - 不依赖 PyO3、Tokio 或 Graph core
 - `crates/graph`
-  - 提供真实 Rust `Step/Graph`、共同 `Node` trait、`GraphStructure`、端口/边与错误
+  - 提供真实 Rust `Step/Graph`、共同 `Node` trait、`GraphStructure`、类型化端口/边/谓词与错误
   - 原生 adapter 以整图为边界接入，不向 Python 暴露单个 action
 - `crates/execution`
-  - 组合 graph/action/core，提供单次使用的同步 Rust Execution 和类型化节点终态
+  - 组合 graph/action/core，提供单次使用的同步 Rust Execution、类型化终态与同步谓词求值
   - 不依赖 Python 或第三方 runtime；图声明和 Python adapter 不依赖它
 - `crates/topology`
   - 只依赖 Rust 标准库，持有整数节点、邻接索引和 DAG 算法
@@ -97,6 +97,8 @@ GraphDeclaration 编译器。Python 的 RustGraphStructure 只是该不透明结
 
 纯 Rust 宿主可以使用 [Execution::run](./rust-execution.md)，无需自己写 session/worker
 循环。它复用同一 core session 和 action executor，Python 混合语言 driver 保持独立。
+Rust 谓词保留在 Rust 投影侧表，由该宿主求值，不占动作 worker 名额。Python 尚未接入
+原生谓词分发，导入时明确报错。见 [Rust 运行时谓词](./rust-conditions.md)。
 
 所有正式执行路径共享同一套 Rust 声明编译器和 execution session 实现：
 
@@ -184,8 +186,9 @@ prerequisite 同样使用和类型区分：
 - unconditional
 - conditional
 
-运行时条件由 `ConditionId` 引用；predicate 对象保留在 Python adapter，core 只保存
-其显式结果依赖（内部 reads 索引，对应公开 API 的 inputs）。因此 core 可以判断阻塞关系和环，但不会解释 Python 业务函数。
+运行时条件由 `ConditionId` 引用；predicate 对象保留在各宿主的侧表（Python、Node.js
+或原生 Rust），core 只保存其显式结果依赖（内部 reads 索引，对应公开 API 的 inputs）。
+因此 core 可以判断阻塞关系和环，但不会解释具体语言的闭包。
 
 ## 领域边界
 

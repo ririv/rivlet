@@ -39,6 +39,7 @@ domain workflows are connected explicitly, not read from implicit global facilit
 - [Execution semantics](./execution.md)
 - [Python graphs and Rust-native graphs](./rust-graphs.md)
 - [Running Rust graphs](./rust-execution.md)
+- [Rust runtime predicates](./rust-conditions.md)
 - [Experimental Node.js API](./node-api.md)
 - [Typed native result values and language conversions](./rust-results.md)
 - [Result recording, lifetime and future retention candidates](./result_lifetime.md)

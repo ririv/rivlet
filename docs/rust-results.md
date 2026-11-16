@@ -148,4 +148,6 @@ not shared mutable state.
 
 Tree/Mermaid and structural export show native result edges and argument positions
 without including values, commands, environments, or converter internals. These
-changes do not add native predicate execution or runtime graph expansion.
+result bridges do not dispatch native predicates or expand graphs at runtime.
+[Native Rust predicates](./rust-conditions.md) run in the Rust Execution host;
+importing them into the Python mixed driver is explicitly rejected.

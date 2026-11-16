@@ -13,10 +13,11 @@ integration.
   stable errors, and process actions without
   Python callbacks. It does not depend on PyO3, Tokio, or Graph core.
 - `crates/graph` exposes actual Rust Step/Graph nodes, the common Node trait,
-  reusable GraphStructure, typed interfaces/edges, and GraphError.
+  reusable GraphStructure, typed interfaces/edges/predicates, and GraphError.
   Adapters connect complete graphs rather than exposing individual actions to Python.
 - `crates/execution` composes graph/action/core into a single-use synchronous Rust
-  Execution with typed terminal outcomes. It depends on no Python or third-party
+  Execution with typed terminal outcomes and synchronous predicate evaluation.
+  It depends on no Python or third-party
   runtime; declarations and the Python adapter do not depend on it.
 - `crates/topology` uses only the Rust standard library for integer nodes,
   adjacency indexes, and DAG algorithms. It knows nothing about actions or domains.
@@ -87,7 +88,10 @@ Native composites have no action handle, not a synthetic no-op. See the
 
 Pure Rust hosts can use [Execution::run](./rust-execution.md) instead of writing
 their own session/worker loop. It uses the same core session and action executor;
-the mixed-language Python driver remains independent.
+the mixed-language Python driver remains independent. Rust predicates stay in the
+Rust projection side table and are evaluated by this host, outside action worker
+capacity. Native predicate import into Python is explicitly rejected until mixed
+dispatch is implemented. See [Rust runtime predicates](./rust-conditions.md).
 
 All production paths share the same compiler and session implementation:
 
@@ -169,8 +173,9 @@ inputs lowered into ordinary prerequisites. Python presentation recovers final
 prerequisites rather than implementing another rewrite rule.
 
 Prerequisites are unconditional or conditional variants. Runtime conditions use
-ConditionId; predicates remain in Python side tables, while core records reads.
-Core can therefore detect blocking and cycles without interpreting Python logic.
+ConditionId; predicates remain in their host's side tables (Python, Node.js, or
+native Rust), while core records reads. Core can therefore detect blocking and
+cycles without interpreting language-specific closures.
 
 ## Domain boundary
 

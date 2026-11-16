@@ -66,10 +66,10 @@ NodeOutcome is a closed terminal-state union:
 | Variant | Meaning |
 | --- | --- |
 | `Succeeded(Value)` | Successful step result, or unit for a completed composite |
-| `Skipped` | Explicitly skipped node; no successful value |
+| `Skipped` | Explicit skip or false node/ancestor condition; no successful value |
 | `Failed(NodeFailure::Action(error))` | Original action error |
 | `Failed(NodeFailure::Child(id))` | Composite failed because of this direct child |
-| `Blocked(cause)` | Dependency/parent failure prevented execution |
+| `Blocked(cause)` | Dependency, parent, predicate, or predicate-input failure prevented execution |
 
 Read a successful result using the existing checked `Value::downcast::<T>()`:
 
@@ -113,15 +113,30 @@ Skipping a composite also skips its descendants. Skips affect this execution onl
 not the shared declaration or subsequent runs. Unknown indexes are rejected before
 workers start.
 
+## Runtime predicates
+
+`Condition::new(predicate, inputs)` declares a synchronous, typed Rust predicate.
+Use `Step::with_condition` / `Graph::with_condition` for node conditions, and
+`Edge::with_condition` / `Edge::ports_with_condition` for conditional edges.
+Compilation does not call predicates; `Execution::run()` evaluates them when their
+input results are ready. Predicate failure blocks only affected dependents.
+
+`outcome.condition(id)` returns `ConditionOutcome::{NotEvaluated, Resolved, Failed}`;
+failed predicates retain their original `ActionError`. Predicates run on the host
+driver, outside action worker capacity. See [Rust runtime predicates](./rust-conditions.md)
+and the runnable `crates/execution/examples/conditions.rs` example.
+
 ## Scope and costs
 
-- Synchronous Rust actions only. No async action trait, Tokio requirement, Rust
-  predicate evaluator, runtime-created subgraph, or cancellation API is added.
+- Synchronous Rust actions and predicates are supported. No async action/predicate
+  trait, Tokio requirement, runtime-created subgraph, or cancellation API is added.
 - ActionContext uses its default with no log path. Hosts needing custom contexts,
   live observers, control, or mixed-language dispatch can still compose
   ExecutionSession and ActionExecutor directly.
 - The Python/PyO3 mixed driver is unchanged. It continues to handle Python
   callables, predicates, host integration, and mixed-language conversion.
+  Native Rust predicates currently require the Rust Execution host; importing them
+  into Python explicitly fails rather than dropping their conditions.
 - Session creation currently clones the compiled core graph once, O(V + E), and
   initializes per-node state/results, O(V). The declaration is not compiled again.
   The driver processes each terminal result/event once and binds R result inputs

@@ -59,10 +59,10 @@ NodeOutcome 是封闭的终态联合：
 | 分支 | 含义 |
 | --- | --- |
 | `Succeeded(Value)` | action 成功值，或 composite 完成后的 unit |
-| `Skipped` | 被显式跳过，没有成功值 |
+| `Skipped` | 显式跳过，或节点/祖先条件为假，没有成功值 |
 | `Failed(NodeFailure::Action(error))` | action 原始错误 |
 | `Failed(NodeFailure::Child(id))` | composite 因该直接子节点失败 |
-| `Blocked(cause)` | 依赖或父节点失败，导致无法执行 |
+| `Blocked(cause)` | 依赖、父节点、谓词或谓词输入失败，导致无法执行 |
 
 读取成功值继续使用已有的类型校验接口 `Value::downcast::<T>()`：
 
@@ -100,13 +100,26 @@ let outcome = Execution::new(compilation, options).run()?;
 多次 `skip(...)` 是追加，不覆盖此前的选择。跳过 composite 会同时跳过其后代。
 跳过只影响本次执行，不修改共享声明或后续执行。未知索引在启动 worker 前报错。
 
+## 运行时谓词
+
+`Condition::new(predicate, inputs)` 声明同步、类型化的 Rust 谓词。
+节点条件通过 `Step::with_condition` / `Graph::with_condition` 声明，条件边通过
+`Edge::with_condition` / `Edge::ports_with_condition` 声明。编译不调用谓词；
+`Execution::run()` 等输入结果就绪后才求值，失败只阻断相关下游。
+
+`outcome.condition(id)` 返回 `ConditionOutcome::{NotEvaluated, Resolved, Failed}`；
+失败保留原始 `ActionError`。谓词在宿主驱动线程执行，不占动作 worker 名额。
+完整规则见 [Rust 运行时谓词](./rust-conditions.md)，可运行示例位于
+`crates/execution/examples/conditions.rs`。
+
 ## 边界与开销
 
-- 只执行同步 Rust action。本轮不新增 async action trait、Tokio 依赖、Rust predicate
-  evaluator、运行时生成子图或取消 API。
+- 支持同步 Rust action 与谓词；不新增异步 action/predicate trait、Tokio 依赖、
+  运行时生成子图或取消 API。
 - ActionContext 使用无日志路径的缺省值。需要定制上下文、实时观察、停止控制或
   混合语言分发的宿主，仍可直接组合 ExecutionSession 和 ActionExecutor。
 - Python/PyO3 混合 driver 不变，继续负责 Python callable、条件、宿主集成和跨语言转换。
+  原生 Rust 谓词目前要求 Rust Execution 宿主，导入 Python 时会明确报错，不会丢弃条件。
 - 当前创建 session 时会复制一次 core 编译图，O(V + E)，初始化节点状态和结果表为
   O(V)，不会重新编译声明。驱动对每个终态结果/事件处理一次，R 个结果输入绑定为
   O(R)；这些复杂度不包含已有调度器和 action 自身开销。
