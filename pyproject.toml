@@ -42,7 +42,9 @@ dev = [
 manifest-path = "crates/python/Cargo.toml"
 module-name = "rivlet._native"
 python-source = "src"
+exclude = ["**/__pycache__/**", "**/*.pyc"]
 include = [
+    {path = "justfile", format = "sdist"},
     {path = "tests/**/*", format = "sdist"},
     {path = "scripts/**/*", format = "sdist"},
 ]

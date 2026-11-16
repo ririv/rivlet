@@ -5,23 +5,38 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
+
+from release_artifacts import (
+    check_wheel_identity,
+    digest,
+    project_version,
+    record_verification,
+)
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     root = Path(__file__).resolve().parents[1]
-    parser.add_argument("--dist", type=Path, default=root / "dist")
+    selection = parser.add_mutually_exclusive_group()
+    selection.add_argument("--dist", type=Path)
+    selection.add_argument("--wheel", type=Path)
+    parser.add_argument("--source-root", type=Path, default=root)
+    parser.add_argument("--receipts", type=Path)
     parser.add_argument("--junitxml", type=Path)
     args = parser.parse_args()
-    wheels = sorted(args.dist.resolve().glob("*.whl"))
+    root = args.source_root.resolve()
+    wheels = (
+        [args.wheel.resolve()]
+        if args.wheel is not None
+        else sorted((args.dist or root / "dist").resolve().glob("*.whl"))
+    )
     if len(wheels) != 1:
         parser.error(f"expected exactly one wheel in {args.dist}, found {len(wheels)}")
     wheel = wheels[0]
-    version = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))[
-        "project"
-    ]["version"]
+    version = project_version(root)
+    expected_digest = digest(wheel)
+    check_wheel_identity(wheel, version=version)
     subprocess.run(
         [sys.executable, str(root / "scripts" / "check_release.py")], check=True
     )
@@ -69,6 +84,13 @@ def main() -> None:
     if args.junitxml is not None:
         command.append(f"--junitxml={args.junitxml.resolve()}")
     subprocess.run(command, cwd=root, check=True)
+    if args.receipts is not None:
+        record_verification(
+            wheel,
+            args.receipts.resolve(),
+            version=version,
+            expected_digest=expected_digest,
+        )
 
 
 if __name__ == "__main__":

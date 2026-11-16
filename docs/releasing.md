@@ -109,14 +109,94 @@ or token-based publication.
 
 Each platform installs its wheel before running the Python test suite in isolated
 mode. The source job checks Python and Rust, builds an sdist, builds a wheel from
-that sdist, and runs the tests against the installed result. Twine checks the
+that sdist, and runs the tests against the installed result. Every platform job
+downloads that same sdist instead of rebuilding from its checkout. Twine checks the
 distribution metadata. Historical benchmarks are not release performance claims.
 
-`scripts/verify_wheel.py` accepts a directory containing exactly one wheel and
+## Shared local and CI commands
+
+`justfile` is an optional command launcher; `scripts/build_dist.py`,
+`scripts/verify_wheel.py`, and `scripts/publish_dist.py` implement the workflow.
+Actions calls those same scripts directly. Neither Just nor Actions defines a
+second build implementation. Run `python scripts/build_dist.py settings` for
+the release Rust/Maturin versions and Python matrix. Prepare those tools and
+a separate verification environment explicitly; scripts do not install host tools.
+The container entry alone bootstraps tools inside its disposable container.
+
+Activate the chosen Python environment before using Just. Its recipes use Python,
+not an implicitly supplied Unix shell, including on Windows. From the repository:
+
+```sh
+just sdist dist/source
+just verify-source dist/source/rivlet-0.4.0.tar.gz dist/receipts
+
+# Linux Docker host: the official manylinux environment, without Zig.
+just wheel-linux dist/source/rivlet-0.4.0.tar.gz dist/linux-313 3.13
+
+# Linux without a container: explicitly prepared Zig and CPython interpreters.
+just wheel-linux-zig dist/source/rivlet-0.4.0.tar.gz dist/linux-zig-313 python3.13
+
+# Native macOS; use x86_64-pc-windows-msvc on a prepared Windows build host.
+just wheel-native dist/source/rivlet-0.4.0.tar.gz dist/macos-313 aarch64-apple-darwin python3.13
+
+just verify-wheel path/to/rivlet.whl dist/receipts
+just check-dist path/to/distributions dist/receipts
+just publish path/to/distributions dist/receipts
+```
+
+The version above is illustrative: use the filename produced from the current
+manifests. Updating the workflow does not authorize replacing an existing release.
+Output directories must be empty; existing builds and verification records are
+never overwritten. Each wheel is tested with its matching target interpreter.
+Copy cross-built wheels to the target OS and run verification there; do not write
+a success record on the cross-compilation host.
+
+The two Linux entries are alternatives, never an automatic fallback:
+
+- `wheel-linux` launches the official manylinux 2.28 container through Docker;
+  the workflow uses this entry and does not need Zig.
+- `wheel-linux-zig` runs on Linux and explicitly supplies `--zig --manylinux 2_28`
+  to Maturin. Prepare Zig and cargo-zigbuild yourself. Maturin audits the resulting
+  library; a plain host build is not relabeled as manylinux.
+
+For direct script usage, `build_dist.py native`, `manylinux`, and `linux-zig`
+accept an sdist, an output directory and `--interpreter` followed by interpreter
+paths. The native entry also requires `--target`. `container` instead takes
+`--python-version`. No SSH host, sudo policy, SDK location or user directory is
+embedded in these commands. Cross-compilation environment setup remains explicit;
+the workflow does not provision a second machine or a Windows SDK automatically.
+
+Verification writes a JSON receipt only after metadata, isolated installation and
+the full test suite pass. It records the artifact's SHA-256, release version and
+verification interpreter/platform; the hash is checked again after testing.
+`verify-source` records an sdist only after building and testing a wheel from it.
+Local upload and CI staging reject artifacts without matching receipts or whose
+bytes have changed. Local upload copies checked artifacts to a private temporary
+directory before invoking Twine; CI stages the same checked files before Trusted
+Publishing. Receipts are local workflow evidence, **not signed provenance**, and
+do not protect against a publisher deliberately fabricating them.
+
+Build and verification commands never upload. `just publish` is the explicit
+token-based PyPI operation. Configure Twine outside the repository (for example
+`~/.pypirc`); unset `TWINE_REPOSITORY_URL` when using this entry so it does not
+bypass the named `pypi` repository credentials. Do not put credentials in Just,
+receipts, artifacts or scripts. Actions retains its separate OIDC publisher.
+
+The equivalent CI pre-publication gate is:
+
+```sh
+python scripts/publish_dist.py stage dist dist/receipts upload
+```
+
+It stages only verified distributions, not the receipt files, for the publisher.
+
+`scripts/verify_wheel.py` accepts `--wheel FILE` or `--dist DIRECTORY` containing exactly one wheel and
 runs the installed-artifact checks with the current Python interpreter. Use a
 fresh virtual environment and separate output directory for each platform/Python
 combination. It does not expand shell wildcards, install dependencies implicitly,
-or publish. Install `pytest` and `twine` explicitly before running it.
+or publish. Install `pytest` and `twine` explicitly before running it. Use
+`--receipts DIRECTORY` to retain the successful artifact verification record.
+`--source-root` explicitly selects the extracted source tests when validating an sdist.
 
 PyPI uses Trusted Publishing, restricted to repository `ririv/rivlet`, workflow
 `publish.yml`, and GitHub environment `pypi`. Only the publishing job receives

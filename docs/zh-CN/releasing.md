@@ -87,11 +87,78 @@ wiring/DSL 和返回 Graph 的普通函数。已移除的无参 `@graph` 不保�
 
 每个平台先安装 wheel，再以 Python 隔离模式运行测试，避免误用 checkout 内的源码。
 源码任务检查 Python 和 Rust，生成 sdist，再从 sdist 构建并安装 wheel，运行测试。
+所有平台任务下载并使用这同一份 sdist，不再各自从 checkout 重建源码。
 Twine 检查发行元数据。历史基准数据不作为本轮发行的性能保证。
 
-`scripts/verify_wheel.py` 接收只包含一个 wheel 的目录，用当前 Python 解释器完成安装后
+## 本地与 CI 共用入口
+
+`justfile` 只是可选的命令入口，实际流程在 `scripts/build_dist.py`、
+`scripts/verify_wheel.py` 和 `scripts/publish_dist.py`。Actions 直接调用这些相同脚本，
+不另写一套构建实现。执行 `python scripts/build_dist.py settings` 可查看发行使用的
+Rust/Maturin 版本和 Python 矩阵。宿主工具与独立验收环境由调用者显式准备，脚本不在
+宿主自动安装工具；只有显式容器入口会在一次性容器内准备工具链。
+
+调用 Just 前激活选定的 Python 环境。其任务使用 Python，不隐式要求 Windows 提供
+Unix shell。仓库根目录的使用示例：
+
+```sh
+just sdist dist/source
+just verify-source dist/source/rivlet-0.4.0.tar.gz dist/receipts
+
+# Linux Docker 宿主：官方 manylinux 环境，不使用 Zig。
+just wheel-linux dist/source/rivlet-0.4.0.tar.gz dist/linux-313 3.13
+
+# 无容器 Linux：显式准备 Zig 与对应 CPython 解释器。
+just wheel-linux-zig dist/source/rivlet-0.4.0.tar.gz dist/linux-zig-313 python3.13
+
+# macOS 原生；Windows 构建宿主改用 x86_64-pc-windows-msvc。
+just wheel-native dist/source/rivlet-0.4.0.tar.gz dist/macos-313 aarch64-apple-darwin python3.13
+
+just verify-wheel path/to/rivlet.whl dist/receipts
+just check-dist path/to/distributions dist/receipts
+just publish path/to/distributions dist/receipts
+```
+
+示例版本号仅用于展示，实际使用当前 manifest 生成的文件名。修改工作流不代表可以
+覆盖已发布版本。输出目录必须为空，已有构建和验收记录均不覆盖。每个 wheel 使用
+匹配的目标解释器测试；交叉编译后把 wheel 送到目标系统验收，不能在交叉编译宿主上
+生成成功记录。
+
+Linux 两个入口显式二选一，不自动降级或切换：
+
+- `wheel-linux` 用 Docker 启动官方 manylinux 2.28 容器；Actions 使用此入口，不需要 Zig。
+- `wheel-linux-zig` 在 Linux 直接向 Maturin 传入 `--zig --manylinux 2_28`。
+  调用者自行准备 Zig、cargo-zigbuild；Maturin 审计实际产物，不把普通宿主产物直接改标签。
+
+直接调用脚本时，`build_dist.py native`、`manylinux` 和 `linux-zig` 接收 sdist、输出目录，
+以及 `--interpreter` 后的一组解释器路径；native 还必须提供 `--target`。
+`container` 则接收 `--python-version`。命令里不写死 SSH 主机、sudo 策略、SDK 位置或用户
+目录。交叉编译环境仍显式配置，不自动准备第二台机器或安装 Windows SDK。
+
+验收仅在元数据检查、隔离安装和完整测试通过后写 JSON 记录，保存文件 SHA-256、版本和
+验收解释器／平台，测试结束再核对摘要。`verify-source` 必须先从 sdist 构建并测试 wheel，
+才记录源码包通过。本地上传和 CI 暂存均拒绝缺少记录或字节已变化的产物。
+本地上传先把已检查产物复制到私有临时目录再调用 Twine；CI 在 Trusted Publishing 前
+暂存同样经过检查的文件。记录只是工作流证据，**不是签名来源证明**，不能防止发布者
+主动伪造记录。
+
+构建和验收不上传。`just publish` 才是显式的 token 上传入口；Twine 配置放在仓库外，
+例如 `~/.pypirc`。使用此入口时清除 `TWINE_REPOSITORY_URL`，避免绕开具名 `pypi` 仓库
+的凭据配置。不把凭据放进 Just、记录、产物或脚本。Actions 保留独立的 OIDC 发布方式。
+
+CI 在发布前调用同一个门禁：
+
+```sh
+python scripts/publish_dist.py stage dist dist/receipts upload
+```
+
+暂存目录只含已验收的发行包，不包含验收记录本身。
+
+`scripts/verify_wheel.py` 接收 `--wheel FILE`，或 `--dist DIRECTORY` 指定只含一个 wheel
+的目录，用当前 Python 解释器完成安装后
 检查。每个平台／Python 组合使用独立虚拟环境和输出目录。脚本不展开 shell 通配符，
 不隐式安装依赖，也不发布；运行前显式安装 `pytest` 和 `twine`。
+通过 `--receipts DIRECTORY` 保存成功记录；验证源码包时，`--source-root` 显式指定解包后的测试来源。
 
 PyPI 使用 Trusted Publishing，绑定 `ririv/rivlet` 仓库、`publish.yml` 工作流和
 `pypi` GitHub environment。只有发布任务取得 `id-token: write`，构建任务只有仓库
