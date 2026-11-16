@@ -17,7 +17,8 @@ Step(..., label=(...), condition=(...))
 
 label 只用于展示。`condition` 接受 `None`、零参判断函数，或至少包含一个来源的
 扁平元组 `(predicate, source_step, ...)`。函数在前，每个后续元素都是来源 Node，
-不再套一层输入元组，也不是已算出的值。函数必须返回 bool，构图时不会执行。
+不再套一层输入元组，也不是已算出的值。函数返回 `bool` 或 `Awaitable[bool]`，
+等待后的值也必须是 bool，不能只依赖真假值转换。构图时不会执行。
 不再需要公开的 `runtime_condition()` 包装函数。
 
 ```python
@@ -37,6 +38,46 @@ graph = Graph.from_wiring(
 无输入时直接写 `condition=lambda: True`；子图挂载同样通过
 `Graph(child_structure, condition=...)` 接收这两种写法。条件的输入直接保存在条件声明中，
 不需要重复声明 action 结果边，也不新增 Node。
+
+## 可等待谓词
+
+同一写法支持 `async def`、普通函数返回协程，以及自定义 awaitable；不新增异步专用包装：
+
+```python
+import asyncio
+
+from rivlet import Graph, GraphStructure, Option, Step, arun
+
+
+async def approved(result: Option[object]) -> bool:
+    await asyncio.sleep(0)
+    return result.unwrap() is True
+
+
+async def main() -> None:
+    probe = Step(lambda: True)
+    publish = Step(lambda: print("publish"), condition=(approved, probe))
+    await arun(Graph(GraphStructure(nodes=(probe, publish))), max_workers=1)
+
+
+asyncio.run(main())
+```
+
+示例的 sleep 仅展示挂起，真实 I/O 应有显式超时。谓词等待声明的来源就绪后求值，
+每个编译位置只调用一次；等待期间，独立动作和其它条件仍可推进。节点条件与条件边
+使用同一规则。
+
+`arun()` / `Execution.arun()` 复用调用方的事件循环；阻塞的 `run()` /
+`Execution.run()` 仅在首次遇到 awaitable 时惰性创建一个循环，与协程动作和动态子图
+共用。同步谓词仍直接求值，不创建 Future 或事件循环。显式 `SerialGraphExecutor`
+保留串行求值语义，仅为它的可等待谓词惰性创建并复用一个 Runner。
+
+谓词不是 Step，不占 action 的 `max_concurrency` 名额。需要图级限流、独立重试、
+结果或动作级观察的工作，应声明为 Step。静态条件仍为同步的编译规则。
+
+调用或等待期间抛错，只阻断使用该条件的节点，独立分支继续。谓词取消与动作取消一样
+请求全局停止；收尾会等待已启动工作结束，不强行中断。外部等待应使用有界等待或应用
+的停止通知完成退出。取消不会被伪造为 false。
 
 ## 语义
 

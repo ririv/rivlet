@@ -19,8 +19,9 @@ Step(..., label=(...), condition=(...))
 Label is optional presentation. `condition` accepts `None`, a zero-argument
 predicate, or a flat tuple `(predicate, source_step, ...)` with at least one source.
 The function comes first; each following element is a Node, not a nested tuple or
-an already computed value. Every predicate must return bool. Declaration never
-calls it. The public `runtime_condition()` helper is no longer needed.
+an already computed value. A predicate returns `bool` or `Awaitable[bool]`; after
+awaiting, the value must still be exactly a bool, not merely truthy. Declaration
+never calls it. The public `runtime_condition()` helper is no longer needed.
 
 ```python
 probe = Step(lambda: 42)
@@ -38,6 +39,52 @@ graph = Graph.from_wiring(
 
 Use `condition=lambda: True` without result inputs. Subgraph mounts use the same
 forms through `Graph(child_structure, condition=...)`.
+
+## Awaitable predicates
+
+The same declaration accepts `async def`, a synchronous function returning a
+coroutine, or a custom awaitable. No async-only condition wrapper is needed:
+
+```python
+import asyncio
+
+from rivlet import Graph, GraphStructure, Option, Step, arun
+
+
+async def approved(result: Option[object]) -> bool:
+    await asyncio.sleep(0)
+    return result.unwrap() is True
+
+
+async def main() -> None:
+    probe = Step(lambda: True)
+    publish = Step(lambda: print("publish"), condition=(approved, probe))
+    await arun(Graph(GraphStructure(nodes=(probe, publish))), max_workers=1)
+
+
+asyncio.run(main())
+```
+
+The sleep only demonstrates suspension; real I/O should have an explicit timeout.
+The predicate waits for its declared sources, is invoked once per compiled site,
+and does not prevent unrelated actions or predicates from progressing while it
+awaits. This applies to both node conditions and conditional edges.
+
+`arun()` / `Execution.arun()` reuse the caller's loop. Blocking `run()` /
+`Execution.run()` create one loop lazily at the first awaitable and share it with
+coroutine actions and runtime-created subgraphs. Synchronous predicates still run
+inline, without a Future or event loop. The explicit `SerialGraphExecutor` instead
+keeps serial evaluation and lazily reuses one Runner for its awaitable predicates.
+
+Predicates are not Steps and do not consume action `max_concurrency` slots. Use a
+Step for work requiring graph-level limits, independent retries, an output, or
+action-level observation. Static conditions remain synchronous compilation rules.
+
+An exception during invocation or awaiting blocks the condition's users while
+independent branches continue. Predicate cancellation requests global stop, as
+action cancellation does. Cleanup settles started work rather than forcibly
+interrupting it; use bounded waits or the application's stop notification to let
+an external wait finish. Cancellation does not manufacture a false decision.
 
 ## Semantics
 

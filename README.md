@@ -387,6 +387,10 @@ unwrapping. A predicate error blocks the affected task; it is not treated as fal
 
 For a subgraph, pass the same condition to `Graph(structure, condition=...)`.
 
+Runtime predicates can also return `Awaitable[bool]`, using the same declaration.
+They share the execution's event loop with coroutine actions; synchronous decisions
+do not create a loop. See [awaitable predicates](https://github.com/ririv/rivlet/blob/main/docs/conditional_steps.md#awaitable-predicates).
+
 ### Conditional edges: decide whether to wait
 
 ```python

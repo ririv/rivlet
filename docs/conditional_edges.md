@@ -151,6 +151,13 @@ The predicate receives one `Option[object]` per source Node, in tuple order.
 Graph resolves the results in the current mount; no context lookup is required.
 See [result inputs](./conditional_steps.md#result-inputs) for absence and unwrapping.
 
+Predicates may return `bool` or `Awaitable[bool]`, using the same function-first
+tuple. Async predicates run on the execution's event loop without occupying an
+action slot or introducing a gate Step. Unrelated work continues while they await;
+the dependency is decided only after the boolean arrives. See
+[awaitable predicates](./conditional_steps.md#awaitable-predicates) for resource,
+failure and cancellation rules. Static evaluators remain synchronous.
+
 Each compiled condition instance is evaluated at most once in its session.
 If it is true but the source prerequisite is not yet complete, subsequent scheduling
 waits without rerunning the predicate. Reusing one condition tuple or
@@ -234,5 +241,5 @@ active conditional edges and inputs, but not inactive edges. See
 
 Graph owns condition structure, evaluation timing, and scheduling semantics.
 Hosts decide which domain relations are conditional and supply predicates.
-Predicates return booleans. Operations needing their own dependencies or results
+Predicates produce booleans, directly or after awaiting. Operations needing their own dependencies or results
 can be composed as Steps rather than being treated as additional predicate semantics.

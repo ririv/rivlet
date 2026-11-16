@@ -131,6 +131,9 @@ Rust ExecutionSession
 ```
 
 正式 runtime 不逐 action 反向调用 Python；编译时静态条件叶子的求值仍会调用 Python。
+Python 运行时谓词可直接返回 bool 或等待布尔值；同步结果立即回传，awaitable 进入与
+协程动作相同的事件循环。core 在收到回应前保留在途请求，即使最后一个普通动作已经
+完成，也不能判定停滞。谓词不成为动作节点，不占动作准入名额。
 Python 在有状态变化时通过 `start/advance` 与 session
 交换一批数据：
 

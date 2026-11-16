@@ -353,6 +353,9 @@ action 则得到 `Some(None)`。来源可能被跳过时，先用 `is_some()` �
 
 对子图，将同样的条件传入 `Graph(structure, condition=...)`。
 
+运行时谓词也可以返回 `Awaitable[bool]`，声明方式不变，与协程动作共用本次执行的
+事件循环；同步判断不创建循环。详见[可等待谓词](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/conditional_steps.md#可等待谓词)。
+
 ### 条件边：只决定是否等待
 
 ```python

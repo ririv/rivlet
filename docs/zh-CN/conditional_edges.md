@@ -211,4 +211,8 @@ CompiledConditionalDependency(
 ## 职责边界
 
 Graph 负责条件结构、求值时机与调度语义；宿主决定业务条件并提供 predicate。
-predicate 返回布尔值。需要独立依赖或结果的操作可以组合为 Step，不属于 predicate 的额外语义。
+predicate 直接返回布尔值，或返回等待后得到布尔值的 awaitable；仍使用同一个函数在前的
+元组声明。异步谓词使用本次执行的事件循环，不占动作额度，也不增加 gate Step。
+等待期间独立工作继续，布尔值到达后才决定是否等待来源。资源、失败与取消规则见
+[可等待谓词](./conditional_steps.md#可等待谓词)；静态 evaluator 仍同步。
+需要独立依赖或结果的操作可以组合为 Step，不属于 predicate 的额外语义。

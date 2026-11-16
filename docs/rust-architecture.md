@@ -120,6 +120,12 @@ Production runtime does not call back into Python per action. Static condition
 leaves do call Python during compilation. At runtime, start/advance exchanges
 batches when state changes:
 
+Python runtime predicates can return bool directly or await a boolean. The Python
+driver returns synchronous resolutions immediately and tracks awaitable resolutions
+on the same loop as coroutine actions. Core retains the outstanding request until
+its response arrives, even when the last ordinary action has already completed.
+Predicates do not become action nodes or consume action admission slots.
+
 - Ready Python actions, predicates to evaluate, and lifecycle events go to Python.
 - Native action handles remain in Rust after graph registration.
 - Python completions, predicate results, and explicit skips return in batches.
