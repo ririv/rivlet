@@ -437,9 +437,12 @@ impl ExecutionSession {
             .all(|root| self.is_terminal(*root));
         let conditions = std::mem::take(&mut self.pending_conditions);
         let events = std::mem::take(&mut self.pending_events);
+        // 已派发、尚未返回的谓词也是在途工作，不能只检查本批新增请求。
+        // 异步宿主可能先回传最后一个动作的完成，再回传谓词结果。
         if !finished
             && actions.is_empty()
             && conditions.is_empty()
+            && !self.condition_requested.contains(&true)
             && !self.states.contains(&NodeState::Running)
             && self.ready.is_empty()
             && !self
@@ -919,6 +922,42 @@ mod tests {
         let batch = session.start(8).unwrap();
         assert_eq!(batch.actions(), [node(0)]);
         assert_eq!(batch.conditions().len(), 1);
+    }
+
+    #[test]
+    fn outstanding_predicate_keeps_session_running_after_the_last_action_finishes() {
+        let condition = ConditionId::new(0);
+        let graph = Arc::new(
+            CompiledExecutionGraph::new(
+                [
+                    ExecutionNode::step(None, [], None),
+                    ExecutionNode::step(None, [Prerequisite::Required(node(0))], Some(condition)),
+                ],
+                [RuntimeCondition::new([])],
+            )
+            .unwrap(),
+        );
+        let mut session = ExecutionSession::new(graph, []).unwrap();
+        let first = session.start(8).unwrap();
+        assert_eq!(first.actions(), [node(0)]);
+        assert_eq!(first.conditions().len(), 1);
+        let waiting = session
+            .advance(ExecutionUpdate::new([(node(0), Ok(()))], [], []), 8)
+            .unwrap();
+        assert_eq!(waiting.status(), SessionStatus::Running);
+        assert!(waiting.actions().is_empty());
+        assert!(waiting.conditions().is_empty());
+        let next = session
+            .advance(
+                ExecutionUpdate::new([], [ConditionResolution::new(condition, true)], []),
+                8,
+            )
+            .unwrap();
+        assert_eq!(next.actions(), [node(1)]);
+        let last = session
+            .advance(ExecutionUpdate::new([(node(1), Ok(()))], [], []), 8)
+            .unwrap();
+        assert_eq!(last.status(), SessionStatus::Finished);
     }
 
     #[test]
