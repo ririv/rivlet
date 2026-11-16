@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import inspect
+from contextlib import ExitStack
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -9,9 +11,10 @@ from .control import ExecutionStopped
 from .session_tree import DynamicSubgraph, RootSession, SessionDefinition
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
 
     from .._native import MixedExecutionBatch, MixedExecutionSession
+    from .session_tree import BatchExecutionHost
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,7 +43,48 @@ def _frame(definition: SessionDefinition, owner: RootSession | _Child) -> _Frame
     return _Frame(definition, engine, engine.start(1), owner)
 
 
+async def _await_condition(value: Awaitable[bool]) -> bool:
+    return await value
+
+
+def _resolve_conditions(
+    host: BatchExecutionHost,
+    requests: list[tuple[int, int]],
+    get_runner: Callable[[], asyncio.Runner],
+) -> list[tuple[int, bool | None]]:
+    resolutions: list[tuple[int, bool | None]] = []
+    for node, condition in requests:
+        try:
+            value = host.evaluate_condition(node, condition)
+            if not isinstance(value, bool):
+                value = get_runner().run(_await_condition(value))
+        except (ExecutionStopped, EventDeliveryError):
+            raise
+        except Exception as error:
+            host.record_failure(node, error)
+            resolutions.append((condition, None))
+        else:
+            resolutions.append((condition, value))
+    return resolutions
+
+
 def run_serial_definition(root: SessionDefinition) -> None:
+    # 显式串行入口保留逐项等待语义；只有真的遇到 awaitable 才创建一个循环。
+    with ExitStack() as resources:
+        runner: asyncio.Runner | None = None
+
+        def get_runner() -> asyncio.Runner:
+            nonlocal runner
+            if runner is None:
+                runner = resources.enter_context(asyncio.Runner())
+            return runner
+
+        _run_serial_definition(root, get_runner)
+
+
+def _run_serial_definition(
+    root: SessionDefinition, get_runner: Callable[[], asyncio.Runner]
+) -> None:
     # 串行只需显式栈：O(D) 个 session 帧，D 为动态嵌套深度。
     # 静态路径按原有单批次流程执行，不为每个 action 构造并发调度工作对象。
     stack = [_frame(root, RootSession())]
@@ -59,7 +103,7 @@ def run_serial_definition(root: SessionDefinition) -> None:
                 frame.held_actions.extend(actions)
                 frame.batch = frame.engine.advance(
                     [],
-                    host.resolve_conditions(conditions),
+                    _resolve_conditions(host, conditions, get_runner),
                     host.skipped_nodes(),
                     1 - len(frame.held_actions) - rust_running,
                 )

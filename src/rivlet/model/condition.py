@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
 
 # 参数按声明顺序接收 Option[object]，不按类型标注猜测调用约定。
-type ConditionalEdgePredicate = Callable[..., bool]
+type ConditionalEdgePredicate = Callable[..., bool | Awaitable[bool]]
 
 
 @dataclass(frozen=True, slots=True, eq=False)

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from concurrent.futures import (
     CancelledError,
     Future,
@@ -10,11 +11,12 @@ from contextvars import copy_context
 from dataclasses import dataclass
 from queue import Empty, SimpleQueue
 from threading import Lock
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast, overload
 
 from ..events import EventDeliveryError
 from .control import ExecutionStopped
 from .session_tree import (
+    ConditionWork,
     DynamicSubgraph,
     PythonWork,
     SessionDefinition,
@@ -46,10 +48,16 @@ class _AsyncDispatch:
 
 type _Dispatch = _BlockingDispatch | _AsyncDispatch
 type _Deferred = tuple[PythonWork, Awaitable[StepOutcome]]
-type _Pending = Future[StepInvocation] | asyncio.Future[StepInvocation]
+type _ActionPending = Future[StepInvocation] | asyncio.Future[StepInvocation]
+type _ConditionPending = asyncio.Future[bool]
+type _Pending = _ActionPending | _ConditionPending
 
 
 async def _await_outcome(value: Awaitable[StepOutcome]) -> StepInvocation:
+    return await value
+
+
+async def _await_condition(value: Awaitable[bool]) -> bool:
     return await value
 
 
@@ -65,9 +73,10 @@ class _Driver:
 
     def __init__(self, definition: SessionDefinition) -> None:
         self.tree = SessionTree(definition)
-        self.pending: dict[_Pending, PythonWork | _RustWait] = {}
+        self.pending: dict[_Pending, PythonWork | ConditionWork | _RustWait] = {}
         self.rust_waiters: set[SessionRun] = set()
         self.deferred: list[_Deferred] = []
+        self.deferred_conditions: list[tuple[ConditionWork, Awaitable[bool]]] = []
         self.awaiting: list[PythonWork] = []
         self.completed: SimpleQueue[_Pending] = SimpleQueue()
         self._notify_ready: Callable[[_Pending], None] | None = None
@@ -87,7 +96,15 @@ class _Driver:
             if notify is not None:
                 notify(future)
 
-    def track(self, future: _Pending, item: PythonWork | _RustWait) -> None:
+    @overload
+    def track(self, future: _ActionPending, item: PythonWork | _RustWait) -> None: ...
+
+    @overload
+    def track(self, future: _ConditionPending, item: ConditionWork) -> None: ...
+
+    def track(
+        self, future: _Pending, item: PythonWork | ConditionWork | _RustWait
+    ) -> None:
         # 每个 Future 只注册一次通知。A 次提交、C 次完成共 O(A + C) 次
         # 队列操作，不在每次完成后重扫全部 R 个在途 Future。
         self.pending[future] = item
@@ -102,22 +119,31 @@ class _Driver:
                 return done
 
     def submit(self, dispatch: _Dispatch) -> None:
-        for work in self.tree.poll():
-            future: _Pending
-            if work.node in work.session.definition.async_nodes:
-                match dispatch:
-                    case _AsyncDispatch(loop=loop):
-                        future = loop.create_task(_invoke_async(work))
-                    case _BlockingDispatch():
-                        # 交给惰性创建的事件循环，不占线程池，也不为协程
-                        # 构造一层 concurrent.futures.Future。
-                        self.awaiting.append(work)
-                        continue
-            else:
-                future = dispatch.pool.submit(
-                    copy_context().run, work.session.definition.host.run_step, work.node
-                )
-            self.track(future, work)
+        while True:
+            for work in self.tree.poll():
+                if isinstance(work, ConditionWork):
+                    self._submit_condition(work, dispatch)
+                    continue
+                future: _ActionPending
+                if work.node in work.session.definition.async_nodes:
+                    match dispatch:
+                        case _AsyncDispatch(loop=loop):
+                            future = loop.create_task(_invoke_async(work))
+                        case _BlockingDispatch():
+                            # 交给惰性创建的事件循环，不占线程池，也不为协程
+                            # 构造一层 concurrent.futures.Future。
+                            self.awaiting.append(work)
+                            continue
+                else:
+                    future = dispatch.pool.submit(
+                        copy_context().run,
+                        work.session.definition.host.run_step,
+                        work.node,
+                    )
+                self.track(future, work)
+            # 同步条件直接回传，沿用本次派发循环，不创建 Future 或事件循环。
+            if not self.tree.has_ready:
+                break
         for run in self.tree.rust_runs:
             if run not in self.rust_waiters:
                 notification: Future[StepInvocation] = Future()
@@ -127,6 +153,39 @@ class _Driver:
                 self.rust_waiters.add(run)
                 self.track(notification, _RustWait(run))
 
+    def _submit_condition(self, work: ConditionWork, dispatch: _Dispatch) -> None:
+        host = work.session.definition.host
+        host.require_running()
+        try:
+            value = host.evaluate_condition(work.node, work.condition)
+        except (ExecutionStopped, EventDeliveryError):
+            raise
+        except Exception as error:
+            self.tree.fail(work, error)
+            return
+        if isinstance(value, bool):
+            self.tree.resolve_condition(work, value)
+            return
+        match dispatch:
+            case _AsyncDispatch(loop=loop):
+                self.track(loop.create_task(_await_condition(value)), work)
+            case _BlockingDispatch():
+                self.deferred_conditions.append((work, value))
+
+    def _consume_condition(
+        self, future: _ConditionPending, work: ConditionWork
+    ) -> None:
+        try:
+            value = future.result()
+        except (CancelledError, asyncio.CancelledError) as error:
+            raise ExecutionStopped("graph condition was cancelled") from error
+        except (ExecutionStopped, EventDeliveryError):
+            raise
+        except Exception as error:
+            self.tree.fail(work, error)
+        else:
+            self.tree.resolve_condition(work, value)
+
     def consume(self, done: Iterable[_Pending]) -> None:
         for future in done:
             item = self.pending.pop(future)
@@ -135,8 +194,12 @@ class _Driver:
                 self.rust_waiters.remove(item.session)
                 self.tree.wake(item.session)
                 continue
+            # track 的重载约束 Future 与工作种类；异构注册表只在此恢复对应类型。
+            if isinstance(item, ConditionWork):
+                self._consume_condition(cast("_ConditionPending", future), item)
+                continue
             try:
-                result = future.result()
+                result = cast("_ActionPending", future).result()
             except (CancelledError, asyncio.CancelledError) as error:
                 raise ExecutionStopped("graph action was cancelled") from error
             except (ExecutionStopped, EventDeliveryError):
@@ -153,6 +216,9 @@ class _Driver:
         for work, value in self.deferred:
             self.track(loop.create_task(_await_outcome(value)), work)
         self.deferred.clear()
+        for work, value in self.deferred_conditions:
+            self.track(loop.create_task(_await_condition(value)), work)
+        self.deferred_conditions.clear()
         for work in self.awaiting:
             self.track(loop.create_task(_invoke_async(work)), work)
         self.awaiting.clear()
@@ -172,7 +238,7 @@ async def _settle(future: _Pending) -> None:
         if isinstance(future, Future)
         else await future
     )
-    if result is not None and not isinstance(result, DynamicSubgraph):
+    if inspect.isawaitable(result):
         await result
 
 
@@ -181,6 +247,7 @@ async def _drain(driver: _Driver) -> None:
     pending = asyncio.gather(
         *(_settle(future) for future in driver.pending),
         *(_await_outcome(value) for _, value in driver.deferred),
+        *(_await_condition(value) for _, value in driver.deferred_conditions),
         return_exceptions=True,
     )
     while not pending.done():
@@ -190,6 +257,7 @@ async def _drain(driver: _Driver) -> None:
             driver.tree.host.request_stop()
     driver.pending.clear()
     driver.deferred.clear()
+    driver.deferred_conditions.clear()
     driver.take_completed()
 
 
@@ -243,7 +311,7 @@ def run_session(definition: SessionDefinition, pool: ThreadPoolExecutor) -> None
             driver.submit(dispatch)
             if driver.finished:
                 break
-            if driver.awaiting:
+            if driver.awaiting or driver.deferred_conditions:
                 break
             driver.require_pending()
             done = [driver.completed.get(), *driver.take_completed()]
@@ -257,7 +325,7 @@ def run_session(definition: SessionDefinition, pool: ThreadPoolExecutor) -> None
         # 同步函数也可能刚返回协程，必须等待已有动作收尾而不是丢弃它。
         for future, item in driver.pending.items():
             try:
-                result = future.result()
+                result = cast("_ActionPending", future).result()
             except BaseException:
                 continue
             if (
@@ -267,11 +335,11 @@ def run_session(definition: SessionDefinition, pool: ThreadPoolExecutor) -> None
             ):
                 driver.deferred.append((item, result))
         driver.pending.clear()
-        if driver.deferred:
+        if driver.deferred or driver.deferred_conditions:
             with asyncio.Runner() as runner:
                 runner.run(_drain(driver))
         raise
-    if driver.deferred or driver.awaiting:
+    if driver.deferred or driver.awaiting or driver.deferred_conditions:
         with asyncio.Runner() as runner:
             runner.run(_continue_async(driver, pool))
     else:

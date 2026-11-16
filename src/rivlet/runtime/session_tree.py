@@ -29,9 +29,9 @@ type StepInvocation = StepOutcome | Awaitable[StepOutcome]
 class BatchExecutionHost(Protocol):
     def skipped_nodes(self) -> list[int]: ...
     def skip_revision(self) -> int: ...
-    def resolve_conditions(
-        self, requests: list[tuple[int, int]]
-    ) -> list[tuple[int, bool | None]]: ...
+    def evaluate_condition(
+        self, node: int, condition: int
+    ) -> bool | Awaitable[bool]: ...
     def record_failure(self, node: int, error: Exception) -> None: ...
     def failure_step_path(self) -> NodePath: ...
     def record_subgraph_failure(
@@ -98,12 +98,23 @@ class SessionRun:
     rust_running: int = 0
     python_running: int = 0
     completed: list[tuple[int, bool]] = field(default_factory=list)
+    resolved_conditions: list[tuple[int, bool | None]] = field(default_factory=list)
+    conditions_running: int = 0
 
 
 @dataclass(frozen=True, slots=True)
 class PythonWork:
     session: SessionRun
     node: int
+
+
+@dataclass(frozen=True, slots=True)
+class ConditionWork:
+    """One requested predicate, distinct from an action and its admission budget."""
+
+    session: SessionRun
+    node: int
+    condition: int
 
 
 class SessionTree:
@@ -194,14 +205,27 @@ class SessionTree:
             for run in self._active:
                 self.wake(run)
 
-    def fail(self, work: PythonWork, error: Exception) -> None:
+    def resolve_condition(self, work: ConditionWork, value: bool | None) -> None:
         run = work.session
-        run.python_running -= 1
-        run.definition.host.record_failure(work.node, error)
-        run.completed.append((work.node, False))
+        run.conditions_running -= 1
+        run.resolved_conditions.append((work.condition, value))
         self.wake(run)
 
-    def poll(self) -> list[PythonWork]:
+    def fail(self, work: PythonWork | ConditionWork, error: Exception) -> None:
+        run = work.session
+        run.definition.host.record_failure(work.node, error)
+        if isinstance(work, ConditionWork):
+            self.resolve_condition(work, None)
+        else:
+            run.python_running -= 1
+            run.completed.append((work.node, False))
+            self.wake(run)
+
+    @property
+    def has_ready(self) -> bool:
+        return bool(self._ready)
+
+    def poll(self) -> list[PythonWork | ConditionWork]:
         self.host.require_running()
         if len(self._active) > 1:
             revision = self.host.skip_revision()
@@ -210,7 +234,7 @@ class SessionTree:
                 # 只有出现新的跨作用域 skip 请求时扫描 S 个活跃 session，O(S)。
                 for run in self._active:
                     self.wake(run)
-        work: list[PythonWork] = []
+        work: list[PythonWork | ConditionWork] = []
         self._wake_limit_waiters()
         # 通常只处理收到完成通知的 session；静态图始终只有一个 session。
         # 每批成本 O(Q + A + C + T)，Q 为本批需推进的 session 数，
@@ -228,43 +252,37 @@ class SessionTree:
             else:
                 batch = run.engine.advance(
                     run.completed,
-                    [],
+                    run.resolved_conditions,
                     source.host.skipped_nodes(),
                     available,
                     values=source.host.rust_input_values(run.completed),
                 )
                 run.completed = []
-            while True:
-                (
-                    actions,
-                    conditions,
-                    events,
-                    finished,
-                    rust_running,
-                    failures,
-                    results,
-                ) = batch.parts()
-                source.host.apply_events(events, results)
-                for node, message in failures:
-                    source.host.record_failure(node, RuntimeError(message))
-                work.extend(PythonWork(run, node) for node in actions)
-                run.python_running += len(actions)
-                run.rust_running = rust_running
-                if not conditions:
-                    break
-                resolutions = source.host.resolve_conditions(conditions)
-                self.host.require_running()
-                batch = run.engine.advance(
-                    [],
-                    resolutions,
-                    source.host.skipped_nodes(),
-                    available,
-                )
+                run.resolved_conditions = []
+            (
+                actions,
+                conditions,
+                events,
+                finished,
+                rust_running,
+                failures,
+                results,
+            ) = batch.parts()
+            source.host.apply_events(events, results)
+            for node, message in failures:
+                source.host.record_failure(node, RuntimeError(message))
+            work.extend(
+                ConditionWork(run, node, condition) for node, condition in conditions
+            )
+            work.extend(PythonWork(run, node) for node in actions)
+            run.python_running += len(actions)
+            run.conditions_running += len(conditions)
+            run.rust_running = rust_running
             if run.rust_running:
                 self.rust_runs[run] = None
             else:
                 self.rust_runs.pop(run, None)
-            if finished:
+            if finished and not run.conditions_running:
                 self._finish(run)
             self._wake_limit_waiters()
         return work

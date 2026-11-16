@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import inspect
 import logging
 from typing import TYPE_CHECKING
 
@@ -26,7 +28,7 @@ from ..option import Nothing
 from .control import ExecutionStopped
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from .._native import EncodedExecutionEvent, _RustResult
     from ..model import NodePath
@@ -102,13 +104,17 @@ class CompiledExecutionHost:
         return self.state.skip_revision
 
     def resolve_conditions(
-        self,
-        requests: list[tuple[int, int]],
+        self, requests: list[tuple[int, int]]
     ) -> list[tuple[int, bool | None]]:
+        """Serve the private Tokio experiment's synchronous callback protocol."""
+        # 私有逐回调实验要求当场返回结果，不经过正式批量驱动；保留其真实动态入口。
+        # 正式驱动只调用 evaluate_condition，把 awaitable 接入同一个长期事件循环。
         resolutions: list[tuple[int, bool | None]] = []
         for node, condition in requests:
             try:
                 value = self.evaluate_condition(node, condition)
+                if not isinstance(value, bool):
+                    value = asyncio.run(self._await_condition(node, value))
             except ExecutionStopped:
                 raise
             except Exception as error:
@@ -258,8 +264,7 @@ class CompiledExecutionHost:
             self._first_failure = node_path
         return node_path
 
-    def evaluate_condition(self, node: int, condition: int) -> bool:
-        compiled_node = self.compilation._execution_node(node)
+    def evaluate_condition(self, node: int, condition: int) -> bool | Awaitable[bool]:
         compiled_condition = self.compilation._execution_condition(condition)
         # 编译引用已经绑定到具体挂载；每个输入只查询一次，不创建条件上下文。
         results = self.state.results
@@ -273,9 +278,18 @@ class CompiledExecutionHost:
         value = compiled_condition.when(
             *(Nothing() if result is None else result for result in inputs)
         )
+        if inspect.isawaitable(value):
+            return self._await_condition(node, value)
+        return self._validate_condition(node, value)
+
+    async def _await_condition(self, node: int, value: Awaitable[bool]) -> bool:
+        return self._validate_condition(node, await value)
+
+    def _validate_condition(self, node: int, value: object) -> bool:
         if not isinstance(value, bool):
             raise GraphError(
-                f"compiled runtime condition must return bool: {compiled_node.path}"
+                "compiled runtime condition must return bool: "
+                f"{self.compilation._execution_node(node).path}"
             )
         return value
 
