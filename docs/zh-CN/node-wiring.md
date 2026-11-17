@@ -33,6 +33,9 @@ console.log((await run(workflow)).result(workflow.interface.output()).unwrap());
 - 条件 prerequisite 使用 `new ConditionalPrerequisite(checks, [predicate, approval])`；
   条件输入和节点自己的 `condition` 互相独立，沿用现有条件语义。
 
+条件回调参数从来源结果推导；手工写错类型、调换不兼容的参数或漏掉必需来源会在
+TypeScript 检查时报错，详见[条件输入类型](./node-api.md#条件输入类型)。
+
 每个节点必须显式列在 `fromWiring` 中；引用来源不会自动把来源插进图。
 只写 `receiver.wire()` 可以将结果输入留给外层端口，最终编译仍检查是否完整绑定。
 Graph 的 wire 只接收完成依赖；向子图传结果继续使用其公开输入端口和 `Edge.results`。

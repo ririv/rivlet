@@ -90,9 +90,50 @@ const apply = new Step<number, [Plan]>(
 结果边会检查来源与 Step 接收参数的类型、顺序和数量；公开端口从实际声明推导类型，
 不再由调用者指定载荷泛型。具名类型需要精确区分时使用 tuple entries，见
 [端口类型示例](./node-rust-advanced.md#typescript-结果边)。
-TypeScript 条件回调需显式标注参数，例如
-`condition: [(value: Option<boolean>) => value.unwrap(), enabled]`；
-Edge 不根据运行时生产者列表自动推导回调参数 schema。
+TypeScript 条件参数从声明的有序来源推导，节点条件、Graph 条件、普通／端口条件边
+和 wire 的 `ConditionalPrerequisite` 使用相同规则。它是编译期关联，不是运行时业务 schema。
+
+## 条件输入类型
+
+```ts
+import { Step } from './lib/index.js';
+
+const count = new Step(() => 42);
+const work = new Step(() => undefined, {
+  condition: [value => value.unwrap() > 0, count],
+});
+// value 推导为 Option<number>。若标成 Option<string>，TypeScript 会报错。
+```
+
+来源决定参数类型，不能反过来用回调标注把 `number` 来源解释为 `string`。
+多个来源按顺序对应参数；漏掉回调的必需来源、交换不兼容类型、返回非 boolean
+或非 `PromiseLike<boolean>` 都会报错。遵循 JavaScript 调用规则，回调可以忽略多余输入，
+也可以接收来源类型的超类型。跳过来源仍通过 `Option` 表达，不是自动解包成 T。
+公开出口的载荷类型也参与关联，转发和具名端口不会丢失这项检查。
+
+普通构造器会一起推导类型。若已经显式指定 `Step<返回值, 动作输入>`，
+TypeScript 不支持继续推导剩余泛型，因此有输入的条件需显式给出第三个来源元组：
+
+```ts
+import { Step, type Option } from './lib/index.js';
+
+interface Plan { count: number }
+const enabled = new Step(() => true);
+const apply = new Step<number, [Plan], [typeof enabled]>(
+  (_ctx, plan) => plan.unwrap().count * 2,
+  { condition: [value => value.unwrap(), enabled] },
+);
+
+// 或将 action 参数类型标在函数上，让构造器统一推导：
+const inferred = new Step((_ctx, plan: Option<Plan>) => plan.unwrap().count * 2, {
+  condition: [value => value.unwrap(), enabled],
+});
+```
+
+同理，显式 Graph 接口泛型时可以写 `Graph<接口类型, 条件来源元组>`；
+fromWiring 和 Edge 的附加条件来源泛型也遵循这一规则。
+复用条件声明用 `Condition<[typeof count]>`，复用配置用 `NodeOptions<[typeof count]>`。
+类型不完整的宽配置只能使用能安全接收未知载荷的回调，不能绕过关联检查。
 
 ## 子图与公开端口
 

@@ -97,9 +97,15 @@ These annotations do not validate arbitrary user payload schemas at runtime.
 Applications remain responsible for domain validation.
 Port types are inferred from actual interface endpoints, not caller-provided payload generics.
 Use tuple entries to preserve exact named signatures; see the [typed port guide (Chinese)](./zh-CN/node-rust-advanced.md#typescript-结果边).
-In TypeScript conditions, annotate callback parameters explicitly, for example
-`condition: [(value: Option<boolean>) => value.unwrap(), enabled]`; an Edge does not
-infer a callback's parameter schema from its runtime producer list.
+TypeScript conditions infer callback parameters from the ordered sources:
+`condition: [value => value.unwrap(), enabled]` infers `Option<boolean>`.
+Step/Graph conditions, completion/port edges, and wire prerequisites all check this
+relationship; incompatible parameter types, missing required arguments and non-boolean
+returns are rejected. This is compile-time association, not runtime payload validation.
+When explicitly supplying earlier generic arguments, also supply the condition-source
+tuple: `Step<number, [Plan], [typeof enabled]>`. TypeScript does not infer trailing
+generic arguments after explicit ones. Alternatively, annotate action parameters and
+let the constructor infer all generics. See [condition input types (中文)](./zh-CN/node-api.md#条件输入类型).
 
 ## Subgraphs and public ports
 
