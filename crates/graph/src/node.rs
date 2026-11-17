@@ -107,6 +107,7 @@ pub struct Graph {
     nodes: Arc<[NodeKind]>,
     edges: Arc<[Edge]>,
     interface: GraphInterface,
+    static_rules: Arc<[crate::StaticRule]>,
 }
 
 impl Graph {
@@ -161,6 +162,7 @@ impl Graph {
             nodes: nodes.into_iter().collect(),
             edges: edges.into_iter().collect(),
             interface,
+            static_rules: Arc::from([]),
         };
         crate::validation::validate_graph(&value)?;
         Ok(value)
@@ -169,6 +171,17 @@ impl Graph {
     #[must_use]
     pub const fn condition(&self) -> Option<&Condition> {
         self.metadata.condition.as_ref()
+    }
+    /// Adds compile-time rules to a distinct graph declaration.
+    #[must_use]
+    pub fn with_static(mut self, rules: impl IntoIterator<Item = crate::StaticRule>) -> Self {
+        self.metadata.id = NodeIdentity::allocate();
+        self.static_rules = rules.into_iter().collect();
+        self
+    }
+    #[must_use]
+    pub fn static_rules(&self) -> &[crate::StaticRule] {
+        &self.static_rules
     }
     #[must_use]
     pub fn id(&self) -> NodeIdentity {

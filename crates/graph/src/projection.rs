@@ -300,6 +300,7 @@ impl Projection {
         // 共享结构保留 Arc；局部节点哈希查询平均 O(1)，具名端口用有序映射。
         let scope = GraphId::new(self.scopes.len());
         let body = Arc::clone(&declaration);
+        let bindings = crate::static_rules::Bindings::evaluate(&body)?;
         self.scopes.push(ProjectedScope {
             declaration,
             owner,
@@ -309,6 +310,9 @@ impl Projection {
             outputs: BTreeMap::new(),
         });
         for (index, node) in body.nodes().iter().enumerate() {
+            if bindings.nodes.get(&node.id()) == Some(&false) {
+                continue;
+            }
             let id = NodeId::new(self.nodes.len());
             let mut path = prefix.to_vec();
             path.push(index);
@@ -332,12 +336,20 @@ impl Projection {
                 self.visit(Arc::new(graph.clone()), Some(id), &path)?;
             }
         }
-        self.resolve_scope(scope, &body)?;
+        self.resolve_scope(scope, &body, &bindings)?;
         Ok(scope)
     }
 
-    fn resolve_scope(&mut self, scope: GraphId, declaration: &Graph) -> Result<(), GraphError> {
+    fn resolve_scope(
+        &mut self,
+        scope: GraphId,
+        declaration: &Graph,
+        bindings: &crate::static_rules::Bindings,
+    ) -> Result<(), GraphError> {
         for node in declaration.nodes() {
+            if !self.scopes[scope.index()].local.contains_key(&node.id()) {
+                continue;
+            }
             if let Some(condition) = node.condition() {
                 let target = self.scopes[scope.index()].local_node(node.id())?;
                 let condition =
@@ -346,80 +358,116 @@ impl Projection {
             }
         }
         for (edge_index, edge) in declaration.edges().iter().enumerate() {
-            match edge {
-                Edge::Completion { source, target } => {
-                    let source = self.scopes[scope.index()].local_node(*source)?;
-                    let target = self.scopes[scope.index()].local_node(*target)?;
-                    self.nodes[target.index()]
-                        .prerequisites
-                        .push(Prerequisite::Required(source));
-                }
-                Edge::ConditionalCompletion {
-                    source,
-                    target,
+            if bindings.edges.get(&edge_index) == Some(&false)
+                || !self.scopes[scope.index()]
+                    .local
+                    .contains_key(&edge.target())
+            {
+                continue;
+            }
+            if !matches!(edge, Edge::Results { .. })
+                && edge
+                    .sources()
+                    .iter()
+                    .any(|source| !self.scopes[scope.index()].local.contains_key(source))
+            {
+                continue;
+            }
+            self.resolve_edge(scope, edge_index, edge)?;
+        }
+        self.resolve_interface(scope, declaration)
+    }
+
+    fn resolve_edge(
+        &mut self,
+        scope: GraphId,
+        edge_index: usize,
+        edge: &Edge,
+    ) -> Result<(), GraphError> {
+        match edge {
+            Edge::Completion { source, target } => {
+                let source = self.scopes[scope.index()].local_node(*source)?;
+                let target = self.scopes[scope.index()].local_node(*target)?;
+                self.nodes[target.index()]
+                    .prerequisites
+                    .push(Prerequisite::Required(source));
+            }
+            Edge::ConditionalCompletion {
+                source,
+                target,
+                condition,
+            } => {
+                let source = self.scopes[scope.index()].local_node(*source)?;
+                let target = self.scopes[scope.index()].local_node(*target)?;
+                let condition = self.bind_condition(
+                    scope,
                     condition,
-                } => {
-                    let source = self.scopes[scope.index()].local_node(*source)?;
-                    let target = self.scopes[scope.index()].local_node(*target)?;
-                    let condition = self.bind_condition(
-                        scope,
+                    PredicateSite::Edge {
+                        target,
+                        index: edge_index,
+                    },
+                )?;
+                self.nodes[target.index()]
+                    .prerequisites
+                    .push(Prerequisite::Conditional {
+                        node: source,
                         condition,
-                        PredicateSite::Edge {
-                            target,
-                            index: edge_index,
-                        },
-                    )?;
-                    self.nodes[target.index()]
-                        .prerequisites
-                        .push(Prerequisite::Conditional {
-                            node: source,
-                            condition,
-                        });
+                    });
+            }
+            Edge::Ports { source, target } => {
+                let source = self.output_port(scope, source)?;
+                for target in self.input_port(scope, target)? {
+                    self.ports.push(PortConnection::new(source, target));
                 }
-                Edge::Ports { source, target } => {
-                    let source = self.output_port(scope, source)?;
-                    for target in self.input_port(scope, target)? {
-                        self.ports.push(PortConnection::new(source, target));
-                    }
-                }
-                Edge::ConditionalPorts {
-                    source,
-                    target,
+            }
+            Edge::ConditionalPorts {
+                source,
+                target,
+                condition,
+            } => {
+                let source = self.output_port(scope, source)?;
+                let owner = self.scopes[scope.index()].local_node(target.owner())?;
+                let condition = self.bind_condition(
+                    scope,
                     condition,
-                } => {
-                    let source = self.output_port(scope, source)?;
-                    let owner = self.scopes[scope.index()].local_node(target.owner())?;
-                    let condition = self.bind_condition(
-                        scope,
-                        condition,
-                        PredicateSite::Edge {
-                            target: owner,
-                            index: edge_index,
-                        },
-                    )?;
-                    for target in self.input_port(scope, target)? {
-                        self.ports
-                            .push(PortConnection::conditional(source, target, condition));
-                    }
+                    PredicateSite::Edge {
+                        target: owner,
+                        index: edge_index,
+                    },
+                )?;
+                for target in self.input_port(scope, target)? {
+                    self.ports
+                        .push(PortConnection::conditional(source, target, condition));
                 }
-                Edge::Results { sources, target } => {
-                    let sources = sources
-                        .iter()
-                        .map(|source| self.output_endpoint(scope, source))
-                        .collect::<Result<Vec<_>, _>>()?;
-                    let targets = match target {
-                        ResultTarget::Step(id) => vec![self.scopes[scope.index()].local_node(*id)?],
-                        ResultTarget::Port(port) => self.input_port(scope, port)?,
-                    };
-                    for target in targets {
-                        self.bind_results(target, &sources)?;
-                    }
+            }
+            Edge::Results { sources, target } => {
+                let sources = sources
+                    .iter()
+                    .map(|source| self.output_endpoint(scope, source))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let targets = match target {
+                    ResultTarget::Step(id) => vec![self.scopes[scope.index()].local_node(*id)?],
+                    ResultTarget::Port(port) => self.input_port(scope, port)?,
+                };
+                for target in targets {
+                    self.bind_results(target, &sources)?;
                 }
             }
         }
+        Ok(())
+    }
+
+    fn resolve_interface(&mut self, scope: GraphId, declaration: &Graph) -> Result<(), GraphError> {
         for (name, targets) in declaration.interface().declaration().inputs() {
             let mut resolved = Vec::new();
             for target in targets {
+                let owner = match target {
+                    InputEndpoint::Node(id) => *id,
+                    InputEndpoint::Port(port) => port.owner(),
+                };
+                if !self.scopes[scope.index()].local.contains_key(&owner) {
+                    continue;
+                }
                 resolved.extend(self.input_endpoint(scope, target)?);
             }
             self.scopes[scope.index()]
@@ -427,6 +475,13 @@ impl Projection {
                 .insert(name.clone(), resolved);
         }
         for (name, source) in declaration.interface().declaration().outputs() {
+            let owner = match source {
+                OutputEndpoint::Node(id) => *id,
+                OutputEndpoint::Port(port) => port.owner(),
+            };
+            if !self.scopes[scope.index()].local.contains_key(&owner) {
+                continue;
+            }
             let resolved = self.output_endpoint(scope, source)?;
             self.scopes[scope.index()]
                 .outputs

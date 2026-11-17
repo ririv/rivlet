@@ -39,6 +39,7 @@ mod error;
 mod interface;
 mod node;
 mod projection;
+mod static_rules;
 mod validation;
 
 pub use condition::{Condition, ConditionEvaluation, ConditionFuture};
@@ -52,3 +53,4 @@ pub use node::{Graph, Node, NodeKind, Step};
 pub use projection::{
     Compilation, ProjectedCondition, ProjectedKind, ProjectedNode, ProjectedScope, Projection,
 };
+pub use static_rules::{Case, StaticCondition, StaticError, StaticRule};

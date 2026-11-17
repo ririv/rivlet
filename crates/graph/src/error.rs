@@ -6,6 +6,7 @@ use rivlet::NodeIdentity;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GraphError {
+    Static(crate::StaticError),
     EmptyNodeLabel,
     DuplicateNode(NodeIdentity),
     UnknownNode(NodeIdentity),
@@ -39,6 +40,7 @@ pub enum GraphError {
 impl Display for GraphError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Static(error) => Display::fmt(error, f),
             Self::EmptyNodeLabel => f.write_str("node label must not be empty"),
             Self::DuplicateNode(id) => {
                 write!(f, "node {} occurs twice in one structure", id.value())
@@ -88,9 +90,16 @@ impl Display for GraphError {
 impl Error for GraphError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Static(error) => Some(error),
             Self::Topology(error) => Some(error),
             Self::Declaration(error) => Some(error),
             _ => None,
         }
+    }
+}
+
+impl From<crate::StaticError> for GraphError {
+    fn from(error: crate::StaticError) -> Self {
+        Self::Static(error)
     }
 }
