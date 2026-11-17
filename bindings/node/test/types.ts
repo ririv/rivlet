@@ -12,6 +12,18 @@ import {
 interface Plan {
   count: number;
 }
+class Progress {
+  completed = new Set<string>();
+}
+new Step((ctx) => {
+  const progress: Progress = ctx.shared(Progress);
+  progress.completed.add("done");
+  // @ts-expect-error 类型由构造器推导，不是任意返回值。
+  const wrong: number = ctx.shared(Progress);
+  // @ts-expect-error 不能将字符串名当作类型检查器。
+  ctx.shared("Progress");
+  return progress;
+});
 const design = new Step((): Plan => ({ count: 21 }));
 const enabled = new Step(() => true);
 const apply = new Step<number, [Plan]>(

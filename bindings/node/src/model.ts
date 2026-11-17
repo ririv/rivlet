@@ -8,6 +8,7 @@ import {
   type AnyGraphInterface,
 } from "./interface.js";
 import type { Option } from "./option.js";
+import type { SharedAccess } from "./shared.js";
 import { snapshotStatic, type StaticRule } from "./static.js";
 
 export const invokeAction = Symbol("invokeAction");
@@ -16,6 +17,7 @@ export const resultValueType = Symbol("resultValueType");
 export const resultInputTypes = Symbol("resultInputTypes");
 export type Awaitable<T> = T | PromiseLike<T>;
 export interface NodeRunContext {
+  readonly shared: SharedAccess;
   readonly signal: AbortSignal;
   readonly nodeId: bigint;
   readonly nodePath: readonly number[];

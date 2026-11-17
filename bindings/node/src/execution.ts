@@ -13,6 +13,7 @@ import {
   type NodeExecutionEvent,
 } from "./events.js";
 import { ActionBudget, type Budget } from "./budget.js";
+import { sharedAccess, type SharedAccess } from "./shared.js";
 import type {
   Admission,
   Batch,
@@ -35,6 +36,7 @@ export type NodeFailure =
   | { readonly kind: "subgraph" }
   | { readonly kind: "child"; readonly node: number };
 export interface RunOptions {
+  readonly shared?: object;
   readonly events?: (event: NodeExecutionEvent) => void;
   readonly signal?: AbortSignal;
   readonly maxConcurrency?: ReadonlyMap<Node, number>;
@@ -153,6 +155,7 @@ type Settled =
   | { readonly kind: "condition"; readonly value: ConditionResolution };
 
 interface Environment {
+  readonly shared: SharedAccess;
   readonly internal: AbortController;
   readonly signal: AbortSignal;
   readonly budget: ActionBudget;
@@ -217,6 +220,7 @@ export class Execution {
         ? internal.signal
         : AbortSignal.any([options.signal, internal.signal]));
     const environment: Environment = parent?.environment ?? {
+      shared: sharedAccess(options.shared),
       internal,
       signal,
       sequence: 0,
@@ -345,6 +349,7 @@ export class Execution {
             throw new Error("core scheduled a non-action node");
           const node = record.node;
           const context: NodeRunContext = Object.freeze({
+            shared: environment.shared,
             signal,
             nodeId: node.id,
             nodePath: path(record),

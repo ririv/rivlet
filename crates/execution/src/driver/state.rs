@@ -6,8 +6,8 @@ use crate::{
     NodeEventDetail, NodeFailure, NodeOutcome, events::Observations,
 };
 use action::{
-    ActionContext, ActionError, ActionFuture, CancellationRegistration, CancellationToken, Value,
-    ValueType,
+    ActionContext, ActionError, ActionFuture, CancellationRegistration, CancellationToken,
+    SharedState, Value, ValueType,
 };
 use graph::{Compilation, ConditionEvaluation, Graph, ProjectedKind};
 use rivlet::{
@@ -115,6 +115,7 @@ pub(super) struct State {
     limit: usize,
     running: usize,
     pub(super) cancellation: CancellationToken,
+    shared: Option<SharedState>,
     cancellation_forwarded: bool,
     events: Option<Arc<Observations>>,
     _observer_link: Option<CancellationRegistration>,
@@ -158,6 +159,7 @@ impl State {
             limit: options.workers.get(),
             running: 0,
             cancellation,
+            shared: options.shared,
             cancellation_forwarded: false,
             events,
             _observer_link: link,
@@ -324,10 +326,7 @@ impl State {
                     frame: id,
                     node: *node,
                 };
-                match action.start_async(
-                    ActionContext::default().with_cancellation(self.cancellation.clone()),
-                    &inputs,
-                ) {
+                match action.start_async(self.action_context(), &inputs) {
                     Ok(future) => self.pending_async.push((site, future)),
                     Err(error) => self.returned(id, *node, Err(error))?,
                 }
@@ -335,20 +334,24 @@ impl State {
             }
             let job = self.next_job;
             self.next_job = job.checked_add(1).expect("job identity overflow");
+            let context = self.action_context();
             self.workers
                 .executor(self.limit)
                 .map_err(ExecutionError::Executor)?
-                .submit(
-                    job,
-                    action,
-                    ActionContext::default().with_cancellation(self.cancellation.clone()),
-                    inputs,
-                )
+                .submit(job, action, context, inputs)
                 .map_err(ExecutionError::Executor)?;
             self.jobs.insert(job, (id, *node));
             self.running += 1;
         }
         Ok(())
+    }
+
+    fn action_context(&self) -> ActionContext {
+        let context = ActionContext::default().with_cancellation(self.cancellation.clone());
+        match &self.shared {
+            Some(state) => context.with_shared(state.clone()),
+            None => context,
+        }
     }
 
     fn dispatch_queued(&mut self) -> Result<(), ExecutionError> {

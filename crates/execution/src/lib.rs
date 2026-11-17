@@ -30,7 +30,7 @@ use std::sync::Arc;
 use graph::Compilation;
 use rivlet::NodeId;
 
-pub use action::{CancellationSource, CancellationToken};
+pub use action::{CancellationSource, CancellationToken, SharedState, SharedStateError};
 pub use admission::ConcurrencyError;
 pub use error::ExecutionError;
 pub use events::{NodeEventDetail, NodeEventSink, NodeExecutionEvent};
@@ -43,6 +43,7 @@ pub struct ExecutionOptions {
     skipped: Vec<NodeId>,
     cancellation: CancellationToken,
     events: Option<NodeEventSink>,
+    shared: Option<SharedState>,
     limits: Vec<(rivlet::NodeIdentity, NonZeroUsize)>,
 }
 
@@ -57,6 +58,7 @@ impl ExecutionOptions {
             skipped: Vec::new(),
             cancellation: CancellationToken::default(),
             events: None,
+            shared: None,
             limits: Vec::new(),
         })
     }
@@ -71,6 +73,14 @@ impl ExecutionOptions {
     #[must_use]
     pub fn cancellation(mut self, token: CancellationToken) -> Self {
         self.cancellation = token;
+        self
+    }
+
+    /// Injects one shared object into actions, including generated descendants.
+    /// Synchronization and lifetime outside this execution remain host-owned.
+    #[must_use]
+    pub fn shared(mut self, state: impl Into<SharedState>) -> Self {
+        self.shared = Some(state.into());
         self
     }
 
@@ -108,6 +118,7 @@ impl std::fmt::Debug for ExecutionOptions {
             .field("skipped", &self.skipped)
             .field("cancellation", &self.cancellation)
             .field("has_events", &self.events.is_some())
+            .field("has_shared", &self.shared.is_some())
             .field("limits", &self.limits)
             .finish()
     }

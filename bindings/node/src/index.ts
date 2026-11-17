@@ -41,6 +41,7 @@ export { Static, Case } from "./static.js";
 export type { StaticCondition, StaticRule } from "./static.js";
 export { exportGraph, renderTree, renderMermaid } from "./inspection.js";
 export type { RenderOptions } from "./inspection.js";
+export type { SharedStateType } from "./shared.js";
 export type {
   GraphDocument,
   DeclarationDocument,

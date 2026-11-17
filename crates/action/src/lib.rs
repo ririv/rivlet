@@ -4,6 +4,7 @@ mod asynchronous;
 mod cancellation;
 mod executor;
 mod process;
+mod shared;
 mod value;
 
 use std::error::Error;
@@ -14,13 +15,15 @@ use std::sync::Arc;
 pub use asynchronous::{ActionFuture, AsyncAction};
 pub use cancellation::{CancellationRegistration, CancellationSource, CancellationToken};
 pub use process::ProcessAction;
+pub use shared::{SharedState, SharedStateError};
 pub use value::{ActionInputs, ExternalValue, Value, ValueType, ValueTypeId};
 
-/// Immutable inputs available to a native action during one execution.
+/// Immutable capabilities and an optional host-owned shared object for an action.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ActionContext {
     component_log_path: Option<PathBuf>,
     cancellation: CancellationToken,
+    shared: Option<SharedState>,
 }
 
 impl ActionContext {
@@ -29,6 +32,7 @@ impl ActionContext {
         Self {
             component_log_path,
             cancellation: CancellationToken::default(),
+            shared: None,
         }
     }
 
@@ -41,6 +45,24 @@ impl ActionContext {
     #[must_use]
     pub fn control(&self) -> &CancellationToken {
         &self.cancellation
+    }
+
+    /// Injects one explicit object; cloning a context preserves object identity.
+    #[must_use]
+    pub fn with_shared(mut self, state: impl Into<SharedState>) -> Self {
+        self.shared = Some(state.into());
+        self
+    }
+
+    /// Returns checked access to the injected object, never an action result.
+    ///
+    /// # Errors
+    /// Fails when no object was injected or its type differs from `T`.
+    pub fn shared<T: Send + Sync + 'static>(&self) -> Result<Arc<T>, SharedStateError> {
+        self.shared
+            .as_ref()
+            .ok_or(SharedStateError::NotProvided)?
+            .require::<T>()
     }
 
     #[must_use]
