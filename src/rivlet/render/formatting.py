@@ -13,14 +13,14 @@ from ..compile import (
     CompiledStep,
     CompiledStepRef,
     GraphCompilation,
-    compile_graph,
+    _compile_graph_scope,
 )
 from ..interface import InputPort, OutputPort
 from ..model import (
     ConditionalPrerequisite,
     Edge,
+    Graph,
     GraphEdge,
-    GraphStructure,
     Node,
     NodePath,
     NodePrerequisite,
@@ -37,13 +37,13 @@ if TYPE_CHECKING:
 
 
 def ensure_compilation(
-    subject: GraphStructure | GraphCompilation,
+    subject: Graph | GraphCompilation,
     *,
     root_label: str,
 ) -> GraphCompilation:
     if isinstance(subject, GraphCompilation):
         return subject
-    return compile_graph(subject, root_label=root_label)
+    return _compile_graph_scope(subject, root_label=root_label)
 
 
 def render_step_label(
@@ -86,7 +86,7 @@ def render_after_suffix(
 
 
 def render_graph_after_suffix(
-    graph: GraphStructure,
+    graph: Graph,
     step: Node,
     *,
     step_paths: Mapping[Node, NodePath],
@@ -114,7 +114,7 @@ def render_graph_after_suffix(
     return "" if not deps else f" [after: {', '.join(deps)}]"
 
 
-def render_static_suffix(graph: GraphStructure, step: Node) -> str:
+def render_static_suffix(graph: Graph, step: Node) -> str:
     binding = graph._static_bindings.get(step)
     condition = (
         ""
@@ -124,7 +124,7 @@ def render_static_suffix(graph: GraphStructure, step: Node) -> str:
     return condition + render_selection_suffix(graph, step)
 
 
-def render_selection_suffix(graph: GraphStructure, step: Node) -> str:
+def render_selection_suffix(graph: Graph, step: Node) -> str:
     binding = graph._selection_bindings.get(step)
     if binding is None:
         return ""
@@ -137,7 +137,7 @@ def port_label(name: str | None) -> str:
     return "(anonymous)" if name is None else name
 
 
-def render_graph_port_suffix(graph: GraphStructure, step: Node) -> str:
+def render_graph_port_suffix(graph: Graph, step: Node) -> str:
     bindings = tuple(
         edge
         for edge in graph.edges
@@ -162,7 +162,7 @@ def render_graph_port_suffix(graph: GraphStructure, step: Node) -> str:
 def format_graph_edge(
     edge: GraphEdge,
     *,
-    graph: GraphStructure,
+    graph: Graph,
     step_paths: Mapping[Node, NodePath],
 ) -> str:
     dep_id = resolve_node_label(edge.source, step_paths[edge.source])

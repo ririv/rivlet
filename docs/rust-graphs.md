@@ -2,7 +2,7 @@
 
 English | [简体中文](./zh-CN/rust-graphs.md)
 
-Rust Step, Graph and GraphStructure compose native workflows using the shared core
+Rust Step and Graph compose native workflows using the shared core
 compiler and scheduler. Mainline does not import Rust nodes into Python workflows.
 
 ## Rust declaration API
@@ -15,7 +15,7 @@ arbitrary executable node kinds. Only `Graph` has an interface.
 ```rust
 use std::sync::Arc;
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, Graph, GraphInterface, GraphStructure, Step};
+use graph::{Edge, Graph, GraphInterface, Step};
 
 struct Work;
 impl Action for Work {
@@ -29,21 +29,19 @@ impl Action for Work {
 
 fn workflow() -> Result<graph::Compilation, graph::GraphError> {
     let task = Step::new("task", ActionHandle::new(Work))?;
-    let body = Arc::new(GraphStructure::with_interface(
+    let body = Arc::new(Graph::with_interface("scope",
         [task.clone().into()], [],
         GraphInterface::default()
             .input("apply", [&task])?
             .output("ready", &task)?,
     )?);
-    let left = Graph::new("left", Arc::clone(&body))?;
-    let right = Graph::new("right", body)?;
+    let left = Graph::with_interface("left", body.nodes().iter().cloned(), body.edges().iter().cloned(), body.interface().declaration().clone())?;
+    let right = Graph::with_interface("right", body.nodes().iter().cloned(), body.edges().iter().cloned(), body.interface().declaration().clone())?;
     let edge = Edge::ports(
         left.interface().output("ready")?,
         right.interface().input("apply")?,
     );
-    Graph::new("root", Arc::new(GraphStructure::new(
-        [left.into(), right.into()], [edge],
-    )?))?.compile()
+    Graph::new("root", [left.into(), right.into()], [edge])?.compile()
 }
 ```
 
@@ -60,24 +58,25 @@ Forward a child's ports explicitly when constructing an enclosing structure:
 let interface = GraphInterface::default()
     .input("apply", [child.interface().input("apply")?])?
     .output("ready", child.interface().output("ready")?)?;
-let wrapper = Graph::new("wrapper", Arc::new(GraphStructure::with_interface(
-    [child.into()], [], interface,
-)?))?;
+let wrapper = Graph::with_interface("wrapper", [child.into()], [], interface)?;
 ```
 
 Local references must belong directly to that structure; use child ports for
 descendants. Port handles retain their graph identity and direction. Missing or
 ambiguous membership is an error, never guessed. Cloning a node preserves its
-declaration identity; constructing two `Graph` nodes sharing an `Arc<GraphStructure>`
-creates distinct mounts. Repeated inner identities are disambiguated by mounted
+declaration identity; explicitly constructing another Graph from
+`body.nodes().iter().cloned()` and `body.edges().iter().cloned()` creates a distinct
+graph identity. Reuse its interface through `body.interface().declaration().clone()`.
+Repeated inner identities are disambiguated by mounted
 paths. Repeating the same node twice in one structure is rejected.
 
 `Projection` collects mounted scopes, resolved ports, metadata, and action handles;
 it calls the existing core `GraphDeclaration` compiler. `Compilation` holds that
 exact compiled graph and its side table. The host drives `ExecutionSession` and
 uses `compilation.node(id)` to locate each dispatched Rust leaf's action. Composites
-are never submitted as no-op actions. `Graph::compile()` retains the actual root;
-`GraphStructure::compile_structure()` compiles a body without inventing a root action.
+are never submitted as no-op actions. `Graph::compile()` retains the actual root.
+The original declaration remains available; compilation does not replace it with
+its expanded execution graph.
 
 The workspace `execution` crate also provides a composed synchronous
 `Execution::new(compilation, options).run()` entry. It runs this exact Compilation

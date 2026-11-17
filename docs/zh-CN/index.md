@@ -20,7 +20,7 @@
 
 ## 设计目标
 
-- Step/Graph 是实际节点；GraphStructure 保存可复用结构，Execution 持有单次执行状态
+- Step/Graph 是实际节点；Graph 保存可复用结构，Execution 持有单次执行状态
 - 声明期直接引用 Node 对象，挂载后才分配内部 `NodePath`
 - 依赖、条件读取和端口绑定全部显式参与拓扑校验
 - 子图可以组合，但不会被声明 DSL 隐式展开
@@ -63,7 +63,7 @@
   - 声明图与一次执行作用域
 - `Node` / `NodeKind`
   - Step/Graph 的共同协议，以及封闭的可执行联合
-- `GraphStructure.edges`
+- `Graph.edges`
   - 可复用结构内的显式接线关系
 - `Node.wire(after=(Results(...),))` / `Edge.results(...)`
   - 按顺序绑定 action 参数的结果依赖；条件独立声明自己的来源

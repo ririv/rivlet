@@ -5,7 +5,7 @@
 ```text
 Node（共同协议）
 ├── Step：身份 + label + condition + callable
-└── Graph：身份 + label + condition + GraphStructure
+└── Graph：身份 + label + condition + 完整图声明
                                       ├── nodes: Step | Graph
                                       ├── edges
                                       └── 接口声明 / 静态规则
@@ -23,22 +23,37 @@ Node（共同协议）
 ## 节点与可复用结构
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphStructure, Step, run
+from rivlet import Edge, Graph, Step, run
 
 prepare = Step(lambda: print("prepare"), label="prepare")
 finish = Step(lambda: print("finish"), label="finish")
-body = GraphStructure(nodes=(prepare, finish), edges=(Edge(prepare, finish),))
-workflow = Graph(body, label="workflow", condition=lambda: True)
+workflow = Graph(
+    nodes=(prepare, finish),
+    edges=(Edge(prepare, finish),),
+    label="workflow",
+    condition=lambda: True,
+)
 run(workflow)
 
-left = Graph(body, label="left")
-right = Graph(body, label="right")
+left = Graph(nodes=workflow.nodes, edges=workflow.edges, label="left")
+right = Graph(nodes=workflow.nodes, edges=workflow.edges, label="right")
 two_runs = (left | right).graph(label="two runs")
 ```
 
-GraphStructure 保存节点、边、GraphInterface 声明、观察消息、静态条件和选择；没有
-自身身份、label、运行时 condition 或状态。Graph 组合结构，通过 graph.interface
-暴露端口；Step 没有 interface 属性。
+Graph 直接保存节点、边、接口声明、观察消息、静态条件和选择，同时具有自己的
+身份、label 和运行时 condition。执行状态不属于声明。graph.interface 暴露归属当前
+Graph 的端口；Step 没有 interface 属性。
+
+复用节点和边时显式读取 graph.nodes、graph.edges；其它字段不自动继承。
+需要相同静态规则时显式传 static=graph.static、static_selections=graph.static_selections；
+接口定义可通过 interface=graph.interface.declaration 复用。它不同于 interface=graph：
+后者转发已挂载子图的端口，前者复用指向内部节点的定义，不引用旧的外层 Graph。
+观察消息和运行时条件同样按需显式传入。
+
+编译不修改原始 Graph。GraphCompilation.source_graph 保留编译输入声明；
+执行图只包含选中节点，重新选择时使用完整声明，而不是从执行图逆向恢复分支。
+公开根编译的 source_graph 是包含该根的内部声明作用域，nodes 为 (root,)；
+原根对象本身没有被克隆。需要复用原始节点时，直接保留 Graph 或读取 Execution.root。
 
 共享结构时创建不同 Graph 节点。内部共享声明的身份不变，但每次挂载有自己的
 路径、结果和条件求值。同一结构不能重复放入同一节点。DSL 不会偷偷创建替身。
@@ -56,17 +71,12 @@ GraphStructure 保存节点、边、GraphInterface 声明、观察消息、静�
 ## 边、wire 与 DSL
 
 ```python
-direct = Graph(
-    GraphStructure(
-        nodes=(prepare, finish),
-        edges=(Edge(prepare, finish),),
-    )
-)
+direct = Graph(nodes=(prepare, finish), edges=(Edge(prepare, finish),))
 with_wire = Graph.from_wiring((prepare.wire(), finish.wire(after=(prepare,))))
 with_dsl = (prepare >> (left | right) >> finish).graph(label="pipeline")
 ```
 
-NodeWiring 是构造输入，不是执行包装。GraphStructure 保存归一化 Edge。`>>` 连接
+NodeWiring 是构造输入，不是执行包装。Graph 保存归一化 Edge。`>>` 连接
 结构出口与入口，`|` 不加依赖；返回 GraphWiring，调用 graph(...) 得到真实 Graph。
 操作数是 Step、Graph 或 GraphWiring，不接受裸函数；没有 step() 物化入口。
 子图不自动展平；DSL 边界不是具名端口，不隐式转发或连接接口。
@@ -143,20 +153,13 @@ from rivlet import GraphInterface
 producer = (plan | review).graph(
     interface=GraphInterface(outputs={"plan": plan, "review": review}),
 )
-consumer = Graph(
-    GraphStructure(
-        nodes=(work,),
-        interface=GraphInterface(inputs={"apply": work}),
-    )
-)
+consumer = Graph(nodes=(work,), interface=GraphInterface(inputs={"apply": work}))
 root = Graph(
-    GraphStructure(
-        nodes=(producer, consumer),
-        edges=Edge.results(
-            (producer.interface.outputs["plan"], producer.interface.outputs["review"]),
-            consumer.interface.inputs["apply"],
-        ),
-    )
+    nodes=(producer, consumer),
+    edges=Edge.results(
+        (producer.interface.outputs["plan"], producer.interface.outputs["review"]),
+        consumer.interface.inputs["apply"],
+    ),
 )
 ```
 
@@ -203,10 +206,11 @@ Execution 接受 Step/Graph；首次成功编译由 compile/run/arun 复用，�
 需新建 Execution。State 单次使用。执行路径共用 Rust 编译和调度。Python 嵌套 session
 共用本次执行的 Python 池与事件循环；显式并发限额跨 session 生效，不设置隐式动作额度。
 GraphCompilation 包含 Python 动作和复合生命周期，不是空任务。
-低层 compile_graph 接收 GraphStructure，用于结构检查或展开。
+公开 compile_graph 接收实际 Step/Graph 根，保留根身份、condition 与完整生命周期；
+Execution.compile 使用同一编译实现。内部内容作用域投影不是另一套公开构图 API。
 
-action 返回 GraphStructure 时在当前节点下直接展开结构；返回 Graph 时挂载真实
-图节点，保留身份、label、condition 和边界。不允许任意修改运行中的声明；结果
+action 返回 Graph 时在当前动作节点下挂载真实图节点，保留返回图的
+身份、label、condition 和边界。不允许任意修改运行中的声明；结果
 仍按挂载局部绑定。见[执行语义](./execution.md)、[事件](./failure_events.md)。
 
 日志在 Execution(root, node_log_paths={node: path}) 构造时绑定，引用必须唯一。

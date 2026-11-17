@@ -126,16 +126,16 @@ class _Inputs(Mapping[PortName, InputPort]):
         self._graph = graph
 
     def __getitem__(self, key: PortName) -> InputPort:
-        body = self._graph.structure
-        exists = key in body.interface.inputs
+        body = self._graph
+        exists = key in body._interface.inputs
         if not exists:
             raise KeyError(key)
         return InputPort(self._graph, key)
 
     @property
     def _names(self) -> Mapping[PortName, tuple[InputEndpoint, ...]]:
-        body = self._graph.structure
-        return body.interface.inputs
+        body = self._graph
+        return body._interface.inputs
 
     def __len__(self) -> int:
         return len(self._names)
@@ -149,16 +149,16 @@ class _Outputs(Mapping[PortName, OutputPort]):
         self._graph = graph
 
     def __getitem__(self, key: PortName) -> OutputPort:
-        body = self._graph.structure
-        exists = key in body.interface.outputs
+        body = self._graph
+        exists = key in body._interface.outputs
         if not exists:
             raise KeyError(key)
         return OutputPort(self._graph, key)
 
     @property
     def _names(self) -> Mapping[PortName, OutputEndpoint]:
-        body = self._graph.structure
-        return body.interface.outputs
+        body = self._graph
+        return body._interface.outputs
 
     def __len__(self) -> int:
         return len(self._names)
@@ -172,6 +172,11 @@ class GraphInterfaceView:
     """Expose ports with their owning graph identity, without a separate bind API."""
 
     graph: Graph
+
+    @property
+    def declaration(self) -> GraphInterface:
+        """Return the reusable interface definition, without binding new ports."""
+        return self.graph._interface
 
     @property
     def inputs(self) -> Mapping[PortName, InputPort]:
@@ -193,11 +198,7 @@ class GraphInterfaceView:
 
 
 def _declared_interface(graph: Graph) -> GraphInterface:
-    from .model.graph_structure import GraphStructure
-
-    if not isinstance(graph.structure, GraphStructure):
-        raise GraphError("opaque Rust interfaces do not expose Python node objects")
-    return graph.structure.interface
+    return graph._interface
 
 
 @dataclass(frozen=True, slots=True)

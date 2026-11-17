@@ -9,8 +9,8 @@ use rivlet::{
 };
 
 use crate::{
-    Condition, Edge, GraphError, GraphStructure, InputEndpoint, InputPort, Node, NodeKind,
-    OutputEndpoint, OutputPort, PortName, ResultTarget,
+    Condition, Edge, Graph, GraphError, InputEndpoint, InputPort, Node, NodeKind, OutputEndpoint,
+    OutputPort, PortName, ResultTarget,
 };
 
 /// Action ownership and composite membership are mutually exclusive.
@@ -93,7 +93,7 @@ impl ProjectedCondition {
 /// One declaration scope; resolved port indexes are derived from its immutable body.
 #[derive(Clone, Debug)]
 pub struct ProjectedScope {
-    structure: Arc<GraphStructure>,
+    declaration: Arc<Graph>,
     owner: Option<NodeId>,
     nodes: Vec<NodeId>,
     local: HashMap<NodeIdentity, NodeId>,
@@ -103,8 +103,8 @@ pub struct ProjectedScope {
 
 impl ProjectedScope {
     #[must_use]
-    pub const fn structure(&self) -> &Arc<GraphStructure> {
-        &self.structure
+    pub const fn declaration(&self) -> &Arc<Graph> {
+        &self.declaration
     }
     #[must_use]
     pub const fn owner(&self) -> Option<NodeId> {
@@ -145,18 +145,18 @@ pub struct Projection {
 }
 
 impl Projection {
-    /// Projects shared structure while retaining every actual graph boundary.
+    /// Projects shared declaration while retaining every actual graph boundary.
     ///
     /// # Errors
     /// Returns an error for an invalid interface reference.
-    pub fn from_structure(structure: Arc<GraphStructure>) -> Result<Self, GraphError> {
+    pub(crate) fn from_declaration(declaration: Arc<Graph>) -> Result<Self, GraphError> {
         let mut projection = Self {
             scopes: Vec::new(),
             nodes: Vec::new(),
             ports: Vec::new(),
             conditions: Vec::new(),
         };
-        projection.visit(structure, None, &[])?;
+        projection.visit(declaration, None, &[])?;
         Ok(projection)
     }
 
@@ -165,7 +165,7 @@ impl Projection {
     /// # Errors
     /// Returns an error for an invalid interface reference.
     pub fn from_node(node: NodeKind) -> Result<Self, GraphError> {
-        Self::from_structure(Arc::new(GraphStructure::new([node], [])?))
+        Self::from_declaration(Arc::new(Graph::new("<root scope>", [node], [])?))
     }
 
     #[must_use]
@@ -249,7 +249,7 @@ impl Projection {
 
     fn visit(
         &mut self,
-        structure: Arc<GraphStructure>,
+        declaration: Arc<Graph>,
         owner: Option<NodeId>,
         prefix: &[usize],
     ) -> Result<GraphId, GraphError> {
@@ -257,9 +257,9 @@ impl Projection {
         // 平均 O(M+E+P*log(K+1)+R+L)，K 为最大单层端口数。
         // 共享结构保留 Arc；局部节点哈希查询平均 O(1)，具名端口用有序映射。
         let scope = GraphId::new(self.scopes.len());
-        let body = Arc::clone(&structure);
+        let body = Arc::clone(&declaration);
         self.scopes.push(ProjectedScope {
-            structure,
+            declaration,
             owner,
             nodes: Vec::new(),
             local: HashMap::new(),
@@ -287,26 +287,22 @@ impl Projection {
             self.scopes[scope.index()].nodes.push(id);
             self.scopes[scope.index()].local.insert(node.id(), id);
             if let NodeKind::Graph(graph) = node {
-                self.visit(Arc::clone(graph.structure()), Some(id), &path)?;
+                self.visit(Arc::new(graph.clone()), Some(id), &path)?;
             }
         }
         self.resolve_scope(scope, &body)?;
         Ok(scope)
     }
 
-    fn resolve_scope(
-        &mut self,
-        scope: GraphId,
-        structure: &GraphStructure,
-    ) -> Result<(), GraphError> {
-        for node in structure.nodes() {
+    fn resolve_scope(&mut self, scope: GraphId, declaration: &Graph) -> Result<(), GraphError> {
+        for node in declaration.nodes() {
             if let Some(condition) = node.condition() {
                 let target = self.scopes[scope.index()].local_node(node.id())?;
                 let condition = self.bind_condition(scope, condition)?;
                 self.nodes[target.index()].condition = Some(condition);
             }
         }
-        for edge in structure.edges() {
+        for edge in declaration.edges() {
             match edge {
                 Edge::Completion { source, target } => {
                     let source = self.scopes[scope.index()].local_node(*source)?;
@@ -363,7 +359,7 @@ impl Projection {
                 }
             }
         }
-        for (name, targets) in structure.interface().inputs() {
+        for (name, targets) in declaration.declared_interface().inputs() {
             let mut resolved = Vec::new();
             for target in targets {
                 resolved.extend(self.input_endpoint(scope, target)?);
@@ -372,7 +368,7 @@ impl Projection {
                 .inputs
                 .insert(name.clone(), resolved);
         }
-        for (name, source) in structure.interface().outputs() {
+        for (name, source) in declaration.declared_interface().outputs() {
             let resolved = self.output_endpoint(scope, source)?;
             self.scopes[scope.index()]
                 .outputs

@@ -2,7 +2,7 @@
 
 [English](../rust-graphs.md) | 简体中文
 
-Rust 的 Step、Graph 与 GraphStructure 直接组成原生工作流，使用同一 core 编译器和调度状态机。
+Rust 的 Step 与 Graph 直接组成原生工作流，使用同一 core 编译器和调度状态机。
 主线不提供将 Rust 节点导入 Python 的混合执行入口。
 
 ## Rust 声明 API
@@ -14,7 +14,7 @@ Rust 的 Step、Graph 与 GraphStructure 直接组成原生工作流，使用同
 ```rust
 use std::sync::Arc;
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, Graph, GraphInterface, GraphStructure, Step};
+use graph::{Edge, Graph, GraphInterface, Step};
 
 struct Work;
 impl Action for Work {
@@ -28,21 +28,19 @@ impl Action for Work {
 
 fn workflow() -> Result<graph::Compilation, graph::GraphError> {
     let task = Step::new("task", ActionHandle::new(Work))?;
-    let body = Arc::new(GraphStructure::with_interface(
+    let body = Arc::new(Graph::with_interface("scope",
         [task.clone().into()], [],
         GraphInterface::default()
             .input("apply", [&task])?
             .output("ready", &task)?,
     )?);
-    let left = Graph::new("left", Arc::clone(&body))?;
-    let right = Graph::new("right", body)?;
+    let left = Graph::with_interface("left", body.nodes().iter().cloned(), body.edges().iter().cloned(), body.interface().declaration().clone())?;
+    let right = Graph::with_interface("right", body.nodes().iter().cloned(), body.edges().iter().cloned(), body.interface().declaration().clone())?;
     let edge = Edge::ports(
         left.interface().output("ready")?,
         right.interface().input("apply")?,
     );
-    Graph::new("root", Arc::new(GraphStructure::new(
-        [left.into(), right.into()], [edge],
-    )?))?.compile()
+    Graph::new("root", [left.into(), right.into()], [edge])?.compile()
 }
 ```
 
@@ -57,21 +55,21 @@ fn workflow() -> Result<graph::Compilation, graph::GraphError> {
 let interface = GraphInterface::default()
     .input("apply", [child.interface().input("apply")?])?
     .output("ready", child.interface().output("ready")?)?;
-let wrapper = Graph::new("wrapper", Arc::new(GraphStructure::with_interface(
-    [child.into()], [], interface,
-)?))?;
+let wrapper = Graph::with_interface("wrapper", [child.into()], [], interface)?;
 ```
 
 局部节点引用必须直接属于当前结构；更深层的节点通过子图端口引用。端口引用保留
 具体图身份和输入/输出方向，找不到或归属不明确就报错，不猜测。clone 节点保留声明
-身份；两次 `Graph::new` 共享同一 `Arc<GraphStructure>` 会创建不同挂载。内层重复的
+身份；显式传入 `body.nodes().iter().cloned()`、`body.edges().iter().cloned()`
+创建新的 Graph 会分配独立身份；接口定义通过 `body.interface().declaration().clone()`
+按需复用。内层重复的
 声明身份由挂载路径区分；同一结构重复放入同一节点则被拒绝。
 
 `Projection` 收集挂载作用域、已解析端口、元信息和 action handle，再调用现有 core
 `GraphDeclaration` 编译器。`Compilation` 保留这一份编译图及其对应侧表。宿主驱动
 `ExecutionSession`，通过 `compilation.node(id)` 找到被调度叶子的 Rust action。
 composite 不会作为空 action 提交。`Graph::compile()` 保留真实根节点；
-`GraphStructure::compile_structure()` 编译结构体本身，不制造根 action。
+原始声明仍然保留，编译不会把它替换成展开后的执行图。
 
 workspace 的 `execution` crate 还提供组合好的同步入口
 `Execution::new(compilation, options).run()`，直接执行这份 Compilation，不重新编译。

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from .model import GraphStructure, Node, NodeLabelPath, NodePath
+    from .model import Graph, Node, NodeLabelPath, NodePath
     from .option import Some
     from .results import ResultView
 
@@ -21,7 +21,7 @@ class GraphObservationPhase(StrEnum):
 class GraphObservationEvent:
     phase: GraphObservationPhase
     message: str
-    source_graph: GraphStructure
+    source_graph: Graph
     graph_label: str
     graph_label_path: NodeLabelPath
     graph_node_paths: Mapping[Node, NodePath]

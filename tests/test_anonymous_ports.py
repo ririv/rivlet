@@ -13,7 +13,6 @@ from rivlet import (
     Execution,
     Graph,
     GraphInterface,
-    GraphStructure,
     Step,
     export_graph,
     render_graph,
@@ -42,7 +41,8 @@ def test_anonymous_shorthand_mapping_and_named_ports_share_one_declaration():
         (child.wire(),), interface=GraphInterface(inputs=child, outputs=child)
     )
     assert outer.interface.input.nodes == (start,)
-    assert outer.structure.interface.outputs[None] == child.interface.output
+    assert outer.interface.declaration.outputs[None] == child.interface.output
+    assert outer.interface.output.graph is outer
     reused = GraphInterface(inputs=shared.inputs, outputs=shared.outputs)
     assert reused.inputs == shared.inputs
     assert reused.outputs == shared.outputs
@@ -57,12 +57,8 @@ def test_anonymous_shorthand_mapping_and_named_ports_share_one_declaration():
 def test_single_named_endpoint_is_not_an_implicit_anonymous_endpoint():
     node = Step(lambda: None)
     child = Graph(
-        GraphStructure(
-            nodes=(node,),
-            interface=GraphInterface(
-                inputs={"default": node}, outputs={"default": node}
-            ),
-        )
+        nodes=(node,),
+        interface=GraphInterface(inputs={"default": node}, outputs={"default": node}),
     )
     for access in (
         lambda: child.interface.input,
@@ -86,20 +82,14 @@ def test_mixed_ports_forward_results_in_source_order(async_mode, mode):
     apply = Step(
         lambda ctx, value, report: seen.append((value.unwrap(), report.unwrap()))
     )
-    inner = Graph(
-        GraphStructure(
-            nodes=(apply,), interface=GraphInterface(inputs=apply, outputs=apply)
-        )
-    )
+    inner = Graph(nodes=(apply,), interface=GraphInterface(inputs=apply, outputs=apply))
     receiver = Graph.from_wiring((inner.wire(),), interface=inner)
     root = Graph(
-        GraphStructure(
-            nodes=(source, receiver),
-            edges=Edge.results(
-                (source.interface.output, source.interface.outputs["report"]),
-                receiver.interface.input,
-            ),
-        )
+        nodes=(source, receiver),
+        edges=Edge.results(
+            (source.interface.output, source.interface.outputs["report"]),
+            receiver.interface.input,
+        ),
     )
     execution = Execution(root)
     driver = run_async_execution if async_mode else run
@@ -140,9 +130,7 @@ def test_anonymous_readiness_does_not_change_whole_node_completion(mode, connect
     )
     configure_node = Step(configure)
     consumer = Graph(
-        GraphStructure(
-            nodes=(configure_node,), interface=GraphInterface(inputs=configure_node)
-        )
+        nodes=(configure_node,), interface=GraphInterface(inputs=configure_node)
     )
     match connection:
         case "reference":
@@ -151,7 +139,7 @@ def test_anonymous_readiness_does_not_change_whole_node_completion(mode, connect
             edge = Edge(producer, consumer, ports=(None, None))
         case "whole":
             edge = Edge(producer, consumer)
-    root = Graph(GraphStructure(nodes=(producer, consumer), edges=(edge,)))
+    root = Graph(nodes=(producer, consumer), edges=(edge,))
     execution = Execution(root)
     run(execution, max_workers=3, mode=mode)
     assert configured.is_set()

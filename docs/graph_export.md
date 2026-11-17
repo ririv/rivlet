@@ -22,7 +22,15 @@ graph = static.select(
     )
 ).graph()
 
-root = Graph(structure=(graph).structure, label=("choose"))
+root = Graph(
+    nodes=(graph.nodes),
+    edges=(graph.edges),
+    observation=(graph.observation),
+    static=(graph.static),
+    static_selections=(graph.static_selections),
+    interface=graph.interface.declaration,
+    label=("choose"),
+)
 declared = export_graph(root)  # no selection or static evaluator is run
 execution = Execution(root)
 prepared = execution.compile()  # static evaluation happens here, once

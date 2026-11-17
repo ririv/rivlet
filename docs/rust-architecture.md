@@ -13,7 +13,7 @@ integration.
   stable errors, and process actions without
   Python callbacks. It does not depend on PyO3, Tokio, or Graph core.
 - `crates/graph` exposes actual Rust Step/Graph nodes, the common Node trait,
-  reusable GraphStructure, typed interfaces/edges/predicates, and GraphError.
+  reusable Graph, typed interfaces/edges/predicates, and GraphError.
 - `crates/execution` composes graph/action/core into a single-use synchronous Rust
   Execution with typed terminal outcomes and synchronous predicate evaluation.
   It depends on no Python or third-party
@@ -86,7 +86,7 @@ The execution crate supplies synchronous Execution::run, native workers and type
 outcomes, independently of Python. The Node.js frontend independently uses its JS
 callbacks and event loop with the same core.
 
-Mainline has no RustGraphStructure, foreign-result codecs, SDK or cross-language
+Mainline has no RustGraph, foreign-result codecs, SDK or cross-language
 mixed execution entry. The complete experiment remains on the
 codex/experimental-mixed-execution branch, not in the current mainline API.
 

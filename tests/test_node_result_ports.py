@@ -15,7 +15,6 @@ from rivlet import (
     Graph,
     GraphError,
     GraphInterface,
-    GraphStructure,
     NodeExecutionEvent,
     NodeExecutionState,
     NodeRunContext,
@@ -52,25 +51,40 @@ def test_shared_source_structure_keeps_ordered_results_in_their_own_graph_nodes(
     backend: Backend,
 ) -> None:
     produce = Step(lambda ctx: ctx.node_path.labels[-2], label="produce")
-    shared = GraphStructure(
+    shared = Graph(
         nodes=(produce,), interface=GraphInterface(outputs={"value": produce})
     )
-    left, right = Graph(shared, label="left"), Graph(shared, label="right")
+    left, right = (
+        Graph(
+            nodes=shared.nodes,
+            edges=shared.edges,
+            observation=shared.observation,
+            static=shared.static,
+            static_selections=shared.static_selections,
+            interface=shared.interface.declaration,
+            label=("left"),
+        ),
+        Graph(
+            nodes=shared.nodes,
+            edges=shared.edges,
+            observation=shared.observation,
+            static=shared.static,
+            static_selections=shared.static_selections,
+            interface=shared.interface.declaration,
+            label=("right"),
+        ),
+    )
     seen: list[tuple[object, object]] = []
     consume = Step(lambda ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
     receiver = Graph(
-        GraphStructure(
-            nodes=(consume,), interface=GraphInterface(inputs={"apply": consume})
-        )
+        nodes=(consume,), interface=GraphInterface(inputs={"apply": consume})
     )
     root = Graph(
-        GraphStructure(
-            nodes=(left, right, receiver),
-            edges=Edge.results(
-                (right.interface.outputs["value"], left.interface.outputs["value"]),
-                receiver.interface.inputs["apply"],
-            ),
-        )
+        nodes=(left, right, receiver),
+        edges=Edge.results(
+            (right.interface.outputs["value"], left.interface.outputs["value"]),
+            receiver.interface.inputs["apply"],
+        ),
     )
     execution = run(root, backend)
     assert seen == [("right", "left")]
@@ -93,19 +107,36 @@ def test_shared_consumer_structure_receives_each_graph_nodes_own_binding(
         seen.append((ctx.node_path.labels[-2], value.unwrap()))
 
     consumer = Step(consume)
-    shared = GraphStructure(
+    shared = Graph(
         nodes=(consumer,), interface=GraphInterface(inputs={"value": consumer})
     )
-    left, right = Graph(shared, label="left"), Graph(shared, label="right")
+    left, right = (
+        Graph(
+            nodes=shared.nodes,
+            edges=shared.edges,
+            observation=shared.observation,
+            static=shared.static,
+            static_selections=shared.static_selections,
+            interface=shared.interface.declaration,
+            label=("left"),
+        ),
+        Graph(
+            nodes=shared.nodes,
+            edges=shared.edges,
+            observation=shared.observation,
+            static=shared.static,
+            static_selections=shared.static_selections,
+            interface=shared.interface.declaration,
+            label=("right"),
+        ),
+    )
     run(
         Graph(
-            GraphStructure(
-                nodes=(first, second, left, right),
-                edges=(
-                    *Edge.results((first,), left.interface.inputs["value"]),
-                    *Edge.results((second,), right.interface.inputs["value"]),
-                ),
-            )
+            nodes=(first, second, left, right),
+            edges=(
+                *Edge.results((first,), left.interface.inputs["value"]),
+                *Edge.results((second,), right.interface.inputs["value"]),
+            ),
         ),
         backend,
     )
@@ -119,37 +150,27 @@ def test_result_ports_allow_interleaved_graphs_without_a_component_level_cycle(
     start = Step(lambda: 2)
     finish = Step(lambda ctx, value: value.unwrap() + 1)
     first = Graph(
-        GraphStructure(
-            nodes=(start, finish),
-            interface=GraphInterface(
-                inputs={"finish": finish}, outputs={"started": start}
-            ),
-        )
+        nodes=(start, finish),
+        interface=GraphInterface(inputs={"finish": finish}, outputs={"started": start}),
     )
     middle = Step(lambda ctx, value: value.unwrap() + 1)
     second = Graph(
-        GraphStructure(
-            nodes=(middle,),
-            interface=GraphInterface(
-                inputs={"start": middle}, outputs={"done": middle}
-            ),
-        )
+        nodes=(middle,),
+        interface=GraphInterface(inputs={"start": middle}, outputs={"done": middle}),
     )
     execution = run(
         Graph(
-            GraphStructure(
-                nodes=(first, second),
-                edges=(
-                    *Edge.results(
-                        (first.interface.outputs["started"],),
-                        second.interface.inputs["start"],
-                    ),
-                    *Edge.results(
-                        (second.interface.outputs["done"],),
-                        first.interface.inputs["finish"],
-                    ),
+            nodes=(first, second),
+            edges=(
+                *Edge.results(
+                    (first.interface.outputs["started"],),
+                    second.interface.inputs["start"],
                 ),
-            )
+                *Edge.results(
+                    (second.interface.outputs["done"],),
+                    first.interface.inputs["finish"],
+                ),
+            ),
         ),
         backend,
     )
@@ -162,19 +183,16 @@ def test_skipped_graph_output_supplies_nothing_to_the_consumer(
 ) -> None:
     produce = Step(lambda: pytest.fail("skipped producer ran"))
     producer = Graph(
-        GraphStructure(
-            nodes=(produce,), interface=GraphInterface(outputs={"value": produce})
-        ),
-        condition=lambda: False,
+        nodes=(produce,),
+        interface=GraphInterface(outputs={"value": produce}),
+        condition=(lambda: False),
     )
     seen: list[bool] = []
     consume = Step(lambda ctx, value: seen.append(value.is_none()))
     run(
         Graph(
-            GraphStructure(
-                nodes=(producer, consume),
-                edges=Edge.results((producer.interface.outputs["value"],), consume),
-            )
+            nodes=(producer, consume),
+            edges=Edge.results((producer.interface.outputs["value"],), consume),
         ),
         backend,
     )
@@ -184,9 +202,7 @@ def test_skipped_graph_output_supplies_nothing_to_the_consumer(
 def test_unbound_public_result_input_is_rejected_by_final_compilation() -> None:
     consume = Step(lambda ctx, value: value.unwrap())
     receiver = Graph(
-        GraphStructure(
-            nodes=(consume,), interface=GraphInterface(inputs={"value": consume})
-        )
+        nodes=(consume,), interface=GraphInterface(inputs={"value": consume})
     )
     with pytest.raises(GraphError, match="signature"):
         Execution(receiver).compile()
@@ -198,19 +214,15 @@ def test_different_port_aliases_cannot_install_two_result_groups_on_one_action()
     produce = Step(lambda: 1)
     consume = Step(lambda ctx, value: value.unwrap())
     receiver = Graph(
-        GraphStructure(
-            nodes=(consume,),
-            interface=GraphInterface(inputs={"first": consume, "second": consume}),
-        )
+        nodes=(consume,),
+        interface=GraphInterface(inputs={"first": consume, "second": consume}),
     )
     root = Graph(
-        GraphStructure(
-            nodes=(produce, receiver),
-            edges=(
-                *Edge.results((produce,), receiver.interface.inputs["first"]),
-                *Edge.results((produce,), receiver.interface.inputs["second"]),
-            ),
-        )
+        nodes=(produce, receiver),
+        edges=(
+            *Edge.results((produce,), receiver.interface.inputs["first"]),
+            *Edge.results((produce,), receiver.interface.inputs["second"]),
+        ),
     )
     with pytest.raises(GraphError, match="one result connection group"):
         Execution(root).compile()
@@ -222,27 +234,21 @@ def test_cycle_through_result_ports_is_rejected_after_resolving_step_endpoints()
     a = Step(lambda ctx, value: value.unwrap())
     b = Step(lambda ctx, value: value.unwrap())
     first = Graph(
-        GraphStructure(
-            nodes=(a,), interface=GraphInterface(inputs={"in": a}, outputs={"out": a})
-        )
+        nodes=(a,), interface=GraphInterface(inputs={"in": a}, outputs={"out": a})
     )
     second = Graph(
-        GraphStructure(
-            nodes=(b,), interface=GraphInterface(inputs={"in": b}, outputs={"out": b})
-        )
+        nodes=(b,), interface=GraphInterface(inputs={"in": b}, outputs={"out": b})
     )
     root = Graph(
-        GraphStructure(
-            nodes=(first, second),
-            edges=(
-                *Edge.results(
-                    (first.interface.outputs["out"],), second.interface.inputs["in"]
-                ),
-                *Edge.results(
-                    (second.interface.outputs["out"],), first.interface.inputs["in"]
-                ),
+        nodes=(first, second),
+        edges=(
+            *Edge.results(
+                (first.interface.outputs["out"],), second.interface.inputs["in"]
             ),
-        )
+            *Edge.results(
+                (second.interface.outputs["out"],), first.interface.inputs["in"]
+            ),
+        ),
     )
     with pytest.raises(GraphError, match="cycle"):
         Execution(root).compile()
@@ -250,9 +256,7 @@ def test_cycle_through_result_ports_is_rejected_after_resolving_step_endpoints()
 
 def test_dynamically_returned_graph_keeps_its_identity_and_condition() -> None:
     forbidden = Step(lambda: pytest.fail("inactive returned graph ran"))
-    child = Graph(
-        GraphStructure(nodes=(forbidden,)), label="returned", condition=lambda: False
-    )
+    child = Graph(nodes=(forbidden,), label=("returned"), condition=(lambda: False))
     expand = Step(lambda: child, label="expand")
     events: list[NodeExecutionEvent] = []
 
@@ -274,30 +278,23 @@ def test_dynamically_returned_graph_keeps_its_identity_and_condition() -> None:
 def test_forwarded_result_ports_keep_ownership_and_fan_out(backend: Backend) -> None:
     produce = Step(lambda: None, label="produce")
     inner = Graph(
-        GraphStructure(
-            nodes=(produce,),
-            interface=GraphInterface(outputs={"value": produce}),
-        )
+        nodes=(produce,), interface=GraphInterface(outputs={"value": produce})
     )
     producer = Graph.from_wiring((inner.wire(),), interface=inner, label="producer")
     seen: list[object] = []
     first = Step(lambda ctx, value: seen.append(value.unwrap()))
     second = Step(lambda ctx, value: seen.append(value.unwrap()))
     inner_consumer = Graph(
-        GraphStructure(
-            nodes=(first, second),
-            interface=GraphInterface(inputs={"apply": (first, second)}),
-        )
+        nodes=(first, second),
+        interface=GraphInterface(inputs={"apply": (first, second)}),
     )
     consumer = Graph.from_wiring((inner_consumer.wire(),), interface=inner_consumer)
     root = Graph(
-        GraphStructure(
-            nodes=(producer, consumer),
-            edges=Edge.results(
-                (producer.interface.outputs["value"],),
-                consumer.interface.inputs["apply"],
-            ),
-        )
+        nodes=(producer, consumer),
+        edges=Edge.results(
+            (producer.interface.outputs["value"],),
+            consumer.interface.inputs["apply"],
+        ),
     )
     run(root, backend)
     assert seen == [None, None]
@@ -313,23 +310,19 @@ def test_forwarded_result_ports_keep_ownership_and_fan_out(backend: Backend) -> 
 def test_statically_removed_exported_result_is_not_a_missing_runtime_value() -> None:
     produce = Step(lambda: 1)
     producer = Graph(
-        GraphStructure(
-            nodes=(produce,),
-            interface=GraphInterface(outputs={"value": produce}),
-            static=StaticConditions(
-                evaluator=lambda condition: condition.payload is True,
-                conditions={
-                    produce: StaticCondition(payload=False, description="disabled")
-                },
-            ),
-        )
+        nodes=(produce,),
+        interface=GraphInterface(outputs={"value": produce}),
+        static=StaticConditions(
+            evaluator=lambda condition: condition.payload is True,
+            conditions={
+                produce: StaticCondition(payload=False, description="disabled")
+            },
+        ),
     )
     consumer = Step(lambda ctx, value: value.unwrap())
     root = Graph(
-        GraphStructure(
-            nodes=(producer, consumer),
-            edges=Edge.results((producer.interface.outputs["value"],), consumer),
-        )
+        nodes=(producer, consumer),
+        edges=Edge.results((producer.interface.outputs["value"],), consumer),
     )
     with pytest.raises(GraphError, match="removed by static"):
         Execution(root).compile()

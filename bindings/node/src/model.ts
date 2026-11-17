@@ -85,42 +85,33 @@ export class Step<
   }
 }
 
-export interface StructureOptions {
+export interface GraphOptions extends NodeOptions {
   readonly nodes: readonly Node[];
   readonly edges?: readonly Edge[];
   readonly interface?: GraphInterface;
 }
 
-/** Reusable topology without a mounted node identity or execution state. */
-export class GraphStructure {
-  readonly nodes: readonly Node[];
-  readonly edges: readonly Edge[];
-  readonly interface: GraphInterface;
-  constructor(options: StructureOptions) {
-    if (new Set(options.nodes).size !== options.nodes.length) {
-      throw new Error("a node may occur only once in one GraphStructure");
-    }
-    this.nodes = Object.freeze([...options.nodes]);
-    this.edges = Object.freeze([...(options.edges ?? [])]);
-    this.interface = options.interface ?? new GraphInterface();
-    Object.freeze(this);
-  }
-}
-
-/** A distinct graph mount; another Graph can share its immutable structure. */
+/** A complete graph declaration with identity, topology and public ports. */
 export class Graph {
   readonly kind = "graph";
   readonly id = native.allocateNodeId();
   readonly label: string;
   readonly condition: Condition | undefined;
+  readonly nodes: readonly Node[];
+  readonly edges: readonly Edge[];
   readonly interface: GraphInterfaceView;
-  constructor(
-    readonly structure: GraphStructure,
-    options: NodeOptions = {},
-  ) {
+  constructor(options: GraphOptions) {
+    if (new Set(options.nodes).size !== options.nodes.length) {
+      throw new Error("a node may occur only once in one Graph");
+    }
+    this.nodes = Object.freeze([...options.nodes]);
+    this.edges = Object.freeze([...(options.edges ?? [])]);
     this.label = options.label ?? "graph";
     this.condition = snapshotCondition(options.condition);
-    this.interface = new GraphInterfaceView(this);
+    this.interface = new GraphInterfaceView(
+      this,
+      options.interface ?? new GraphInterface(),
+    );
     Object.freeze(this);
   }
 }

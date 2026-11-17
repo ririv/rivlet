@@ -71,15 +71,14 @@ Step executes a callable; Graph contains a substructure. Both own identity, labe
 and condition and support the same wire/DSL operations. Node is their common
 protocol, not another wrapper. Only Graph exposes an interface.
 
-GraphStructure holds reusable structure without a node identity. Declare distinct
-Graph nodes to use one structure twice:
+Graph directly holds a complete declaration. Explicitly create distinct Graph
+nodes to reuse their inner nodes and edges:
 
 ```python
 from rivlet import run
 
-body = checks.structure
-left = Graph(body, label="left")
-right = Graph(body, label="right")
+left = Graph(nodes=checks.nodes, edges=checks.edges, label="left")
+right = Graph(nodes=checks.nodes, edges=checks.edges, label="right")
 both = (left | right).graph(label="both")
 run(both, max_workers=2)
 ```
@@ -135,7 +134,7 @@ The arrows below connect specific steps, not whole-graph completion:
 ![Nine steps in three subgraphs: A1 sends a plan to B1, B2 supplies an SDK to A2, and A3 enables C2; C1 prepares independently, A2 need not wait for B3, and C2 need not wait for A4](https://raw.githubusercontent.com/ririv/rivlet/main/docs/assets/subgraph-ports.svg)
 
 ```python
-from rivlet import Edge, Graph, GraphInterface, GraphStructure, Step, run
+from rivlet import Edge, Graph, GraphInterface, Step, run
 
 plan_ready = "plan-ready"
 sdk_ready = "sdk-ready"
@@ -172,15 +171,13 @@ consumer = (prepare_environment >> consume).graph(
 )
 
 pipeline = Graph(
-    GraphStructure(
-        nodes=(sdk, app, consumer),
-        edges=(
-            Edge(app, sdk, ports=plan_ready),
-            Edge(sdk, app, ports=sdk_ready),
-            Edge(app, consumer, ports=install_ready),
-        ),
+    nodes=(sdk, app, consumer),
+    edges=(
+        Edge(app, sdk, ports=plan_ready),
+        Edge(sdk, app, ports=sdk_ready),
+        Edge(app, consumer, ports=install_ready),
     ),
-    label="pipeline",
+    label=("pipeline"),
 )
 run(pipeline, max_workers=3)
 ```
@@ -385,7 +382,7 @@ returns `False`, `process` is skipped and `done` still runs. Return `True` to ru
 `Some(None)`. If a source may be skipped, inspect `is_some()` or `is_none()` before
 unwrapping. A predicate error blocks the affected task; it is not treated as false.
 
-For a subgraph, pass the same condition to `Graph(structure, condition=...)`.
+For a subgraph, pass the same condition to `Graph(nodes=..., edges=..., condition=...)`.
 
 Runtime predicates can also return `Awaitable[bool]`, using the same declaration.
 They share the execution's event loop with coroutine actions; synchronous decisions

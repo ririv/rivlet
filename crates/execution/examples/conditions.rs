@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use action::{Action, ActionContext, ActionError, ActionHandle};
 use execution::{ConditionOutcome, Execution, ExecutionOptions, ExecutionStatus, NodeOutcome};
-use graph::{Condition, Edge, Graph, GraphStructure, Step};
+use graph::{Condition, Edge, Graph, Step};
 use rivlet::NodeId;
 
 struct Number(i64);
@@ -34,10 +34,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let apply = Step::with_condition("apply", ActionHandle::new(Double), approved)?;
     let workflow = Graph::new(
         "workflow",
-        Arc::new(GraphStructure::new(
-            [enabled.into(), plan.clone().into(), apply.clone().into()],
-            [Edge::results([&plan], &apply)?],
-        )?),
+        [enabled.into(), plan.clone().into(), apply.clone().into()],
+        [Edge::results([&plan], &apply)?],
     )?;
     let compilation = workflow.compile()?;
     // 此例只挂载一次 apply；重复挂载时应按编译路径选择对应实例。

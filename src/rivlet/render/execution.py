@@ -4,11 +4,8 @@ from enum import StrEnum
 from typing import TYPE_CHECKING
 
 from ..model import (
-    Graph as GraphNode,
-)
-from ..model import (
+    Graph,
     GraphMode,
-    GraphStructure,
     Node,
     NodeKind,
     NodePath,
@@ -48,7 +45,7 @@ def render_execution(
     *,
     mode: GraphMode = "dynamic",
 ) -> str:
-    graph = GraphStructure(nodes=(root,))
+    graph = Graph(nodes=(root,))
     return _render_execution_impl(
         graph,
         state,
@@ -65,7 +62,7 @@ def render_live_execution(
     *,
     mode: GraphMode = "dynamic",
 ) -> str:
-    graph = GraphStructure(nodes=(root,))
+    graph = Graph(nodes=(root,))
     root_label = resolve_node_label(root, NodePath((0,)))
     snapshot = state.snapshot()
     steps = collect_steps(graph)
@@ -96,7 +93,7 @@ def render_live_execution(
 
 
 def _render_execution_impl(
-    graph: GraphStructure,
+    graph: Graph,
     state: ExecutionState,
     *,
     root_label: str,
@@ -125,7 +122,7 @@ def _render_execution_impl(
 
 def append_execution_graph(
     lines: list[str],
-    graph: GraphStructure,
+    graph: Graph,
     *,
     snapshot: ExecutionSnapshot,
     active_step_paths: set[NodePath],
@@ -154,7 +151,7 @@ def append_execution_graph(
 
 def append_execution_step(
     lines: list[str],
-    graph: GraphStructure,
+    graph: Graph,
     step: Node,
     *,
     snapshot: ExecutionSnapshot,
@@ -180,10 +177,10 @@ def append_execution_step(
         return
     branch = "└─ " if is_last else "├─ "
     child_prefix = prefix + ("   " if is_last else "│  ")
-    action = step.structure if isinstance(step, GraphNode) else step
+    action = step
     base = (
         f"{step_label} [graph]"
-        if isinstance(action, GraphStructure)
+        if isinstance(action, Graph)
         else render_step_label(step, node_path=node_path)
     )
     lines.append(
@@ -194,7 +191,7 @@ def append_execution_step(
         f"{render_execution_result_suffix(node_path, snapshot.results)}"
         f"{render_graph_after_suffix(graph, step, step_paths=graph_node_paths)}"
     )
-    if not isinstance(action, GraphStructure):
+    if not isinstance(action, Graph):
         return
     append_execution_graph(
         lines,
@@ -223,7 +220,7 @@ def resolve_execution_status(
         return ExecutionRenderStatus.SKIPPED_BY_ANCESTOR
     if node_path in snapshot.skipped_steps:
         return ExecutionRenderStatus.SKIPPED
-    if isinstance(step, GraphNode) and isinstance(step.structure, GraphStructure):
+    if isinstance(step, Graph):
         if (
             node_path in snapshot.completed_composites
             or node_path in snapshot.completed_steps
@@ -300,7 +297,7 @@ def deepest_running_step_paths(
 
 
 def collect_step_labels(
-    graph: GraphStructure,
+    graph: Graph,
     *,
     label_path: tuple[str, ...] = (),
     parent_node_path: NodePath | None = None,
@@ -312,10 +309,10 @@ def collect_step_labels(
     ).items():
         step_label_path = (*label_path, resolve_node_label(step, node_path))
         out.append((node_path, step_label_path))
-        if isinstance(step, GraphNode) and isinstance(step.structure, GraphStructure):
+        if isinstance(step, Graph):
             out.extend(
                 collect_step_labels(
-                    step.structure,
+                    step,
                     label_path=step_label_path,
                     parent_node_path=node_path,
                 )
@@ -324,7 +321,7 @@ def collect_step_labels(
 
 
 def collect_steps(
-    graph: GraphStructure,
+    graph: Graph,
     *,
     label_path: tuple[str, ...] = (),
     parent_node_path: NodePath | None = None,
@@ -335,10 +332,10 @@ def collect_steps(
         parent_node_path=parent_node_path,
     ).items():
         step_label_path = (*label_path, resolve_node_label(step, node_path))
-        if isinstance(step, GraphNode) and isinstance(step.structure, GraphStructure):
+        if isinstance(step, Graph):
             out.extend(
                 collect_steps(
-                    step.structure,
+                    step,
                     label_path=step_label_path,
                     parent_node_path=node_path,
                 )

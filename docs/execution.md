@@ -65,7 +65,7 @@ In both modes:
 See [render/](../src/rivlet/render/).
 
 `render_graph(...)` and `render_graph_mermaid(...)` accept a Step/Graph node,
-GraphStructure, or GraphCompilation and require an explicit inspection `root_label`.
+Graph, or GraphCompilation and require an explicit inspection `root_label`.
 Node labels remain part of the declaration; execution views derive the actual
 root node's name rather than introducing a second execution label.
 
@@ -197,19 +197,15 @@ prevents new dispatch, waits for already-started work, then reports cancellation
 Each execution has independent control by default:
 
 ```python
-execution = Execution(root=Graph(structure=(graph).structure))
+execution = Execution(root=graph)
 ```
 
 A host may share control between sequential executions:
 
 ```python
 control = ExecutionControl()
-first_execution = Execution(
-    root=Graph(structure=(first_graph).structure), execution_control=control
-)
-second_execution = Execution(
-    root=Graph(structure=(second_graph).structure), execution_control=control
-)
+first_execution = Execution(root=first_graph, execution_control=control)
+second_execution = Execution(root=second_graph, execution_control=control)
 ```
 
 These remain separate runs with independent ExecutionState values. Sharing
@@ -355,7 +351,7 @@ temporary directory; no external tools or files are required.
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from rivlet import Graph, GraphStructure, Step, run, step
+from rivlet import Graph, Step, run, step
 
 
 def prepare_files(directory: Path) -> None:
@@ -372,9 +368,7 @@ def make_jobs(files: tuple[Path, ...]) -> Graph:
 
         return process
 
-    return Graph(
-        GraphStructure(nodes=tuple(make_job(path) for path in files)), label="jobs"
-    )
+    return Graph(nodes=tuple(make_job(path) for path in files), label=("jobs"))
 
 
 def verify_outputs(directory: Path) -> None:

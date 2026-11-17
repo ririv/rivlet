@@ -26,16 +26,13 @@ executed, not stored as an ordinary action payload.
 For example, one result edge also enables recording of `unrelated`:
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphStructure, Step, run
+from rivlet import Edge, Execution, Graph, Step, run
 
 source = Step(lambda: "plan", label="source")
 consumer = Step(lambda _ctx, result: print(result.unwrap()), label="consumer")
 unrelated = Step(lambda: "not consumed", label="unrelated")
 workflow = Graph(
-    GraphStructure(
-        nodes=(source, consumer, unrelated),
-        edges=Edge.results((source,), consumer),
-    )
+    nodes=(source, consumer, unrelated), edges=Edge.results((source,), consumer)
 )
 execution = Execution(workflow)
 run(execution, max_workers=2)

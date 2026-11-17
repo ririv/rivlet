@@ -9,7 +9,7 @@ from .identity import NodeId, NodePath
 if TYPE_CHECKING:
     from . import GraphWiringOperand, NodePrerequisite
     from .condition import _RuntimeCondition
-    from .graph_structure import GraphStructure
+    from .graph import Graph
     from .wiring import GraphWiring, NodeWiring
 
 
@@ -34,7 +34,7 @@ type NodeLabelPath = tuple[str, ...]
 
 
 def node_paths_for_mount(
-    graph: GraphStructure,
+    graph: Graph,
     *,
     parent_node_path: NodePath | None = None,
 ) -> dict[Node, NodePath]:

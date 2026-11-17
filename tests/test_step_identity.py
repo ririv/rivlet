@@ -9,7 +9,6 @@ from rivlet import (
     Execution,
     Graph,
     GraphMode,
-    GraphStructure,
     NodeExecutionEvent,
     NodeId,
     NodePath,
@@ -66,14 +65,31 @@ def test_repeated_mounts_share_declaration_id_not_results(
         (consumer.wire(after=(Results(producer),)), producer.wire())
     )
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(
-                Graph(structure=child.structure, label="left"),
-                Graph(structure=child.structure, label="right"),
-            )
+        nodes=(
+            Graph(
+                nodes=child.nodes,
+                edges=child.edges,
+                observation=child.observation,
+                static=child.static,
+                static_selections=child.static_selections,
+                interface=child.interface.declaration,
+                label=("left"),
+            ),
+            Graph(
+                nodes=child.nodes,
+                edges=child.edges,
+                observation=child.observation,
+                static=child.static,
+                static_selections=child.static_selections,
+                interface=child.interface.declaration,
+                label=("right"),
+            ),
         )
     )
-    execution = Execution(Graph(structure=graph.structure), events=Sink())
+    execution = Execution(
+        graph,
+        events=Sink(),
+    )
     (options)(execution, mode=mode)
     assert producer.id != consumer.id
     assert {identity for identity, _, _ in received} == {consumer.id}
@@ -107,13 +123,11 @@ def test_dynamic_child_keeps_identity_and_full_path_labels():
         seen.append(ctx)
 
     step = Step(record, label=("leaf"))
-    child = Graph(structure=GraphStructure(nodes=(step,)))
-    graph = Graph(
-        structure=GraphStructure(nodes=(Step(lambda: child.structure, label="expand"),))
-    )
-    run_execution(Execution(Graph(structure=graph.structure)))
+    child = Graph(nodes=(step,))
+    graph = Graph(nodes=(Step(lambda: child, label="expand"),))
+    run_execution(Execution(graph))
     assert seen[0].node_id == step.id
-    assert seen[0].node_path.segments == (0, 0, 0)
-    assert seen[0].node_path.labels == ("0", "expand", "leaf")
+    assert seen[0].node_path.segments == (0, 0, 0, 0)
+    assert seen[0].node_path.labels == ("0", "expand", "0.0.0", "leaf")
     assert seen[0].node_path.parent is not None
-    assert seen[0].node_path.parent.labels == ("0", "expand")
+    assert seen[0].node_path.parent.labels == ("0", "expand", "0.0.0")

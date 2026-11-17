@@ -3,7 +3,6 @@ import {
   Execution,
   Graph,
   GraphInterface,
-  GraphStructure,
   Step,
 } from "../lib/index.js";
 
@@ -13,17 +12,12 @@ const plan = new Step(async () => ({ operations: ["compile", "test"] }), {
 const finish = new Step(() => console.log("provider: consumer finished"), {
   label: "finish",
 });
-const provider = new Graph(
-  new GraphStructure({
-    nodes: [plan, finish],
+const provider = new Graph({nodes: [plan, finish],
     edges: [new Edge(plan, finish)],
     interface: new GraphInterface({
       outputs: new Map([["plan", plan]]),
       inputs: new Map([["finish", finish]]),
-    }),
-  }),
-  { label: "provider" },
-);
+    }), label: "provider"});
 
 const prepare = new Step(() => console.log("consumer: prepare independently"), {
   label: "prepare",
@@ -36,31 +30,21 @@ const apply = new Step(
   },
   { label: "apply" },
 );
-const consumer = new Graph(
-  new GraphStructure({
-    nodes: [prepare, apply],
+const consumer = new Graph({nodes: [prepare, apply],
     edges: [new Edge(prepare, apply)],
     interface: new GraphInterface({
       inputs: new Map([["plan", apply]]),
       outputs: apply,
-    }),
-  }),
-  { label: "consumer" },
-);
+    }), label: "consumer"});
 
-const workflow = new Graph(
-  new GraphStructure({
-    nodes: [provider, consumer],
+const workflow = new Graph({nodes: [provider, consumer],
     edges: [
       Edge.results(
         [provider.interface.output("plan")],
         consumer.interface.input("plan"),
       ),
       new Edge(consumer.interface.output(), provider.interface.input("finish")),
-    ],
-  }),
-  { label: "collaboration" },
-);
+    ], label: "collaboration"});
 
 const execution = new Execution(workflow);
 const compilation = execution.compile();

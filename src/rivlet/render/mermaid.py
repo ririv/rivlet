@@ -4,8 +4,8 @@ from ..compile import GraphCompilation, compiled_prerequisite_node
 from ..errors import GraphError
 from ..model import (
     Edge,
+    Graph,
     GraphMode,
-    GraphStructure,
     Node,
     NodeKind,
     NodePath,
@@ -13,9 +13,6 @@ from ..model import (
     _condition_uses,
     node_paths_for_mount,
     resolve_node_label,
-)
-from ..model import (
-    Graph as GraphNode,
 )
 from .formatting import (
     ensure_compilation,
@@ -32,13 +29,13 @@ from .formatting import (
 
 
 def render_graph_mermaid(
-    subject: GraphStructure | NodeKind | GraphCompilation,
+    subject: NodeKind | GraphCompilation,
     *,
     root_label: str,
     mode: GraphMode = "dynamic",
 ) -> str:
-    if isinstance(subject, (Step, GraphNode)):
-        subject = GraphStructure(nodes=(subject,))
+    if isinstance(subject, (Step, Graph)):
+        subject = Graph(nodes=(subject,))
     match mode:
         case "compiled":
             return render_graph_compilation_mermaid(
@@ -56,7 +53,7 @@ def render_graph_mermaid(
             raise GraphError(f"unsupported graph render mode: {mode}")
 
 
-def render_graph_structure_mermaid(graph: GraphStructure, *, root_label: str) -> str:
+def render_graph_structure_mermaid(graph: Graph, *, root_label: str) -> str:
     lines = ["flowchart TD"]
     append_graph_mermaid(
         lines,
@@ -109,7 +106,7 @@ def render_graph_compilation_mermaid(
 
 def append_graph_mermaid(
     lines: list[str],
-    graph: GraphStructure,
+    graph: Graph,
     *,
     graph_label: str,
     graph_path: tuple[str, ...],
@@ -127,8 +124,8 @@ def append_graph_mermaid(
         selection_suffix = render_selection_suffix(graph, step)
         node_id = mermaid_step_node_id(graph_path, step_label, index)
         node_ids[step] = node_id
-        action = step.structure if isinstance(step, GraphNode) else step
-        if isinstance(action, GraphStructure):
+        action = step
+        if isinstance(action, Graph):
             lines.append(
                 f'{indent}    {node_id}["{escape_label(step_label + selection_suffix)}"]'
             )

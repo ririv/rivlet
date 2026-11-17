@@ -77,7 +77,7 @@ Suppose publishing waits for validation only when the configuration requires it.
 This example controls only the dependency; validation itself stays enabled.
 
 ```python
-from rivlet import Edge, Graph, GraphStructure, StaticCondition, StaticConditions, Step
+from rivlet import Edge, Graph, StaticCondition, StaticConditions, Step
 
 collect = Step(lambda: print("collect"), label="collect")
 validate = Step(lambda: print("validate"), label="validate")
@@ -88,21 +88,15 @@ condition = StaticCondition(
     description="wait for validation",
 )
 graph = Graph(
-    structure=GraphStructure(
-        nodes=(collect, validate, publish),
-        edges=(
-            (
-                Edge(source=collect, target=publish),
-                Edge(source=validate, target=publish),
-            )
-        ),
-        static=(
-            StaticConditions(
-                evaluator=lambda condition: condition.payload is True,
-                conditions={(validate, publish): condition},
-            )
-        ),
-    )
+    nodes=(collect, validate, publish),
+    edges=(
+        Edge(source=collect, target=publish),
+        Edge(source=validate, target=publish),
+    ),
+    static=StaticConditions(
+        evaluator=lambda condition: condition.payload is True,
+        conditions={(validate, publish): condition},
+    ),
 )
 ```
 

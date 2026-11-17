@@ -6,7 +6,7 @@ import logging
 import threading
 from typing import TYPE_CHECKING
 
-from ..model import Graph, GraphStructure, NodeLabelPath
+from ..model import Graph, NodeLabelPath
 from ..observe import GraphObservationEvent, GraphObservationPhase, GraphObserver
 
 if TYPE_CHECKING:
@@ -53,13 +53,11 @@ def invoke_sync_action(
 
 def as_graph_result(
     value: object,
-) -> GraphStructure | None:
+) -> Graph | None:
     """识别 action 在运行期返回的声明图。"""
 
     if isinstance(value, Graph):
-        return GraphStructure(nodes=(value,))
-    if isinstance(value, GraphStructure):
-        return value
+        return Graph(nodes=(value,))
     return None
 
 

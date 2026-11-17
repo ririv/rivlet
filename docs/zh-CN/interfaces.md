@@ -44,8 +44,24 @@ b_graph = (b_a >> b_b >> b_c >> b_d >> b_e).graph(
     interface=GraphInterface(inputs={port_123: b_b}),
 )
 
-a = Graph(structure=(a_graph).structure, label=("A"))
-b = Graph(structure=(b_graph).structure, label=("B"))
+a = Graph(
+    nodes=(a_graph.nodes),
+    edges=(a_graph.edges),
+    observation=(a_graph.observation),
+    static=(a_graph.static),
+    static_selections=(a_graph.static_selections),
+    interface=a_graph.interface.declaration,
+    label=("A"),
+)
+b = Graph(
+    nodes=(b_graph.nodes),
+    edges=(b_graph.edges),
+    observation=(b_graph.observation),
+    static=(b_graph.static),
+    static_selections=(b_graph.static_selections),
+    interface=b_graph.interface.declaration,
+    label=("B"),
+)
 ```
 
 端口出口是一项稳定契约：提供者宣布就绪以后，后续 Node 不应再破坏或替换已经
@@ -88,7 +104,7 @@ graph = prepared_wiring.graph(
 下面是混用两种端点的完整例子，只同步就绪状态，不传递动作结果：
 
 ```python
-from rivlet import Edge, Graph, GraphInterface, GraphStructure, Step, run
+from rivlet import Edge, Graph, GraphInterface, Step, run
 
 compile_code = Step(lambda: print("compile"))
 install = Step(lambda: print("install"))
@@ -105,13 +121,13 @@ consumer = ((configure | check_report) >> launch).graph(
         outputs=launch,
     ),
 )
-workflow = Graph(GraphStructure(
+workflow = Graph(
     nodes=(producer, consumer),
     edges=(
         Edge(producer.interface.output, consumer.interface.input),
         Edge(producer.interface.outputs["report"], consumer.interface.inputs["report"]),
     ),
-))
+)
 run(workflow, max_workers=2)
 ```
 
@@ -132,7 +148,7 @@ run(workflow, max_workers=2)
 
 ## 转发与复用
 
-三种结构声明入口 `GraphStructure(...)`、`Graph.from_wiring(...)`、`wiring.graph(...)`
+三种结构声明入口 `Graph(...)`、`Graph.from_wiring(...)`、`wiring.graph(...)`
 均接受同一个 `interface` 参数。不写时使用空接口，不会自动公开内部图的端口。
 
 ```python
@@ -206,44 +222,34 @@ Edge(source=a, target=b, ports=("sdk-ready", "toolchain-ready"), condition=neede
 
 ## 跨图结果
 
-GraphStructure.interface 保存声明；Graph.interface 返回绑定该图节点的只读端口视图。
+Graph.interface 保存声明；Graph.interface 返回绑定该图节点的只读端口视图。
 输入端口是 InputPort，输出端口是 OutputPort；Step 没有 interface。端口引用保留所属
 Graph，不用 (Step, "port") 或额外 bind。以下是独立可执行的例子：
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step, run
+from rivlet import Edge, Execution, Graph, GraphInterface, Step, run
 
 plan = Step(lambda: "design", label="plan")
 producer = Graph(
-    GraphStructure(
-        nodes=(plan,),
-        interface=GraphInterface(outputs={"plan": plan}),
-    ),
-    label="producer",
+    nodes=(plan,), interface=GraphInterface(outputs={"plan": plan}), label=("producer")
 )
 work = Step(lambda ctx, value: print(value.unwrap()), label="work")
 consumer = Graph(
-    GraphStructure(
-        nodes=(work,),
-        interface=GraphInterface(inputs={"apply": work}),
-    ),
-    label="consumer",
+    nodes=(work,), interface=GraphInterface(inputs={"apply": work}), label=("consumer")
 )
 root = Graph(
-    GraphStructure(
-        nodes=(producer, consumer),
-        edges=Edge.results(
-            (producer.interface.outputs["plan"],),
-            consumer.interface.inputs["apply"],
-        ),
-    )
+    nodes=(producer, consumer),
+    edges=Edge.results(
+        (producer.interface.outputs["plan"],),
+        consumer.interface.inputs["apply"],
+    ),
 )
 run(root)
 ```
 
 公开入口可暂未绑定；最终编译检查每个真实叶子的完整参数组。输入端口指向多个叶子时，
 完整有序参数组传给每个接收方，均须符合签名；别名端口不能给同一叶子安装多组参数。
-复用 GraphStructure 时，必须创建不同 Graph 节点并从对应实例取端口；转发可直接用
+复用 Graph 时，必须创建不同 Graph 节点并从对应实例取端口；转发可直接用
 inputs=child、outputs=child，或 child.interface.inputs/outputs。外层转发不抹掉内部归属。
 运行时跳过的来源传 Nothing，成功返回 None 则传 Some(None)；失败阻断消费者。
 图间交错接线按真实叶子校验环，不用组件级粗略边判环。
@@ -318,7 +324,7 @@ bindings = resolve_port_requirements(
     ),
 )
 
-graph = Graph(structure=GraphStructure(nodes=((a, b, c)), edges=(bindings)))
+graph = Graph(nodes=(a, b, c), edges=bindings)
 ```
 
 没有选择时，多提供者属于歧义并直接失败。runtime 不会采用“谁先完成就用谁”，
@@ -411,7 +417,22 @@ B：
 
 ```python
 graph = (
-    Graph(structure=(a_graph).structure) >> Graph(structure=(b_graph).structure)
+    Graph(
+        nodes=(a_graph.nodes),
+        edges=(a_graph.edges),
+        observation=(a_graph.observation),
+        static=(a_graph.static),
+        static_selections=(a_graph.static_selections),
+        interface=a_graph.interface.declaration,
+    )
+    >> Graph(
+        nodes=(b_graph.nodes),
+        edges=(b_graph.edges),
+        observation=(b_graph.observation),
+        static=(b_graph.static),
+        static_selections=(b_graph.static_selections),
+        interface=b_graph.interface.declaration,
+    )
 ).graph()
 ```
 
@@ -446,8 +467,8 @@ A 和 B 的子图边界仍然保留；不会为了接线而展开声明图，也
 ```python
 from rivlet import run
 
-run(Execution(root=Graph(structure=(graph).structure)), mode="compiled")
-run(Execution(root=Graph(structure=(graph).structure)), mode="dynamic")
+run(Execution(root=graph), mode="compiled")
+run(Execution(root=graph), mode="dynamic")
 ```
 
 ## 当前语言边界

@@ -11,7 +11,6 @@ from rivlet import (
     Execution,
     Graph,
     GraphMode,
-    GraphStructure,
     NodeControl,
     NodeId,
     NodePath,
@@ -45,23 +44,24 @@ def test_shared_object_reaches_parallel_and_nested_actions(
     async def record_async(ctx: NodeRunContext) -> None:
         record(ctx)
 
-    def expand(ctx: NodeRunContext) -> GraphStructure:
+    def expand(ctx: NodeRunContext) -> Graph:
         record(ctx)
-        return Graph(structure=GraphStructure(nodes=(Step(record_async),))).structure
+        return Graph(nodes=(Step(record_async),))
 
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(
-                *(Step(record) for _ in range(12)),
-                Graph(structure=GraphStructure(nodes=(Step(record),))),
-                Step(expand),
-            )
+        nodes=(
+            *(Step(record) for _ in range(12)),
+            Graph(nodes=(Step(record),)),
+            Step(expand),
         )
     )
     # 同一份声明执行两次，各次显式提供的对象互不污染。
     for _ in range(2):
         progress = Progress()
-        execution = Execution(root=Graph(structure=graph.structure), shared=progress)
+        execution = Execution(
+            root=graph,
+            shared=progress,
+        )
         match executor:
             case "serial":
                 SerialGraphExecutor(shared=progress).execute(execution.compile())
@@ -73,7 +73,7 @@ def test_shared_object_reaches_parallel_and_nested_actions(
             *(f"0.{index}" for index in range(12)),
             "0.12.0",
             "0.13",
-            "0.13.0",
+            "0.13.0.0",
         }
         assert execution.execution_state.results is None
 

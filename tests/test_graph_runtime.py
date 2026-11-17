@@ -24,7 +24,6 @@ from rivlet import (
     GraphMode,
     GraphObservationEvent,
     GraphObservationMessages,
-    GraphStructure,
     NodePath,
     NodeRunContext,
     Option,
@@ -40,7 +39,7 @@ from rivlet import (
     render_live_execution,
 )
 from rivlet import run as run_execution
-from rivlet.compile import compile_graph
+from rivlet.compile import _compile_graph_scope
 from rivlet.runtime.compiled import CompiledExecutionHost
 
 
@@ -59,8 +58,8 @@ def _condition(name: str) -> StaticCondition:
 def test_compiled_host_forwards_only_new_skip_requests() -> None:
     first = Step(lambda: None, label=("first"))
     second = Step(lambda: None, label=("second"))
-    compilation = compile_graph(
-        Graph(structure=GraphStructure(nodes=(first, second))).structure,
+    compilation = _compile_graph_scope(
+        Graph(nodes=(first, second)),
         root_label="root",
     )
     state = ExecutionState(initial_skip_requests={NodePath((0,))})
@@ -119,11 +118,8 @@ def test_execution_rejects_pre_stopped_execution_control() -> None:
     control = ExecutionControl()
     control.request_stop()
     plan = Execution(
-        root=Graph(
-            structure=Graph.from_wiring(
-                wiring=(Step(lambda: calls.append("run")).wire(),)
-            ).structure,
-            label="root",
+        root=Graph.from_wiring(
+            wiring=((Step(lambda: calls.append("run")).wire(),)), label=("root")
         ),
         execution_control=control,
     )
@@ -141,7 +137,7 @@ def test_step_log_paths_resolve_at_construction(tmp_path: Path) -> None:
     second_log = tmp_path / "second.log"
 
     plan = Execution(
-        root=Graph(structure=GraphStructure(nodes=(first, second)), label="logs"),
+        root=Graph(nodes=(first, second), label=("logs")),
         node_log_paths={
             first: first_log,
             second: second_log,
@@ -183,7 +179,15 @@ def test_execution_run_executes_nested_graphs_in_topological_order() -> None:
         ),
     )
     prepare = Step(lambda _ctx: calls.append("prepare"), label=("prepare"))
-    stage = Graph(structure=nested.structure, label="stage")
+    stage = Graph(
+        nodes=nested.nodes,
+        edges=nested.edges,
+        observation=nested.observation,
+        static=nested.static,
+        static_selections=nested.static_selections,
+        interface=nested.interface.declaration,
+        label=("stage"),
+    )
     root = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -193,7 +197,15 @@ def test_execution_run_executes_nested_graphs_in_topological_order() -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=root.structure, label="root"),
+            root=Graph(
+                nodes=root.nodes,
+                edges=root.edges,
+                observation=root.observation,
+                static=root.static,
+                static_selections=root.static_selections,
+                interface=root.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -220,7 +232,7 @@ def test_execution_run_executes_nested_graphs_in_topological_order() -> None:
 
 
 def test_execution_state_cannot_be_reused() -> None:
-    plan = Execution(root=Graph(structure=GraphStructure(), label="root"))
+    plan = Execution(root=Graph(label=("root")))
 
     run_execution(plan)
 
@@ -236,11 +248,8 @@ def test_step_action_preserves_default_argument_capture() -> None:
 
     run_execution(
         Execution(
-            root=Graph(
-                structure=Graph.from_wiring(
-                    wiring=(Step(_capture, label="capture").wire(),)
-                ).structure,
-                label="root",
+            root=Graph.from_wiring(
+                wiring=((Step(_capture, label="capture").wire(),)), label=("root")
             ),
         )
     )
@@ -272,7 +281,15 @@ def test_execution_run_skips_marked_steps() -> None:
     )
     run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=state,
         ),
         max_workers=1,
@@ -299,12 +316,12 @@ def test_execution_run_skips_marked_steps() -> None:
 
 
 def test_execution_rejects_unknown_initial_skip_request() -> None:
-    graph = Graph(structure=GraphStructure(nodes=(Step(lambda: None, label="build"),)))
+    graph = Graph(nodes=(Step(lambda: None, label="build"),))
 
     with pytest.raises(RuntimeError, match="unknown graph skip requests: 0.1"):
         run_execution(
             Execution(
-                root=Graph(structure=graph.structure),
+                root=graph,
                 execution_state=ExecutionState(
                     initial_skip_requests={
                         NodePath(
@@ -337,7 +354,15 @@ def test_execution_run_uses_provided_state() -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         )
     )
@@ -366,7 +391,15 @@ def test_execution_run_records_sync_step_results() -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -418,7 +451,15 @@ def test_execution_run_records_async_step_results() -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -445,7 +486,15 @@ def test_execution_run_records_none_result() -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         )
     )
@@ -490,7 +539,15 @@ def test_execution_run_does_not_record_results_for_skipped_steps() -> None:
 
     run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=state,
         )
     )
@@ -518,7 +575,15 @@ def test_execution_run_does_not_record_results_for_failed_steps() -> None:
     try:
         run_execution(
             Execution(
-                root=Graph(structure=graph.structure, label="root"),
+                root=Graph(
+                    nodes=graph.nodes,
+                    edges=graph.edges,
+                    observation=graph.observation,
+                    static=graph.static,
+                    static_selections=graph.static_selections,
+                    interface=graph.interface.declaration,
+                    label=("root"),
+                ),
                 execution_state=state,
             )
         )
@@ -560,7 +625,15 @@ def test_parallel_graph_failure_does_not_request_global_stop() -> None:
     with pytest.raises(RuntimeError, match="boom"):
         run_execution(
             Execution(
-                root=Graph(structure=graph.structure, label="root"),
+                root=Graph(
+                    nodes=graph.nodes,
+                    edges=graph.edges,
+                    observation=graph.observation,
+                    static=graph.static,
+                    static_selections=graph.static_selections,
+                    interface=graph.interface.declaration,
+                    label=("root"),
+                ),
                 execution_state=ExecutionState(results=ResultStore()),
                 execution_control=execution_control,
             ),
@@ -592,7 +665,17 @@ def test_async_graph_failure_waits_for_started_steps() -> None:
         ),
     )
 
-    plan = Execution(root=Graph(structure=graph.structure, label="root"))
+    plan = Execution(
+        root=Graph(
+            nodes=graph.nodes,
+            edges=graph.edges,
+            observation=graph.observation,
+            static=graph.static,
+            static_selections=graph.static_selections,
+            interface=graph.interface.declaration,
+            label=("root"),
+        )
+    )
     with pytest.raises(RuntimeError, match="boom"):
         run_async_execution(plan, max_workers=2)
 
@@ -630,7 +713,7 @@ def test_execution_stop_does_not_dispatch_ready_successor(
     with pytest.raises(ExecutionStopped):
         (options)(
             Execution(
-                root=Graph(structure=graph.structure),
+                root=graph,
                 execution_control=execution_control,
             )
         )
@@ -646,18 +729,12 @@ def test_step_failure_does_not_cancel_shared_execution_control() -> None:
         raise RuntimeError("boom")
 
     first_plan = Execution(
-        root=Graph(
-            structure=Graph.from_wiring(wiring=(Step(_fail).wire(),)).structure,
-            label="build",
-        ),
+        root=Graph.from_wiring(wiring=((Step(_fail).wire(),)), label=("build")),
         execution_control=execution_control,
     )
     second_plan = Execution(
-        root=Graph(
-            structure=Graph.from_wiring(
-                wiring=(Step(lambda: calls.append("package")).wire(),)
-            ).structure,
-            label="package",
+        root=Graph.from_wiring(
+            wiring=((Step(lambda: calls.append("package")).wire(),)), label=("package")
         ),
         execution_control=execution_control,
     )
@@ -677,13 +754,29 @@ def test_execution_reads_nested_result_by_step_ref() -> None:
     nested = Graph.from_wiring(
         wiring=(nested_step.wire(),),
     )
-    stage = Graph(structure=nested.structure, label="stage")
+    stage = Graph(
+        nodes=nested.nodes,
+        edges=nested.edges,
+        observation=nested.observation,
+        static=nested.static,
+        static_selections=nested.static_selections,
+        interface=nested.interface.declaration,
+        label=("stage"),
+    )
     root = Graph.from_wiring(
         wiring=(stage.wire(),),
     )
 
     plan = Execution(
-        root=Graph(structure=root.structure, label="root"),
+        root=Graph(
+            nodes=root.nodes,
+            edges=root.edges,
+            observation=root.observation,
+            static=root.static,
+            static_selections=root.static_selections,
+            interface=root.interface.declaration,
+            label=("root"),
+        ),
         execution_state=ExecutionState(results=ResultStore()),
     )
     run_execution(plan)
@@ -699,13 +792,37 @@ def test_reused_subgraph_mounts_have_distinct_step_instances(
     shared_graph = Graph.from_wiring(
         wiring=(shared_step.wire(),),
     )
-    first = Graph(structure=shared_graph.structure, label="first")
-    second = Graph(structure=shared_graph.structure, label="second")
+    first = Graph(
+        nodes=shared_graph.nodes,
+        edges=shared_graph.edges,
+        observation=shared_graph.observation,
+        static=shared_graph.static,
+        static_selections=shared_graph.static_selections,
+        interface=shared_graph.interface.declaration,
+        label=("first"),
+    )
+    second = Graph(
+        nodes=shared_graph.nodes,
+        edges=shared_graph.edges,
+        observation=shared_graph.observation,
+        static=shared_graph.static,
+        static_selections=shared_graph.static_selections,
+        interface=shared_graph.interface.declaration,
+        label=("second"),
+    )
     root = Graph.from_wiring(
         wiring=(first.wire(), second.wire()),
     )
     plan = Execution(
-        root=Graph(structure=root.structure, label="root"),
+        root=Graph(
+            nodes=root.nodes,
+            edges=root.edges,
+            observation=root.observation,
+            static=root.static,
+            static_selections=root.static_selections,
+            interface=root.interface.declaration,
+            label=("root"),
+        ),
         execution_state=ExecutionState(results=ResultStore()),
     )
 
@@ -724,11 +841,11 @@ def test_dynamic_subgraph_captures_explicit_result_input() -> None:
 
     prepare = Step(_prepare, label=("prepare"))
 
-    def expand(_ctx: NodeRunContext, result: Option[object]) -> GraphStructure:
+    def expand(_ctx: NodeRunContext, result: Option[object]) -> Graph:
         nested_step = Step(lambda: f"nested:{result.unwrap()}", label=("nested"))
         return Graph.from_wiring(
             (nested_step.wire(),),
-        ).structure
+        )
 
     stage = Step(expand, label=("stage"))
     root = Graph.from_wiring(
@@ -740,13 +857,21 @@ def test_dynamic_subgraph_captures_explicit_result_input() -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=root.structure, label="root"),
+            root=Graph(
+                nodes=root.nodes,
+                edges=root.edges,
+                observation=root.observation,
+                static=root.static,
+                static_selections=root.static_selections,
+                interface=root.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         )
     )
 
     assert state.results is not None
-    assert state.results.require(NodePath((0, 1, 0))).value == "nested:prepared"
+    assert state.results.require(NodePath((0, 1, 0, 0))).value == "nested:prepared"
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -779,7 +904,15 @@ def test_runtime_condition_true_waits_for_source_step(mode: GraphMode) -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -848,7 +981,17 @@ def test_runtime_step_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
     )
 
     run_execution(
-        Execution(root=Graph(structure=graph.structure, label="root")),
+        Execution(
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            )
+        ),
         max_workers=1,
         mode=mode,
     )
@@ -891,7 +1034,17 @@ def test_runtime_edge_condition_is_evaluated_once_per_run(mode: GraphMode) -> No
     )
 
     run_execution(
-        Execution(root=Graph(structure=graph.structure, label="root")),
+        Execution(
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            )
+        ),
         max_workers=1,
         mode=mode,
     )
@@ -910,11 +1063,29 @@ def test_execution_render_does_not_reevaluate_runtime_condition() -> None:
     graph = Graph.from_wiring(
         wiring=(Step(lambda: None, label=("target"), condition=(_condition)).wire(),),
     )
-    plan = Execution(root=Graph(structure=graph.structure, label="root"))
+    plan = Execution(
+        root=Graph(
+            nodes=graph.nodes,
+            edges=graph.edges,
+            observation=graph.observation,
+            static=graph.static,
+            static_selections=graph.static_selections,
+            interface=graph.interface.declaration,
+            label=("root"),
+        )
+    )
 
     state = run_execution(plan)
     rendered = render_execution(
-        Graph(structure=graph.structure, label="root"),
+        Graph(
+            nodes=graph.nodes,
+            edges=graph.edges,
+            observation=graph.observation,
+            static=graph.static,
+            static_selections=graph.static_selections,
+            interface=graph.interface.declaration,
+            label=("root"),
+        ),
         state,
     )
 
@@ -954,7 +1125,15 @@ def test_runtime_condition_false_does_not_require_source_result(
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -1014,7 +1193,15 @@ def test_runtime_condition_false_does_not_wait_for_source(mode: GraphMode) -> No
 
     run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=3,
@@ -1053,7 +1240,15 @@ def test_parent_waits_for_all_steps_in_conditionally_connected_child(
             ),
         ),
     )
-    child_step = Graph(structure=child.structure, label="child")
+    child_step = Graph(
+        nodes=child.nodes,
+        edges=child.edges,
+        observation=child.observation,
+        static=child.static,
+        static_selections=child.static_selections,
+        interface=child.interface.declaration,
+        label=("child"),
+    )
     package = Step(_package, label=("package"))
     graph = Graph.from_wiring(
         wiring=(
@@ -1063,7 +1258,17 @@ def test_parent_waits_for_all_steps_in_conditionally_connected_child(
     )
 
     run_execution(
-        Execution(root=Graph(structure=graph.structure, label="root")),
+        Execution(
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            )
+        ),
         max_workers=4,
         mode=mode,
     )
@@ -1099,7 +1304,15 @@ def test_parent_prerequisite_blocks_all_conditionally_connected_child_steps(
         ),
     )
     prepare = Step(_prepare, label=("prepare"))
-    child_step = Graph(structure=child.structure, label="child")
+    child_step = Graph(
+        nodes=child.nodes,
+        edges=child.edges,
+        observation=child.observation,
+        static=child.static,
+        static_selections=child.static_selections,
+        interface=child.interface.declaration,
+        label=("child"),
+    )
     graph = Graph.from_wiring(
         wiring=(
             prepare.wire(),
@@ -1108,7 +1321,17 @@ def test_parent_prerequisite_blocks_all_conditionally_connected_child_steps(
     )
 
     run_execution(
-        Execution(root=Graph(structure=graph.structure, label="root")),
+        Execution(
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            )
+        ),
         max_workers=4,
         mode=mode,
     )
@@ -1135,19 +1358,19 @@ def test_empty_child_graph_preserves_parent_dependency_boundary(
     timer.start()
     try:
         prepare = Step(_prepare, label=("prepare"))
-        empty_stage = Graph(structure=GraphStructure(), label="empty_stage")
+        empty_stage = Graph(label=("empty_stage"))
         package = Step(_package, label=("package"))
         run_execution(
             Execution(
-                root=Graph(
-                    structure=Graph.from_wiring(
-                        wiring=(
+                root=Graph.from_wiring(
+                    wiring=(
+                        (
                             prepare.wire(),
                             empty_stage.wire(after=(prepare,)),
                             package.wire(after=(empty_stage,)),
                         )
-                    ).structure,
-                    label="root",
+                    ),
+                    label=("root"),
                 ),
             ),
             max_workers=2,
@@ -1171,7 +1394,7 @@ def test_compiled_skipped_composite_preserves_prerequisite_boundary() -> None:
             raise AssertionError("skipped composite bypassed its prerequisite")
 
     prepare = Step(_prepare, label=("prepare"))
-    stage = Graph(structure=GraphStructure(), label="stage")
+    stage = Graph(label=("stage"))
     package = Step(_package, label=("package"))
     graph = Graph.from_wiring(
         wiring=(
@@ -1182,7 +1405,15 @@ def test_compiled_skipped_composite_preserves_prerequisite_boundary() -> None:
     )
     run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(
                 initial_skip_requests={
                     NodePath(
@@ -1223,7 +1454,15 @@ def test_parent_waits_for_all_steps_in_child_with_disabled_step(
             target.wire(after=(disabled,)),
         ),
     )
-    child_step = Graph(structure=child.structure, label="child")
+    child_step = Graph(
+        nodes=child.nodes,
+        edges=child.edges,
+        observation=child.observation,
+        static=child.static,
+        static_selections=child.static_selections,
+        interface=child.interface.declaration,
+        label=("child"),
+    )
     package = Step(_package, label=("package"))
     graph = Graph.from_wiring(
         wiring=(
@@ -1233,7 +1472,17 @@ def test_parent_waits_for_all_steps_in_child_with_disabled_step(
     )
 
     run_execution(
-        Execution(root=Graph(structure=graph.structure, label="root")),
+        Execution(
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            )
+        ),
         max_workers=4,
         mode=mode,
     )
@@ -1265,7 +1514,17 @@ def test_child_graph_observation_is_preserved(
         ),
     )
     graph = Graph.from_wiring(
-        wiring=(Graph(structure=child.structure, label="child").wire(),),
+        wiring=(
+            Graph(
+                nodes=child.nodes,
+                edges=child.edges,
+                observation=child.observation,
+                static=child.static,
+                static_selections=child.static_selections,
+                interface=child.interface.declaration,
+                label=("child"),
+            ).wire(),
+        ),
         observation=GraphObservationMessages(
             before="before root",
             after_success="after root",
@@ -1273,7 +1532,17 @@ def test_child_graph_observation_is_preserved(
     )
 
     options(
-        Execution(root=Graph(structure=graph.structure, label="root")),
+        Execution(
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            )
+        ),
         observer=_Observer(),
         mode=mode,
     )
@@ -1290,16 +1559,24 @@ def test_serial_executor_runs_compiled_composite() -> None:
     calls: list[str] = []
     graph = Graph.from_wiring(
         wiring=(
-            Graph(
-                structure=Graph.from_wiring(
-                    wiring=(Step(lambda: calls.append("run"), label="run").wire(),)
-                ).structure,
-                label="stage",
+            Graph.from_wiring(
+                wiring=((Step(lambda: calls.append("run"), label="run").wire(),)),
+                label=("stage"),
             ).wire(),
         ),
     )
     state = SerialGraphExecutor().execute(
-        Execution(root=Graph(structure=graph.structure, label="root")).compile()
+        Execution(
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            )
+        ).compile()
     )
 
     assert calls == ["run"]
@@ -1318,10 +1595,10 @@ def test_serial_executor_runs_compiled_composite() -> None:
 def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
     prepare = Step(lambda: "prepared", label=("prepare"))
 
-    def _make_child(_ctx: NodeRunContext, result: Option[object]) -> GraphStructure:
+    def _make_child(_ctx: NodeRunContext, result: Option[object]) -> Graph:
         return Graph.from_wiring(
             wiring=(Step(lambda: result.unwrap(), label=("consume")).wire(),),
-        ).structure
+        )
 
     stage = Step(_make_child, label=("stage"))
     graph = Graph.from_wiring(
@@ -1333,7 +1610,15 @@ def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -1341,7 +1626,7 @@ def test_action_returned_graph_preserves_parent_scope(mode: GraphMode) -> None:
     )
 
     assert state.results is not None
-    assert state.results.require(NodePath((0, 1, 0))).value == "prepared"
+    assert state.results.require(NodePath((0, 1, 0, 0))).value == "prepared"
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -1351,7 +1636,7 @@ def test_live_render_uses_runtime_path_for_action_returned_graph(
     stage = Step(
         lambda: Graph.from_wiring(
             wiring=(Step(lambda: None, label=("consume")).wire(),),
-        ).structure,
+        ),
         label=("stage"),
     )
     graph = Graph.from_wiring(wiring=(stage.wire(),))
@@ -1359,16 +1644,35 @@ def test_live_render_uses_runtime_path_for_action_returned_graph(
 
     run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"), execution_state=state
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
+            execution_state=state,
         ),
         max_workers=1,
         mode=mode,
     )
 
     assert render_live_execution(
-        Graph(structure=graph.structure, label="root"),
+        Graph(
+            nodes=graph.nodes,
+            edges=graph.edges,
+            observation=graph.observation,
+            static=graph.static,
+            static_selections=graph.static_selections,
+            interface=graph.interface.declaration,
+            label=("root"),
+        ),
         state,
-    ) == ("graph=root mode=dynamic running=idle last=root/stage/consume remaining=0")
+    ) == (
+        "graph=root mode=dynamic running=idle last=root/stage/0.0.0/consume remaining=0"
+    )
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
@@ -1409,7 +1713,15 @@ def test_async_runtime_condition_false_does_not_wait_for_source(
 
     run_async_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=3,
@@ -1440,7 +1752,17 @@ def test_async_executor_runs_independent_sync_steps_concurrently(
     )
 
     run_async_execution(
-        Execution(root=Graph(structure=graph.structure, label="root")),
+        Execution(
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            )
+        ),
         max_workers=2,
         mode=mode,
     )
@@ -1465,7 +1787,7 @@ def test_returned_graph_inherits_step_log_path(
     observed_paths: list[Path | None] = []
     action_log = _RecordingActionLog()
 
-    def _make_child() -> GraphStructure:
+    def _make_child() -> Graph:
         return Graph.from_wiring(
             wiring=(
                 Step(
@@ -1473,14 +1795,11 @@ def test_returned_graph_inherits_step_log_path(
                     label=("write"),
                 ).wire(),
             ),
-        ).structure
+        )
 
     component = Step(_make_child, label=("component"))
     plan = Execution(
-        root=Graph(
-            structure=Graph.from_wiring(wiring=(component.wire(),)).structure,
-            label="root",
-        ),
+        root=Graph.from_wiring(wiring=((component.wire(),)), label=("root")),
         action_log=action_log,
         node_log_paths={component: step_log_path},
     )
@@ -1497,21 +1816,18 @@ def test_static_component_graph_inherits_bound_log_path(
     step_log_path = tmp_path / "component.log"
     observed_paths: list[Path | None] = []
     action_log = _RecordingActionLog()
-    component = Graph(
-        structure=Graph.from_wiring(
-            wiring=(
+    component = Graph.from_wiring(
+        wiring=(
+            (
                 Step(
                     lambda: observed_paths.append(action_log.active_path), label="build"
                 ).wire(),
             )
-        ).structure,
-        label="component",
+        ),
+        label=("component"),
     )
     plan = Execution(
-        root=Graph(
-            structure=Graph.from_wiring(wiring=(component.wire(),)).structure,
-            label="root",
-        ),
+        root=Graph.from_wiring(wiring=((component.wire(),)), label=("root")),
         action_log=action_log,
         node_log_paths={component: step_log_path},
     )
@@ -1546,7 +1862,15 @@ def test_run_freezes_static_conditions_before_execution(mode: GraphMode) -> None
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -1587,7 +1911,15 @@ def test_step_when_false_skips_step_and_allows_downstream_continue(
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -1634,9 +1966,9 @@ def test_dynamic_step_when_false_skips_graph_step() -> None:
     nested_calls: list[str] = []
     probe = Step(lambda _ctx: False, label=("probe"))
     configure = Step(lambda _ctx: nested_calls.append("configure"), label=("configure"))
-    stage = Graph(
-        structure=Graph.from_wiring(wiring=(configure.wire(),)).structure,
-        label="stage",
+    stage = Graph.from_wiring(
+        wiring=((configure.wire(),)),
+        label=("stage"),
         condition=(_stage_condition := (lambda result: bool(result.unwrap()), probe)),
     )
     package = Step(lambda _ctx: "packaged", label=("package"))
@@ -1652,7 +1984,15 @@ def test_dynamic_step_when_false_skips_graph_step() -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -1692,9 +2032,9 @@ def test_dynamic_step_when_false_skips_graph_step() -> None:
 def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
     probe = Step(lambda _ctx: False, label=("probe"))
     configure = Step(lambda _ctx: "cfg", label=("configure"))
-    stage = Graph(
-        structure=Graph.from_wiring(wiring=(configure.wire(),)).structure,
-        label="stage",
+    stage = Graph.from_wiring(
+        wiring=((configure.wire(),)),
+        label=("stage"),
         condition=(_stage_condition := (lambda result: bool(result.unwrap()), probe)),
     )
     package = Step(lambda _ctx: "packaged", label=("package"))
@@ -1710,7 +2050,15 @@ def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -1749,9 +2097,9 @@ def test_compiled_runtime_when_false_matches_dynamic_for_graph_step() -> None:
 def test_compiled_runtime_when_true_activates_composite() -> None:
     probe = Step(lambda _ctx: "prepared", label=("probe"))
     configure = Step(lambda: "configured", label=("configure"))
-    stage = Graph(
-        structure=Graph.from_wiring(wiring=(configure.wire(),)).structure,
-        label="stage",
+    stage = Graph.from_wiring(
+        wiring=((configure.wire(),)),
+        label=("stage"),
         condition=(_stage_condition := (lambda result: bool(result.unwrap()), probe)),
     )
     graph = Graph.from_wiring(
@@ -1765,7 +2113,15 @@ def test_compiled_runtime_when_true_activates_composite() -> None:
 
     state = run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -1822,7 +2178,15 @@ def test_execution_run_logs_step_skip_by_condition(
 
     run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
         ),
         max_workers=1,
@@ -1851,7 +2215,15 @@ def test_execution_run_writes_execution_render_to_run_log_dir(
 
     run_execution(
         Execution(
-            root=Graph(structure=graph.structure, label="root"),
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("root"),
+            ),
             execution_state=ExecutionState(results=ResultStore()),
             execution_output=TreeFileExecutionOutput(tmp_path),
         ),

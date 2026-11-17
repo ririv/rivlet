@@ -119,8 +119,8 @@ class CompiledExecutionHost:
 
     def record_failure(self, node: int, error: Exception) -> None:
         path = "/".join(self.compilation._execution_node(node).path.labels)
-        error.add_note(f"GraphStructure node: {path}")
-        logger.error("GraphStructure node failed: %s: %s", path, error)
+        error.add_note(f"Graph node: {path}")
+        logger.error("Graph node failed: %s: %s", path, error)
         self._failures.append(error)
 
     def failure_step_path(self) -> NodePath:
@@ -141,7 +141,7 @@ class CompiledExecutionHost:
         if len(self._failures) == 1:
             raise self._failures[0]
         if self._failures:
-            raise ExceptionGroup("GraphStructure execution failed", self._failures)
+            raise ExceptionGroup("Graph execution failed", self._failures)
 
     def apply_events(self, events: list[EncodedExecutionEvent]) -> None:
         for event in events:

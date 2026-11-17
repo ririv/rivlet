@@ -192,7 +192,7 @@ impl<'py> Collector<'py> {
         let mut port_scopes = owner.map_or_else(Vec::new, |node| {
             self.graphs[self.nodes[node].graph].port_scopes.clone()
         });
-        let interface = source_graph.getattr("interface")?;
+        let interface = source_graph.getattr("_interface")?;
         if interface.getattr("inputs")?.len()? != 0 || interface.getattr("outputs")?.len()? != 0 {
             port_scopes.push(graph_index);
         }
@@ -316,9 +316,8 @@ impl<'py> Collector<'py> {
         let mut child_label_path = self.graphs[graph_index].label_path.clone();
         child_label_path.push(step_label.to_owned());
         let child_graph = if action.is_instance(&self.types.graph)? {
-            let structure = action.getattr("structure")?;
             Some(self.collect_graph(
-                &structure,
+                action,
                 step_label,
                 child_label_path,
                 Some(node_index),
@@ -767,7 +766,7 @@ fn require_interface_port<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     // 映射按能力直接查找，平均 O(1)，不再逐端口跨语言扫描。
     graph
-        .getattr("interface")?
+        .getattr("_interface")?
         .getattr(attribute)?
         .get_item(port)
 }

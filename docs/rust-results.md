@@ -11,7 +11,7 @@ There is no implicit JSON conversion and no result lookup added to action contex
 ```rust
 use std::sync::Arc;
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, GraphStructure, Step};
+use graph::{Edge, Graph, Step};
 
 struct Plan { count: i64 }
 struct Design;
@@ -39,7 +39,7 @@ fn workflow() -> Result<graph::Compilation, graph::GraphError> {
     let design = Step::new("design", ActionHandle::new(Design))?;
     let apply = Step::new("apply", ActionHandle::new(Apply))?;
     let results = Edge::results([&design], &apply)?;
-    GraphStructure::new([design.into(), apply.into()], [results])?.compile_structure()
+    Graph::new("scope", [design.into(), apply.into()], [results])?.compile()
 }
 ```
 
@@ -67,7 +67,7 @@ let edge = Edge::results(
 ```
 
 Input forwarding may reach several leaves. Each receives the entire ordered group
-and is checked independently. Two graph nodes sharing a GraphStructure retain
+and is checked independently. Two graph nodes sharing a Graph retain
 separate mounted indexes and results; declaration identity alone is never a store key.
 The executor must retain results within their execution session/index namespace.
 

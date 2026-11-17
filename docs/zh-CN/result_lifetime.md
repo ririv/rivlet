@@ -23,16 +23,13 @@ action 返回子图时，子图会被执行，而不是作为普通载荷保存�
 例如，一条结果边也会使 `unrelated` 的结果被记录：
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphStructure, Step, run
+from rivlet import Edge, Execution, Graph, Step, run
 
 source = Step(lambda: "plan", label="source")
 consumer = Step(lambda _ctx, result: print(result.unwrap()), label="consumer")
 unrelated = Step(lambda: "not consumed", label="unrelated")
 workflow = Graph(
-    GraphStructure(
-        nodes=(source, consumer, unrelated),
-        edges=Edge.results((source,), consumer),
-    )
+    nodes=(source, consumer, unrelated), edges=Edge.results((source,), consumer)
 )
 execution = Execution(workflow)
 run(execution, max_workers=2)

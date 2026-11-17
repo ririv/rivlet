@@ -6,7 +6,6 @@ from rivlet import (
     Execution,
     ExecutionState,
     Graph,
-    GraphStructure,
     ResultStore,
     Step,
     export_graph,
@@ -23,9 +22,9 @@ def test_export_does_not_include_results_shared_state_or_callable_representation
 
     secret = Secret()
     step = Step(lambda: secret, label=("public label"))
-    graph = Graph(structure=GraphStructure(nodes=(step,)))
+    graph = Graph(nodes=(step,))
     execution = Execution(
-        Graph(structure=graph.structure),
+        graph,
         shared=secret,
         execution_state=ExecutionState(results=ResultStore()),
     )
@@ -39,15 +38,25 @@ def test_export_does_not_include_results_shared_state_or_callable_representation
 
 
 def test_unused_invalid_selection_under_pruned_parent_is_never_evaluated() -> None:
-    from rivlet import Case, Graph, GraphStructure, static
+    from rivlet import Case, Graph, static
 
     unused = static.select(cases=()).graph()
     graph = static.select(
         cases=(
-            Case(False, Graph(structure=unused.structure)),
-            Case(True, Graph(structure=GraphStructure())),
+            Case(
+                False,
+                Graph(
+                    nodes=unused.nodes,
+                    edges=unused.edges,
+                    observation=unused.observation,
+                    static=unused.static,
+                    static_selections=unused.static_selections,
+                    interface=unused.interface.declaration,
+                ),
+            ),
+            Case(True, Graph()),
         )
     ).graph()
-    document = export_graph(Execution(Graph(structure=graph.structure)).compile())
+    document = export_graph(Execution(graph).compile())
     assert document["excluded_nodes"] == ["0.0"]
     assert [node["id"] for node in document["nodes"]] == ["0", "0.1"]

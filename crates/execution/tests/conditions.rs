@@ -6,20 +6,20 @@ use action::{Action, ActionContext, ActionError, ActionHandle};
 use execution::{
     ConditionOutcome, Execution, ExecutionOptions, ExecutionOutcome, ExecutionStatus, NodeOutcome,
 };
-use graph::{
-    Compilation, Condition, Edge, Graph, GraphInterface, GraphStructure, Projection, Step,
-};
+use graph::{Compilation, Condition, Edge, Graph, GraphInterface, Projection, Step};
 use rivlet::{BlockCause, NodeId};
 
 fn id(compilation: &Compilation, path: &[usize]) -> NodeId {
+    // 原先只编译内部结构；现在完整 Graph 根也具有自己的挂载路径。
+    let path = [&[0], path].concat();
     (0..compilation.graph().nodes().len())
         .map(NodeId::new)
-        .find(|id| compilation.node(*id).path() == path)
+        .find(|id| compilation.node(*id).path() == path.as_slice())
         .unwrap()
 }
-fn execute(body: GraphStructure, workers: usize) -> ExecutionOutcome {
+fn execute(body: Graph, workers: usize) -> ExecutionOutcome {
     Execution::new(
-        Projection::from_structure(Arc::new(body))
+        Projection::from_node(body.into())
             .unwrap()
             .compile()
             .unwrap(),
@@ -85,7 +85,8 @@ fn node_predicate_and_action_receive_separate_typed_inputs() {
     )
     .unwrap();
     let apply = Step::with_condition("apply", ActionHandle::new(Double), condition).unwrap();
-    let body = GraphStructure::new(
+    let body = Graph::new(
+        "scope",
         [decision.into(), source.clone().into(), apply.clone().into()],
         [Edge::results([&source], &apply).unwrap()],
     )
@@ -107,7 +108,8 @@ fn false_node_condition_produces_missing_inputs_not_failed_outputs() {
     let source = Step::with_condition("skipped", ActionHandle::new(Never), condition).unwrap();
     let target = Step::new("target", ActionHandle::new(Double)).unwrap();
     let outcome = execute(
-        GraphStructure::new(
+        Graph::new(
+            "scope",
             [source.clone().into(), target.clone().into()],
             [Edge::results([&source], &target).unwrap()],
         )
@@ -137,12 +139,19 @@ fn graph_condition_skips_its_whole_body_but_not_independent_work() {
     let child = Step::with_condition("never", ActionHandle::new(Never), child_condition).unwrap();
     let graph = Graph::with_condition(
         "skipped",
-        Arc::new(GraphStructure::new([child.into()], []).unwrap()),
+        [child.into()],
+        [],
+        GraphInterface::default(),
         Condition::new(|()| Ok(false), []).unwrap(),
     )
     .unwrap();
     let outcome = execute(
-        GraphStructure::new([graph.into(), number("independent", 42).into()], []).unwrap(),
+        Graph::new(
+            "scope",
+            [graph.into(), number("independent", 42).into()],
+            [],
+        )
+        .unwrap(),
         2,
     );
     assert!(matches!(
@@ -178,7 +187,8 @@ fn predicate_failure_keeps_its_error_and_only_blocks_dependents() {
     .unwrap();
     let downstream = Step::new("downstream", ActionHandle::new(Never)).unwrap();
     let outcome = execute(
-        GraphStructure::new(
+        Graph::new(
+            "scope",
             [
                 guarded.clone().into(),
                 downstream.clone().into(),
@@ -220,7 +230,7 @@ fn failed_condition_input_never_invokes_its_predicate() {
     .unwrap();
     let guarded = Step::with_condition("guarded", ActionHandle::new(Never), condition).unwrap();
     let outcome = execute(
-        GraphStructure::new([source.into(), guarded.into()], []).unwrap(),
+        Graph::new("scope", [source.into(), guarded.into()], []).unwrap(),
         2,
     );
     let guarded = id(outcome.compilation(), &[1]);
@@ -244,7 +254,7 @@ fn predicate_panic_is_isolated_like_an_action_failure() {
     )
     .unwrap();
     let outcome = execute(
-        GraphStructure::new([guarded.into(), number("good", 42).into()], []).unwrap(),
+        Graph::new("scope", [guarded.into(), number("good", 42).into()], []).unwrap(),
         2,
     );
     let guarded = id(outcome.compilation(), &[0]);
@@ -273,11 +283,23 @@ fn shared_structure_predicates_bind_each_mounts_own_result() {
     .unwrap();
     let guarded =
         Step::with_condition("guarded", ActionHandle::new(Number(42)), condition).unwrap();
-    let body = Arc::new(GraphStructure::new([source.into(), guarded.into()], []).unwrap());
-    let left = Graph::new("left", Arc::clone(&body)).unwrap();
-    let right = Graph::new("right", body).unwrap();
+    let body = Arc::new(Graph::new("scope", [source.into(), guarded.into()], []).unwrap());
+    let left = Graph::with_interface(
+        "left",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+    )
+    .unwrap();
+    let right = Graph::with_interface(
+        "right",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+    )
+    .unwrap();
     let outcome = execute(
-        GraphStructure::new([left.into(), right.into()], []).unwrap(),
+        Graph::new("scope", [left.into(), right.into()], []).unwrap(),
         2,
     );
     for prefix in [0, 1] {
@@ -306,14 +328,16 @@ fn shared_compilation_rechecks_graph_conditions_in_each_execution() {
     .unwrap();
     let child = Graph::with_condition(
         "child",
-        Arc::new(GraphStructure::new([number("result", 42).into()], []).unwrap()),
+        [number("result", 42).into()],
+        [],
+        GraphInterface::default(),
         condition,
     )
     .unwrap();
     let compilation = Arc::new(
-        GraphStructure::new([source.into(), child.into()], [])
+        Graph::new("scope", [source.into(), child.into()], [])
             .unwrap()
-            .compile_structure()
+            .compile()
             .unwrap(),
     );
     let child = id(&compilation, &[1]);
@@ -383,7 +407,7 @@ fn false_edge_condition_releases_consumer_without_cancelling_source() {
         Condition::new(|()| Ok(false), []).unwrap(),
     );
     let outcome = execute(
-        GraphStructure::new([source.into(), target.into()], [edge]).unwrap(),
+        Graph::new("scope", [source.into(), target.into()], [edge]).unwrap(),
         2,
     );
     assert_eq!(outcome.status(), ExecutionStatus::Succeeded);
@@ -398,53 +422,38 @@ fn false_edge_condition_releases_consumer_without_cancelling_source() {
 fn conditional_ports_and_forwarded_predicate_inputs_preserve_interleaving() {
     let source = number("source", 21);
     let finish = number("finish", 1);
-    let inner = Graph::new(
+    let inner = Graph::with_interface(
         "inner",
-        Arc::new(
-            GraphStructure::with_interface(
-                [source.clone().into(), finish.clone().into()],
-                [Edge::new(&source, &finish)],
-                GraphInterface::default()
-                    .output("plan", &source)
-                    .unwrap()
-                    .input("finish", [&finish])
-                    .unwrap(),
-            )
+        [source.clone().into(), finish.clone().into()],
+        [Edge::new(&source, &finish)],
+        GraphInterface::default()
+            .output("plan", &source)
+            .unwrap()
+            .input("finish", [&finish])
             .unwrap(),
-        ),
     )
     .unwrap();
-    let provider = Graph::new(
+    let provider = Graph::with_interface(
         "provider",
-        Arc::new(
-            GraphStructure::with_interface(
-                [inner.clone().into()],
-                [],
-                GraphInterface::default()
-                    .output("plan", inner.interface().output("plan").unwrap())
-                    .unwrap()
-                    .input("finish", [inner.interface().input("finish").unwrap()])
-                    .unwrap(),
-            )
+        [inner.clone().into()],
+        [],
+        GraphInterface::default()
+            .output("plan", inner.interface().output("plan").unwrap())
+            .unwrap()
+            .input("finish", [inner.interface().input("finish").unwrap()])
             .unwrap(),
-        ),
     )
     .unwrap();
     let apply = Step::new("apply", ActionHandle::new(Double)).unwrap();
-    let consumer = Graph::new(
+    let consumer = Graph::with_interface(
         "consumer",
-        Arc::new(
-            GraphStructure::with_interface(
-                [apply.clone().into()],
-                [],
-                GraphInterface::default()
-                    .input("apply", [&apply])
-                    .unwrap()
-                    .output("done", &apply)
-                    .unwrap(),
-            )
+        [apply.clone().into()],
+        [],
+        GraphInterface::default()
+            .input("apply", [&apply])
+            .unwrap()
+            .output("done", &apply)
             .unwrap(),
-        ),
     )
     .unwrap();
     let condition = Condition::new(
@@ -453,7 +462,8 @@ fn conditional_ports_and_forwarded_predicate_inputs_preserve_interleaving() {
     )
     .unwrap();
     let outcome = execute(
-        GraphStructure::new(
+        Graph::new(
+            "scope",
             [provider.clone().into(), consumer.clone().into()],
             [
                 Edge::results(
@@ -495,9 +505,9 @@ fn compiled_predicates_accept_skipped_inputs() {
     .unwrap();
     let guarded =
         Step::with_condition("guarded", ActionHandle::new(Number(42)), condition).unwrap();
-    let compilation = GraphStructure::new([source.into(), guarded.into()], [])
+    let compilation = Graph::new("scope", [source.into(), guarded.into()], [])
         .unwrap()
-        .compile_structure()
+        .compile()
         .unwrap();
     let skipped = id(&compilation, &[0]);
     let outcome = Execution::new(
@@ -537,7 +547,7 @@ fn predicates_share_the_actual_nonclone_payload_without_serialization() {
     let a = Step::with_condition("a", ActionHandle::new(Number(1)), condition.clone()).unwrap();
     let b = Step::with_condition("b", ActionHandle::new(Number(2)), condition).unwrap();
     let outcome = execute(
-        GraphStructure::new([source.into(), a.into(), b.into()], []).unwrap(),
+        Graph::new("scope", [source.into(), a.into(), b.into()], []).unwrap(),
         2,
     );
     assert_eq!(outcome.status(), ExecutionStatus::Succeeded);

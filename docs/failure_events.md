@@ -68,7 +68,7 @@ class Events:
                 print(event.node_path, event.state)
 
 
-run(Execution(Graph(structure=(graph).structure), events=Events()))
+run(Execution(graph, events=Events()))
 ```
 
 ## Direct witnesses

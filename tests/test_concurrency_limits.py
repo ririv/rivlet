@@ -15,7 +15,6 @@ from rivlet import (
     Graph,
     GraphError,
     GraphInterface,
-    GraphStructure,
     StaticCondition,
     StaticConditions,
     Step,
@@ -57,10 +56,8 @@ def test_nested_limits_cover_mixed_actions_with_one_pool(asynchronous):
         with activity.enter("root", "right"):
             await asyncio.sleep(0.01)
 
-    left = Graph(GraphStructure(nodes=tuple(Step(synchronous) for _ in range(12))))
-    right = Graph(
-        GraphStructure(nodes=tuple(Step(asynchronous_action) for _ in range(12)))
-    )
+    left = Graph(nodes=tuple(Step(synchronous) for _ in range(12)))
+    right = Graph(nodes=tuple(Step(asynchronous_action) for _ in range(12)))
     root = (left | right).graph()
     execution = Execution(root)
     compilation = execution.compile()
@@ -89,10 +86,10 @@ def test_dynamic_sessions_release_parent_and_inherit_all_scopes(asynchronous):
 
     def expand():
         with activity.enter("root"):
-            return Graph(GraphStructure(nodes=tuple(Step(leaf) for _ in range(4))))
+            return Graph(nodes=tuple(Step(leaf) for _ in range(4)))
 
     branch = Step(expand)
-    root = Graph(GraphStructure(nodes=(branch, Step(expand), Step(expand))))
+    root = Graph(nodes=(branch, Step(expand), Step(expand)))
     limits = {root: 1, branch: 1}
     if asynchronous:
         asyncio.run(arun(root, max_workers=4, max_concurrency=limits))
@@ -117,7 +114,7 @@ def test_sync_returned_awaitable_keeps_its_admission(asynchronous):
 
         return finish()
 
-    root = Graph(GraphStructure(nodes=tuple(Step(action) for _ in range(8))))
+    root = Graph(nodes=tuple(Step(action) for _ in range(8)))
     if asynchronous:
         asyncio.run(arun(root, max_workers=4, max_concurrency={root: 1}))
     else:
@@ -134,7 +131,7 @@ def test_request_mapping_is_snapshotted_before_actions_start():
         with activity.enter("root"):
             await asyncio.sleep(0.001)
 
-    root = Graph(GraphStructure(nodes=tuple(Step(action) for _ in range(6))))
+    root = Graph(nodes=tuple(Step(action) for _ in range(6)))
     limits[root] = 1
     run(root, max_workers=4, max_concurrency=limits)
     assert activity.calls["root"] == 6
@@ -146,8 +143,8 @@ def test_deep_dynamic_sessions_inherit_limits_through_unbounded_children():
 
     def expand(depth):
         if depth == 0:
-            return GraphStructure(nodes=(Step(lambda: calls.append("leaf")),))
-        return GraphStructure(nodes=(Step(lambda: expand(depth - 1)),))
+            return Graph(nodes=(Step(lambda: calls.append("leaf")),))
+        return Graph(nodes=(Step(lambda: expand(depth - 1)),))
 
     root = Step(lambda: expand(8))
     run(root, max_workers=1, max_concurrency={root: 1})
@@ -161,9 +158,7 @@ def test_limited_branch_does_not_block_independent_branch():
     def blocking():
         assert released.wait(3)
 
-    limited = Graph(
-        GraphStructure(nodes=(Step(blocking), Step(lambda: calls.append("later"))))
-    )
+    limited = Graph(nodes=(Step(blocking), Step(lambda: calls.append("later"))))
     root = (limited | Step(released.set)).graph()
     run(root, max_workers=2, max_concurrency={limited: 1})
     assert calls == ["later"]
@@ -178,11 +173,7 @@ def test_failed_action_releases_capacity_without_running_failed_dependents():
     failed = Step(fail)
     blocked = Step(lambda: pytest.fail("failed dependent cannot run"))
     independent = Step(lambda: calls.append("independent"))
-    root = Graph(
-        GraphStructure(
-            nodes=(failed, blocked, independent), edges=(Edge(failed, blocked),)
-        )
-    )
+    root = Graph(nodes=(failed, blocked, independent), edges=(Edge(failed, blocked),))
     with pytest.raises(ValueError, match="limited action failed"):
         run(root, max_workers=3, max_concurrency={root: 1})
     assert calls == ["independent"]
@@ -190,9 +181,7 @@ def test_failed_action_releases_capacity_without_running_failed_dependents():
 
 def test_ports_and_condition_inputs_keep_their_normal_dependencies():
     plan = Step(lambda: 42)
-    producer = Graph(
-        GraphStructure(nodes=(plan,), interface=GraphInterface(outputs={"plan": plan}))
-    )
+    producer = Graph(nodes=(plan,), interface=GraphInterface(outputs={"plan": plan}))
     received = []
     relay = Step(lambda _ctx, value: value.unwrap())
     work = Step(
@@ -200,13 +189,11 @@ def test_ports_and_condition_inputs_keep_their_normal_dependencies():
         condition=(lambda value: value.unwrap() == 42, relay),
     )
     root = Graph(
-        GraphStructure(
-            nodes=(producer, relay, work),
-            edges=(
-                *Edge.results((producer.interface.outputs["plan"],), relay),
-                *Edge.results((relay,), work),
-            ),
-        )
+        nodes=(producer, relay, work),
+        edges=(
+            *Edge.results((producer.interface.outputs["plan"],), relay),
+            *Edge.results((relay,), work),
+        ),
     )
     run(root, max_workers=2, max_concurrency={root: 1, producer: 1})
     assert received == [42]
@@ -231,8 +218,15 @@ def test_invalid_limit_fails_before_any_action(maximum):
 
 def test_unmounted_or_ambiguous_node_is_not_silently_ignored():
     child = Step(lambda: pytest.fail("invalid configuration cannot run"))
-    left = Graph(GraphStructure(nodes=(child,)))
-    right = Graph(left.structure)
+    left = Graph(nodes=(child,))
+    right = Graph(
+        nodes=left.nodes,
+        edges=left.edges,
+        observation=left.observation,
+        static=left.static,
+        static_selections=left.static_selections,
+        interface=left.interface.declaration,
+    )
     with pytest.raises(RuntimeError, match="mounted more than once"):
         run((left | right).graph(), max_concurrency={child: 1})
     with pytest.raises(RuntimeError, match="not mounted"):
@@ -246,8 +240,25 @@ def test_distinct_mounts_of_one_structure_have_independent_limits():
         with activity.enter("all"):
             await asyncio.sleep(0.01)
 
-    structure = GraphStructure(nodes=tuple(Step(action) for _ in range(4)))
-    left, right = Graph(structure), Graph(structure)
+    structure = Graph(nodes=tuple(Step(action) for _ in range(4)))
+    left, right = (
+        Graph(
+            nodes=structure.nodes,
+            edges=structure.edges,
+            observation=structure.observation,
+            static=structure.static,
+            static_selections=structure.static_selections,
+            interface=structure.interface.declaration,
+        ),
+        Graph(
+            nodes=structure.nodes,
+            edges=structure.edges,
+            observation=structure.observation,
+            static=structure.static,
+            static_selections=structure.static_selections,
+            interface=structure.interface.declaration,
+        ),
+    )
     run((left | right).graph(), max_concurrency={left: 1, right: 1})
     assert activity.calls["all"] == 8
     assert activity.peak["all"] == 2
@@ -263,7 +274,7 @@ def test_cancellation_does_not_start_waiting_actions_or_close_borrowed_pool():
             started.set()
             await asyncio.sleep(0.02)
 
-        root = Graph(GraphStructure(nodes=tuple(Step(action) for _ in range(8))))
+        root = Graph(nodes=tuple(Step(action) for _ in range(8)))
         with ThreadPoolExecutor(max_workers=2) as pool:
             task = asyncio.create_task(
                 Execution(root).arun(pool=pool, max_concurrency={root: 1})

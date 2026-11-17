@@ -73,13 +73,13 @@ None，之后返回该对象。编译异常不提交半成品。重新求静态�
 当前渲染接口分两类：
 
 - `render_graph(...)`
-  - 接受 Step / Graph、GraphStructure 或 GraphCompilation
+  - 接受 Step / Graph 或 GraphCompilation
   - 纯结构展示显式接收检查标题 `root_label`；不覆盖 Graph 自身的 label
   - `mode="dynamic"` 时返回终端友好的组合结构树
   - `mode="compiled"` 时返回 compilation 视图文本
   - 若传入 `GraphCompilation` 且 `mode="dynamic"`，按 `source_graph` 的组合结构渲染
 - `render_graph_mermaid(...)`
-  - 接受 Step / Graph、GraphStructure 或 GraphCompilation
+  - 接受 Step / Graph 或 GraphCompilation
   - 纯结构展示显式接收检查标题 `root_label`；不覆盖 Graph 自身的 label
   - `mode="dynamic"` 时返回原始 `Graph` 的结构 mermaid
   - `mode="compiled"` 时返回 compilation mermaid
@@ -190,7 +190,7 @@ control 是一次性的执行作用域：一旦收到停止请求，就不会恢
 `Execution` 默认创建独享 control：
 
 ```python
-execution = Execution(root=Graph(structure=(graph).structure))
+execution = Execution(root=graph)
 ```
 
 独立使用 Graph 时，不会触碰宿主的进程级停止状态。若宿主把多个顺序 Execution 视为同一
@@ -198,11 +198,9 @@ execution = Execution(root=Graph(structure=(graph).structure))
 
 ```python
 control = ExecutionControl()
-first_execution = Execution(
-    root=Graph(structure=(first_graph).structure), execution_control=control
-)
+first_execution = Execution(root=first_graph, execution_control=control)
 second_execution = Execution(
-    root=Graph(structure=(second_graph).structure),
+    root=second_graph,
     execution_control=control,
 )
 ```
@@ -304,10 +302,10 @@ Rivlet 当前提供职责明确的接入接口，没有通用 `before_step` / `a
 
 ## DAG 约束
 
-Step/Graph 校验自身元信息；GraphStructure 在构造阶段校验结构：
+Step/Graph 校验自身元信息；Graph 在构造阶段校验结构：
 
 - 显式提供的 graph label 非空；省略 label 合法
-- GraphStructure.nodes 只包含 Step 或 Graph
+- Graph.nodes 只包含 Step 或 Graph
 - 同一个 Node 对象没有重复挂载
 - edge 的 source / target 都属于当前图
 - 无环
@@ -332,7 +330,7 @@ Graph 将本层显式边和运行时条件读取投影为整数节点与阻塞�
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from rivlet import Graph, GraphStructure, Step, run, step
+from rivlet import Graph, Step, run, step
 
 
 def prepare_files(directory: Path) -> None:
@@ -349,9 +347,7 @@ def make_jobs(files: tuple[Path, ...]) -> Graph:
 
         return process
 
-    return Graph(
-        GraphStructure(nodes=tuple(make_job(path) for path in files)), label="jobs"
-    )
+    return Graph(nodes=tuple(make_job(path) for path in files), label=("jobs"))
 
 
 def verify_outputs(directory: Path) -> None:
@@ -412,7 +408,7 @@ with TemporaryDirectory() as temporary:
 
 ### 编译与结果作用域
 
-Graph 自身是声明态复合节点，内部可复用结构保存在 graph.structure；不再用 Step 包装。
+Graph 自身是声明态复合节点，直接持有 nodes、edges、interface 定义和静态规则；不再用 Step 包装。
 
 Rust compiler 会转换所有声明期已知子图：
 

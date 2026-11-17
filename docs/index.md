@@ -21,7 +21,7 @@ and Rust declaration APIs.
 
 ## Design goals
 
-Step and Graph are actual nodes; GraphStructure holds reusable structure.
+Step and Graph are actual nodes; Graph holds reusable structure.
 Execution owns one run. Declarations reference actual nodes. Internal `NodePath` values are assigned to mounted
 nodes, while labels serve presentation only.
 
@@ -65,7 +65,7 @@ performance guarantee for the latest release.
 | `Graph` | Composite node with identity, lifecycle, and a reusable body |
 | `Execution` | A declaration and one execution scope |
 | `Node` / `NodeKind` | Shared Step/Graph protocol / closed executable union |
-| `GraphStructure.edges` | Explicit wiring within a reusable structure |
+| `Graph.edges` | Explicit wiring within a reusable structure |
 | `Node.wire(after=(Results(...),))` / `Edge.results(...)` | Ordered action results; conditions declare their own sources |
 | `NodeWiring` / `GraphWiring` | Declaration-time composition |
 | `GraphCompilation` | Runtime execution structure and composite boundaries |

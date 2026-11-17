@@ -64,7 +64,7 @@ condition = all_(
 假设发布流程仅在配置要求时等待验证。此例只控制依赖边，验证节点始终启用：
 
 ```python
-from rivlet import Edge, Graph, GraphStructure, StaticCondition, StaticConditions, Step
+from rivlet import Edge, Graph, StaticCondition, StaticConditions, Step
 
 collect = Step(lambda: print("collect"), label="collect")
 validate = Step(lambda: print("validate"), label="validate")
@@ -75,21 +75,15 @@ condition = StaticCondition(
     description="wait for validation",
 )
 graph = Graph(
-    structure=GraphStructure(
-        nodes=(collect, validate, publish),
-        edges=(
-            (
-                Edge(source=collect, target=publish),
-                Edge(source=validate, target=publish),
-            )
-        ),
-        static=(
-            StaticConditions(
-                evaluator=lambda condition: condition.payload is True,
-                conditions={(validate, publish): condition},
-            )
-        ),
-    )
+    nodes=(collect, validate, publish),
+    edges=(
+        Edge(source=collect, target=publish),
+        Edge(source=validate, target=publish),
+    ),
+    static=StaticConditions(
+        evaluator=lambda condition: condition.payload is True,
+        conditions={(validate, publish): condition},
+    ),
 )
 ```
 

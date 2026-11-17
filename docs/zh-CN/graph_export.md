@@ -21,7 +21,15 @@ graph = static.select(
     )
 ).graph()
 
-root = Graph(structure=(graph).structure, label=("choose"))
+root = Graph(
+    nodes=(graph.nodes),
+    edges=(graph.edges),
+    observation=(graph.observation),
+    static=(graph.static),
+    static_selections=(graph.static_selections),
+    interface=graph.interface.declaration,
+    label=("choose"),
+)
 declared = export_graph(root)  # 不选择分支，不调用静态求值器
 execution = Execution(root)
 prepared = execution.compile()  # 在这里求静态条件，成功后固定本次结构

@@ -204,19 +204,19 @@ impl<'a> GraphInterfaceView<'a> {
         Self { graph }
     }
 
+    /// Returns the immutable definition for explicit reuse on another Graph.
+    #[must_use]
+    pub const fn declaration(&self) -> &'a GraphInterface {
+        self.graph.declared_interface()
+    }
+
     /// Returns an input bound to this graph's identity.
     ///
     /// # Errors
     /// Returns an error if this input is not declared.
     pub fn input(&self, name: impl Into<PortName>) -> Result<InputPort, GraphError> {
         let name = name.into();
-        if !self
-            .graph
-            .structure()
-            .interface()
-            .inputs()
-            .contains_key(&name)
-        {
+        if !self.graph.declared_interface().inputs().contains_key(&name) {
             return Err(GraphError::UnknownInputPort(name));
         }
         Ok(InputPort {
@@ -233,8 +233,7 @@ impl<'a> GraphInterfaceView<'a> {
         let name = name.into();
         if !self
             .graph
-            .structure()
-            .interface()
+            .declared_interface()
             .outputs()
             .contains_key(&name)
         {

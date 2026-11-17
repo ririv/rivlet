@@ -15,7 +15,7 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 提供不回调 Python 的进程 action
   - 不依赖 PyO3、Tokio 或 Graph core
 - `crates/graph`
-  - 提供真实 Rust `Step/Graph`、共同 `Node` trait、`GraphStructure`、类型化端口/边/谓词与错误
+  - 提供真实 Rust `Step/Graph`、共同 `Node` trait、类型化端口/边/谓词与错误
 - `crates/execution`
   - 组合 graph/action/core，提供单次使用的同步 Rust Execution、类型化终态与同步谓词求值
   - 不依赖 Python 或第三方 runtime；图声明和 Python adapter 不依赖它
@@ -94,7 +94,7 @@ Python driver 使用 core 的 start/advance 交换批量动作、条件和事件
 提供同步 Execution::run，拥有自己的 Rust 动作执行和类型化结果，不依赖 Python。
 Node.js 前端同样独立接入 core，使用自己的 JS 回调和事件循环。
 
-主线没有 RustGraphStructure、原生结果 codec、SDK 或跨语言混合执行入口。完整实验
+主线没有 RustGraph、原生结果 codec、SDK 或跨语言混合执行入口。完整实验
 保留在 codex/experimental-mixed-execution 分支，不属于当前主线 API。
 
 ## 运行时实验

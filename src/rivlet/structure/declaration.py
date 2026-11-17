@@ -8,10 +8,7 @@ from typing import TYPE_CHECKING
 from ..errors import GraphError
 from ..interface import InputEndpoint, InputPort, OutputEndpoint, OutputPort
 from ..model import (
-    Graph as GraphNode,
-)
-from ..model import (
-    GraphStructure,
+    Graph,
     NodePath,
     Step,
     _RuntimeCondition,
@@ -41,7 +38,7 @@ def edge_id(owner: NodePath | None, index: int) -> str:
 
 @dataclass(slots=True)
 class Scope:
-    graph: GraphStructure
+    graph: Graph
     owner: NodePath | None
     label_path: tuple[str, ...]
     ids: dict[Node, NodePath] = field(default_factory=dict)
@@ -82,7 +79,7 @@ class DeclarationIndex:
         return scope.require_descendant(endpoint)
 
     def output_port_node(self, scope: Scope, name: str | None) -> str:
-        return self.output_node(scope, scope.graph.interface.outputs[name])
+        return self.output_node(scope, scope.graph._interface.outputs[name])
 
     def input_nodes(self, scope: Scope, endpoint: InputEndpoint) -> list[str]:
         if isinstance(endpoint, InputPort):
@@ -96,7 +93,7 @@ class DeclarationIndex:
     def input_port_nodes(self, scope: Scope, name: str | None) -> list[str]:
         return [
             value
-            for target in scope.graph.interface.inputs[name]
+            for target in scope.graph._interface.inputs[name]
             for value in self.input_nodes(scope, target)
         ]
 
@@ -116,7 +113,7 @@ class DeclarationIndex:
 
 
 def index_declaration(
-    graph: GraphStructure,
+    graph: Graph,
     *,
     parent: NodePath | None = None,
     label: str | None = None,
@@ -140,7 +137,7 @@ def index_declaration(
     # V/E/P 为节点、边和端口引用数，L 为全部身份/标签路径长度。
     # 按挂载遍历并建立索引，时间/空间 O(V + E + P + L)；不按每条边重扫子图。
     def visit(
-        current: GraphStructure,
+        current: Graph,
         owner: NodePath | None,
         path: tuple[str, ...],
         ancestors: tuple[Scope, ...],
@@ -171,9 +168,9 @@ def index_declaration(
                 if step.condition is None
                 else index.condition_id(key, step.condition)
             )
-            action = step.structure if isinstance(step, GraphNode) else step
+            action = step
             node: NodeDocument
-            if isinstance(action, GraphStructure):
+            if isinstance(action, Graph):
                 node = {
                     "kind": "subgraph",
                     "node_id": step.id.value,
@@ -200,7 +197,7 @@ def index_declaration(
                 document["nodes"].append(node)
             else:
                 raise GraphError(f"unsupported node declaration: {type(action)!r}")
-        for port_name, steps in current.interface.inputs.items():
+        for port_name, steps in current._interface.inputs.items():
             port: InputPortDocument = {
                 "kind": "input",
                 "port": port_name,
@@ -209,7 +206,7 @@ def index_declaration(
                 ],
             }
             scope_document["ports"].append(port)
-        for port_name, step in current.interface.outputs.items():
+        for port_name, step in current._interface.outputs.items():
             output: OutputPortDocument = {
                 "kind": "output",
                 "port": port_name,
@@ -219,14 +216,14 @@ def index_declaration(
 
     visit(graph, parent, label_path, ())
     for scope in index.scopes.values():
-        if isinstance(scope.graph, GraphStructure):
+        if isinstance(scope.graph, Graph):
             _export_scope(index, scope)
     return index
 
 
 def _export_scope(index: DeclarationIndex, scope: Scope) -> None:
     graph = scope.graph
-    assert isinstance(graph, GraphStructure)
+    assert isinstance(graph, Graph)
     document = index.document
     for i, edge in enumerate(graph.edges):
         source, target = str(scope.ids[edge.source]), str(scope.ids[edge.target])

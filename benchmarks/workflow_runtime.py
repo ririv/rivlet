@@ -12,7 +12,6 @@ from dataclasses import dataclass, field
 
 from rivlet import (
     Graph,
-    GraphStructure,
     Step,
     arun,
     run,
@@ -68,16 +67,10 @@ def main() -> None:
         def branch(depth: int, activity: Activity = activity) -> Graph:
             if depth == 0:
                 return Graph(
-                    structure=GraphStructure(
-                        nodes=tuple(Step(activity.work) for _ in range(args.leaves))
-                    )
+                    nodes=tuple(Step(activity.work) for _ in range(args.leaves))
                 )
             return Graph(
-                structure=GraphStructure(
-                    nodes=tuple(
-                        Step(lambda: branch(depth - 1)) for _ in range(args.width)
-                    )
-                )
+                nodes=tuple(Step(lambda: branch(depth - 1)) for _ in range(args.width))
             )
 
         graph = branch(args.depth)

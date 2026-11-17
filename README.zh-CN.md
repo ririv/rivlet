@@ -59,14 +59,13 @@ Step 是执行函数的节点，Graph 是包含子结构的节点。二者都持
 condition，并支持相同的 wire/DSL 操作。Node 只是共同协议，不需要手动包装；
 只有 Graph 有 interface。
 
-GraphStructure 保存可复用结构，不持有节点身份。复用时显式创建两个 Graph：
+Graph 直接承载完整声明。复用内部节点和边时，显式创建两个独立 Graph：
 
 ```python
 from rivlet import run
 
-body = checks.structure
-left = Graph(body, label="left")
-right = Graph(body, label="right")
+left = Graph(nodes=checks.nodes, edges=checks.edges, label="left")
+right = Graph(nodes=checks.nodes, edges=checks.edges, label="right")
 both = (left | right).graph(label="both")
 run(both, max_workers=2)
 ```
@@ -115,7 +114,7 @@ Graph A、B 还可以双向协作：A 先公开计划，B 准备 SDK，再让 A 
 ![三个子图共九个步骤：A1 向 B1 提供计划，B2 向 A2 提供 SDK，A3 就绪后 C2 执行；C1 可独立准备，A2 不等 B3，C2 不等 A4](https://raw.githubusercontent.com/ririv/rivlet/main/docs/assets/subgraph-ports.svg)
 
 ```python
-from rivlet import Edge, Graph, GraphInterface, GraphStructure, Step, run
+from rivlet import Edge, Graph, GraphInterface, Step, run
 
 plan_ready = "plan-ready"
 sdk_ready = "sdk-ready"
@@ -152,15 +151,13 @@ consumer = (prepare_environment >> consume).graph(
 )
 
 pipeline = Graph(
-    GraphStructure(
-        nodes=(sdk, app, consumer),
-        edges=(
-            Edge(app, sdk, ports=plan_ready),
-            Edge(sdk, app, ports=sdk_ready),
-            Edge(app, consumer, ports=install_ready),
-        ),
+    nodes=(sdk, app, consumer),
+    edges=(
+        Edge(app, sdk, ports=plan_ready),
+        Edge(sdk, app, ports=sdk_ready),
+        Edge(app, consumer, ports=install_ready),
     ),
-    label="pipeline",
+    label=("pipeline"),
 )
 run(pipeline, max_workers=3)
 ```
@@ -350,7 +347,7 @@ run(graph)
 action 则得到 `Some(None)`。来源可能被跳过时，先用 `is_some()` 或 `is_none()` 判断，
 再解包。条件函数抛错会阻断相关任务，不会被当成条件为假。
 
-对子图，将同样的条件传入 `Graph(structure, condition=...)`。
+对子图，将同样的条件传入 `Graph(nodes=..., edges=..., condition=...)`。
 
 运行时谓词也可以返回 `Awaitable[bool]`，声明方式不变，与协程动作共用本次执行的
 事件循环；同步判断不创建循环。详见[可等待谓词](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/conditional_steps.md#可等待谓词)。

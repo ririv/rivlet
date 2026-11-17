@@ -15,7 +15,6 @@ from .graph import (
     Graph,
     GraphMode,
     GraphObservationMessages,
-    GraphStructure,
 )
 from .identity import NodeId, NodePath
 from .node import (
@@ -67,5 +66,4 @@ __all__ = [
     "GraphWiringOperand",
     "GraphWiringInput",
     "Graph",
-    "GraphStructure",
 ]

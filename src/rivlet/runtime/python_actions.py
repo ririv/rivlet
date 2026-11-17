@@ -5,7 +5,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from ..compile import CompiledPythonStep, GraphCompilation, compile_graph
+from ..compile import CompiledPythonStep, GraphCompilation, _compile_graph_scope
 from ..observe import GraphObservationPhase
 from ..option import Nothing, Option
 from .concurrency import SessionLimits
@@ -160,7 +160,7 @@ class PythonActionRuntime:
     ) -> StepOutcome:
         expansion = as_graph_result(value)
         if expansion is not None:
-            compilation = compile_graph(
+            compilation = _compile_graph_scope(
                 expansion,
                 root_label=step.path.labels[-1],
                 parent_node_path=step.path,

@@ -9,15 +9,14 @@ from rivlet import (
     Edge,
     Graph,
     GraphInterface,
-    GraphStructure,
     NodePath,
     StaticCondition,
     StaticConditions,
     Step,
-    compile_graph,
     export_graph,
     static,
 )
+from rivlet.compile import _compile_graph_scope
 
 
 def test_compiled_export_never_repeats_static_evaluation() -> None:
@@ -29,16 +28,14 @@ def test_compiled_export_never_repeats_static_evaluation() -> None:
 
     first, second = Step(lambda: None), Step(lambda: None)
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(first, second),
-            edges=(Edge(first, second),),
-            static=StaticConditions(
-                evaluator=evaluate,
-                conditions={(first, second): StaticCondition(object(), "private")},
-            ),
-        )
+        nodes=(first, second),
+        edges=(Edge(first, second),),
+        static=StaticConditions(
+            evaluator=evaluate,
+            conditions={(first, second): StaticCondition(object(), "private")},
+        ),
     )
-    compiled = compile_graph(graph.structure, root_label="root")
+    compiled = _compile_graph_scope(graph, root_label="root")
     assert calls == ["evaluated"]
     document = export_graph(compiled)
     assert calls == ["evaluated"]
@@ -53,11 +50,24 @@ def test_pruned_subtree_ids_are_excluded_not_runtime_skipped() -> None:
         raise AssertionError("not reached")
 
     kept = Step(forbidden, label=("kept"))
-    removed = Graph(structure=GraphStructure(nodes=(Step(forbidden, label="nested"),)))
+    removed = Graph(nodes=(Step(forbidden, label="nested"),))
     graph = static.select(
-        cases=(Case(True, kept), Case(False, Graph(structure=removed.structure)))
+        cases=(
+            Case(True, kept),
+            Case(
+                False,
+                Graph(
+                    nodes=removed.nodes,
+                    edges=removed.edges,
+                    observation=removed.observation,
+                    static=removed.static,
+                    static_selections=removed.static_selections,
+                    interface=removed.interface.declaration,
+                ),
+            ),
+        )
     ).graph()
-    document = export_graph(compile_graph(graph.structure, root_label="root"))
+    document = export_graph(_compile_graph_scope(graph, root_label="root"))
     assert document["view"] == "compiled"
     assert [node["id"] for node in document["nodes"]] == ["0"]
     assert document["excluded_nodes"] == ["1", "1.0"]
@@ -76,16 +86,14 @@ def test_runtime_condition_origins_and_result_receivers_stay_distinct() -> None:
     action = Step(forbidden)
     target = Step(action.action, condition=((shared, first)))
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(first, second, target),
-            edges=(
-                Edge(first, target, condition=(shared, first)),
-                Edge(second, target, condition=(other, second)),
-                *Edge.results((second,), target),
-            ),
-        )
+        nodes=(first, second, target),
+        edges=(
+            Edge(first, target, condition=(shared, first)),
+            Edge(second, target, condition=(other, second)),
+            *Edge.results((second,), target),
+        ),
     )
-    document = export_graph(compile_graph(graph.structure, root_label="root"))
+    document = export_graph(_compile_graph_scope(graph, root_label="root"))
     assert len(document["conditions"]) == 3
     assert document["nodes"][-1]["condition"] == "condition:0"
     edges = document["edges"]
@@ -126,11 +134,9 @@ def test_lowered_port_dependencies_do_not_wait_for_entire_provider() -> None:
         interface=GraphInterface(inputs={ready: consume}),
     )
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(provider, consumer), edges=(Edge(provider, consumer, ports=ready),)
-        )
+        nodes=(provider, consumer), edges=(Edge(provider, consumer, ports=ready),)
     )
-    document = export_graph(compile_graph(graph.structure, root_label="root"))
+    document = export_graph(_compile_graph_scope(graph, root_label="root"))
     assert {"kind": "required", "source": "0.0", "target": "1.1"} in document[
         "dependencies"
     ]
@@ -144,17 +150,28 @@ def test_lowered_port_dependencies_do_not_wait_for_entire_provider() -> None:
 
 @pytest.mark.parametrize("parent", [None, NodePath((5, 7))])
 def test_mount_identity_matches_compilation_and_events(parent) -> None:
-    child = Graph(
-        structure=GraphStructure(nodes=(Step(lambda: None, label="duplicate"),))
-    )
+    child = Graph(nodes=(Step(lambda: None, label="duplicate"),))
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(Graph(structure=child.structure), Graph(structure=child.structure))
+        nodes=(
+            Graph(
+                nodes=child.nodes,
+                edges=child.edges,
+                observation=child.observation,
+                static=child.static,
+                static_selections=child.static_selections,
+                interface=child.interface.declaration,
+            ),
+            Graph(
+                nodes=child.nodes,
+                edges=child.edges,
+                observation=child.observation,
+                static=child.static,
+                static_selections=child.static_selections,
+                interface=child.interface.declaration,
+            ),
         )
     )
-    compiled = compile_graph(
-        graph.structure, root_label="root", parent_node_path=parent
-    )
+    compiled = _compile_graph_scope(graph, root_label="root", parent_node_path=parent)
     document = export_graph(compiled)
     assert {node["id"] for node in document["nodes"]} == {
         str(node.path) for node in (*compiled.steps, *compiled.composites)
@@ -170,9 +187,7 @@ def test_mount_identity_matches_compilation_and_events(parent) -> None:
 
 
 def test_empty_compilation_is_exportable() -> None:
-    document = export_graph(
-        compile_graph(Graph(structure=GraphStructure()).structure, root_label="root")
-    )
+    document = export_graph(_compile_graph_scope(Graph(), root_label="root"))
     assert document["nodes"] == document["edges"] == document["dependencies"] == []
     assert len(document["graphs"]) == 1
 
@@ -180,17 +195,15 @@ def test_empty_compilation_is_exportable() -> None:
 def test_mounted_export_keeps_static_edge_provenance_in_parent_namespace() -> None:
     first, second = Step(lambda: None), Step(lambda: None)
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(first, second),
-            edges=(Edge(first, second),),
-            static=StaticConditions(
-                evaluator=lambda _: False,
-                conditions={(first, second): StaticCondition(object(), "condition")},
-            ),
-        )
+        nodes=(first, second),
+        edges=(Edge(first, second),),
+        static=StaticConditions(
+            evaluator=lambda _: False,
+            conditions={(first, second): StaticCondition(object(), "condition")},
+        ),
     )
-    compiled = compile_graph(
-        graph.structure, root_label="child", parent_node_path=NodePath((9,))
+    compiled = _compile_graph_scope(
+        graph, root_label="child", parent_node_path=NodePath((9,))
     )
     document = export_graph(compiled)
     assert document["root"] == "graph:9"
