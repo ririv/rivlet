@@ -1,6 +1,7 @@
 export { Step, Graph, Edge, Results } from "./model.js";
 export type {
   Node,
+  AnyGraph,
   StepNode,
   NodeRunContext,
   NodeOptions,
@@ -20,6 +21,7 @@ export type {
   InputEndpoint,
   OutputEndpoint,
   InterfaceOptions,
+  AnyGraphInterface,
 } from "./interface.js";
 export { Some, Nothing, nothing } from "./option.js";
 export type { Option } from "./option.js";
@@ -33,3 +35,7 @@ export {
   run,
 } from "./execution.js";
 export type { RunOptions, NodeOutcome, NodeFailure } from "./execution.js";
+export { EventDeliveryError } from "./events.js";
+export type { NodeExecutionEvent, NodeEventDetail } from "./events.js";
+export { Static, Case } from "./static.js";
+export type { StaticCondition, StaticRule } from "./static.js";

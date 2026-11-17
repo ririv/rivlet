@@ -2,14 +2,18 @@ import { native } from "./backend.js";
 import {
   GraphInterface,
   GraphInterfaceView,
+  createInterfaceView,
   InputPort,
   OutputPort,
+  type AnyGraphInterface,
 } from "./interface.js";
 import type { Option } from "./option.js";
+import { snapshotStatic, type StaticRule } from "./static.js";
 
 export const invokeAction = Symbol("invokeAction");
 export const edgeDeclaration = Symbol("edgeDeclaration");
 export const resultValueType = Symbol("resultValueType");
+export const resultInputTypes = Symbol("resultInputTypes");
 export type Awaitable<T> = T | PromiseLike<T>;
 export interface NodeRunContext {
   readonly signal: AbortSignal;
@@ -20,20 +24,33 @@ export interface NodeRunContext {
 type OptionInputs<T extends readonly unknown[]> = {
   [K in keyof T]: Option<T[K]>;
 };
-export interface StepNode<T = unknown> {
+export interface StepNode<
+  T = unknown,
+  Inputs extends readonly unknown[] = never,
+> {
   readonly kind: "step";
   readonly id: bigint;
   readonly label: string;
   readonly condition: Condition | undefined;
   readonly [resultValueType]: T;
+  readonly [resultInputTypes]: (values: Inputs) => void;
   [invokeAction](
     context: NodeRunContext,
     inputs: readonly Option<unknown>[],
   ): Promise<unknown>;
 }
-export type Node = StepNode | Graph;
+export type AnyGraph = Graph<AnyGraphInterface>;
+export type Node = StepNode | AnyGraph;
 export type ResultSource<T = unknown> = StepNode<T> | OutputPort<T>;
-export type ResultTarget = StepNode | InputPort;
+export type ResultTarget = StepNode | InputPort<never>;
+export type ResultSources = readonly [ResultSource, ...ResultSource[]];
+export type SourceValues<Sources extends readonly ResultSource[]> = {
+  -readonly [K in keyof Sources]: Sources[K] extends ResultSource<infer T>
+    ? T
+    : never;
+};
+type Receiver<Sources extends readonly ResultSource[]> =
+  StepNode<unknown, SourceValues<Sources>> | InputPort<SourceValues<Sources>>;
 export type Predicate = (...inputs: never[]) => Awaitable<boolean>;
 export type Condition =
   Predicate | readonly [Predicate, ResultSource, ...ResultSource[]];
@@ -54,12 +71,13 @@ function snapshotCondition(
 export class Step<
   T,
   Inputs extends readonly unknown[] = [],
-> implements StepNode<T> {
+> implements StepNode<T, Inputs> {
   readonly kind = "step";
   readonly id = native.allocateNodeId();
   readonly label: string;
   readonly condition: Condition | undefined;
   declare readonly [resultValueType]: T;
+  declare readonly [resultInputTypes]: (values: Inputs) => void;
   readonly #action: (
     context: NodeRunContext,
     ...inputs: OptionInputs<Inputs>
@@ -86,22 +104,26 @@ export class Step<
   }
 }
 
-export interface GraphOptions extends NodeOptions {
-  readonly nodes: readonly Node[];
-  readonly edges?: readonly Edge[];
-  readonly interface?: GraphInterface;
-}
+export type GraphOptions<I extends AnyGraphInterface = GraphInterface> =
+  NodeOptions & {
+    readonly static?: readonly StaticRule[];
+    readonly nodes: readonly Node[];
+    readonly edges?: readonly Edge[];
+    readonly interface?: I;
+  } & (I extends GraphInterface ? {} : { readonly interface: I });
 
 /** A complete graph declaration with identity, topology and public ports. */
-export class Graph {
+export class Graph<I extends AnyGraphInterface = GraphInterface> {
+  readonly static: readonly StaticRule[];
   readonly kind = "graph";
   readonly id = native.allocateNodeId();
   readonly label: string;
   readonly condition: Condition | undefined;
   readonly nodes: readonly Node[];
   readonly edges: readonly Edge[];
-  readonly interface: GraphInterfaceView;
-  constructor(options: GraphOptions) {
+  readonly interface: GraphInterfaceView<I>;
+  constructor(options: GraphOptions<I>) {
+    this.static = snapshotStatic(options.static ?? []);
     if (new Set(options.nodes).size !== options.nodes.length) {
       throw new Error("a node may occur only once in one Graph");
     }
@@ -109,23 +131,20 @@ export class Graph {
     this.edges = Object.freeze([...(options.edges ?? [])]);
     this.label = options.label ?? "graph";
     this.condition = snapshotCondition(options.condition);
-    this.interface = new GraphInterfaceView(
+    this.interface = GraphInterfaceView[createInterfaceView](
       this,
-      options.interface ?? new GraphInterface(),
+      (options.interface ?? new GraphInterface()) as I,
     );
     Object.freeze(this);
   }
 }
 
-export class Results {
-  readonly sources: readonly [ResultSource, ...ResultSource[]];
-  constructor(sources: readonly [ResultSource, ...ResultSource[]]) {
+export class Results<const Sources extends ResultSources = ResultSources> {
+  readonly sources: Sources;
+  constructor(sources: Sources) {
     if (sources.length === 0)
       throw new Error("result sources must not be empty");
-    this.sources = Object.freeze([...sources]) as readonly [
-      ResultSource,
-      ...ResultSource[],
-    ];
+    this.sources = Object.freeze([...sources]) as unknown as Sources;
     Object.freeze(this);
   }
 }
@@ -134,7 +153,7 @@ export type EdgeDeclaration =
   | {
       readonly kind: "order";
       readonly source: Node | OutputPort;
-      readonly target: Node | InputPort;
+      readonly target: Node | InputPort<never>;
       readonly condition: Condition | undefined;
     }
   | {
@@ -144,7 +163,7 @@ export type EdgeDeclaration =
     };
 
 /** Completion/readiness or ordered results; result connections also impose waiting. */
-export class Edge {
+export class Edge<const Sources extends ResultSources = ResultSources> {
   readonly [edgeDeclaration]: EdgeDeclaration;
   constructor(
     source: Node,
@@ -153,13 +172,13 @@ export class Edge {
   );
   constructor(
     source: OutputPort,
-    target: InputPort,
+    target: InputPort<never>,
     options?: { readonly condition?: Condition },
   );
-  constructor(source: Results, target: ResultTarget);
+  constructor(source: Results<Sources>, target: Receiver<NoInfer<Sources>>);
   constructor(
     source: Node | OutputPort | Results,
-    target: Node | InputPort,
+    target: Node | InputPort<never>,
     options: { readonly condition?: Condition } = {},
   ) {
     if (source instanceof Results) {
@@ -187,10 +206,10 @@ export class Edge {
     }
     Object.freeze(this);
   }
-  static results(
-    sources: readonly [ResultSource, ...ResultSource[]],
-    target: ResultTarget,
-  ): Edge {
+  static results<const Sources extends ResultSources>(
+    sources: Sources,
+    target: Receiver<NoInfer<Sources>>,
+  ): Edge<Sources> {
     return new Edge(new Results(sources), target);
   }
 }
