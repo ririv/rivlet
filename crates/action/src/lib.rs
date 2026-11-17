@@ -1,5 +1,6 @@
 //! Rust-owned graph actions and their execution contracts.
 
+mod asynchronous;
 mod cancellation;
 mod executor;
 mod process;
@@ -10,6 +11,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub use asynchronous::{ActionFuture, AsyncAction};
 pub use cancellation::{CancellationRegistration, CancellationSource, CancellationToken};
 pub use process::ProcessAction;
 pub use value::{ActionInputs, ExternalValue, Value, ValueType, ValueTypeId};
@@ -148,7 +150,13 @@ impl<A: Action> ErasedAction for ActionAdapter<A> {
 
 /// Type-erased, cloneable ownership of one native action implementation.
 #[derive(Clone)]
-pub struct ActionHandle(Arc<dyn ErasedAction>);
+pub struct ActionHandle(ActionKind);
+
+#[derive(Clone)]
+enum ActionKind {
+    Sync(Arc<dyn ErasedAction>),
+    Async(Arc<dyn asynchronous::ErasedAsyncAction>),
+}
 
 impl ActionHandle {
     /// Declares a dynamically typed adapter action with a complete checked signature.
@@ -163,18 +171,54 @@ impl ActionHandle {
         + Sync
         + 'static,
     ) -> Self {
-        Self(Arc::new(FunctionAction {
+        Self(ActionKind::Sync(Arc::new(FunctionAction {
             inputs,
             output,
             function: Box::new(function),
-        }))
+        })))
     }
     #[must_use]
     pub fn new<A: Action>(action: A) -> Self {
-        Self(Arc::new(ActionAdapter {
+        Self(ActionKind::Sync(Arc::new(ActionAdapter {
             action,
             input_types: A::Inputs::types(),
-        }))
+        })))
+    }
+
+    #[must_use]
+    pub fn new_async<A: AsyncAction>(action: A) -> Self {
+        Self(ActionKind::Async(Arc::new(asynchronous::Adapter::new(
+            action,
+        ))))
+    }
+
+    #[must_use]
+    pub const fn is_async(&self) -> bool {
+        matches!(self.0, ActionKind::Async(_))
+    }
+
+    /// Creates an owned future without selecting a runtime or blocking a worker.
+    ///
+    /// # Errors
+    /// Rejects synchronous handles and invalid input groups; catches input-decoder panics.
+    pub fn start_async(
+        &self,
+        context: ActionContext,
+        inputs: &[Option<Value>],
+    ) -> Result<ActionFuture, ActionError> {
+        match &self.0 {
+            ActionKind::Sync(_) => Err(ActionError::new("synchronous action requires execute()")),
+            ActionKind::Async(action) => {
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    action.start(context, inputs)
+                }))
+                .unwrap_or_else(|_| {
+                    Err(ActionError::new(
+                        "asynchronous action input decoding panicked",
+                    ))
+                })
+            }
+        }
     }
 
     /// Executes the referenced action.
@@ -186,16 +230,27 @@ impl ActionHandle {
         context: &ActionContext,
         inputs: &[Option<Value>],
     ) -> Result<Value, ActionError> {
-        self.0.execute(context, inputs)
+        match &self.0 {
+            ActionKind::Sync(action) => action.execute(context, inputs),
+            ActionKind::Async(_) => Err(ActionError::new(
+                "asynchronous action requires start_async()",
+            )),
+        }
     }
 
     #[must_use]
     pub fn input_types(&self) -> &[ValueType] {
-        self.0.input_types()
+        match &self.0 {
+            ActionKind::Sync(action) => action.input_types(),
+            ActionKind::Async(action) => action.input_types(),
+        }
     }
     #[must_use]
     pub fn output_type(&self) -> ValueType {
-        self.0.output_type()
+        match &self.0 {
+            ActionKind::Sync(action) => action.output_type(),
+            ActionKind::Async(action) => action.output_type(),
+        }
     }
 }
 

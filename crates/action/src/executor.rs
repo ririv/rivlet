@@ -207,6 +207,11 @@ impl ActionExecutor {
         context: ActionContext,
         inputs: Vec<Option<Value>>,
     ) -> Result<(), ActionError> {
+        if action.is_async() {
+            return Err(ActionError::new(
+                "blocking executor cannot run asynchronous actions",
+            ));
+        }
         self.inner
             .jobs
             .send(Some(ActionJob {
