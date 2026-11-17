@@ -19,13 +19,14 @@ pub enum NodeState {
     Skipped,
     Failed,
     Blocked,
+    Cancelled,
 }
 
 impl NodeState {
     const fn is_terminal(self) -> bool {
         matches!(
             self,
-            Self::Finished | Self::Skipped | Self::Failed | Self::Blocked
+            Self::Finished | Self::Skipped | Self::Failed | Self::Blocked | Self::Cancelled
         )
     }
 
@@ -57,7 +58,14 @@ impl ConditionRequest {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ConditionResolution {
     condition: ConditionId,
-    value: Result<bool, ()>,
+    value: ConditionResult,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ConditionResult {
+    Resolved(bool),
+    Failed,
+    Cancelled,
 }
 
 impl ConditionResolution {
@@ -65,7 +73,7 @@ impl ConditionResolution {
     pub const fn new(condition: ConditionId, value: bool) -> Self {
         Self {
             condition,
-            value: Ok(value),
+            value: ConditionResult::Resolved(value),
         }
     }
 
@@ -73,7 +81,15 @@ impl ConditionResolution {
     pub const fn failed(condition: ConditionId) -> Self {
         Self {
             condition,
-            value: Err(()),
+            value: ConditionResult::Failed,
+        }
+    }
+
+    #[must_use]
+    pub const fn cancelled(condition: ConditionId) -> Self {
+        Self {
+            condition,
+            value: ConditionResult::Cancelled,
         }
     }
 }
@@ -81,11 +97,13 @@ impl ConditionResolution {
 /// Structural events emitted without calling into the action host.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutionEvent {
+    CancellationRequested,
     ConditionEvaluated { node: NodeId, value: bool },
     ConditionSkipped(NodeId),
     CompositeEntered(NodeId),
     CompositeCompleted(NodeId),
     NodeSkipped(NodeId),
+    NodeCancelled(NodeId),
     NodeFailed { node: NodeId, cause: FailureCause },
     NodeBlocked { node: NodeId, cause: BlockCause },
 }
@@ -96,6 +114,7 @@ pub enum SessionStatus {
     Running,
     Finished,
     Failed,
+    Cancelled,
 }
 
 /// One event-driven exchange between the Rust session and an action executor.
@@ -135,6 +154,15 @@ pub struct ExecutionUpdate {
     completed: Vec<(NodeId, Result<(), ()>)>,
     conditions: Vec<ConditionResolution>,
     skipped: Vec<NodeId>,
+    command: ExecutionCommand,
+    cancelled: Vec<NodeId>,
+}
+
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+enum ExecutionCommand {
+    #[default]
+    Continue,
+    Cancel,
 }
 
 impl ExecutionUpdate {
@@ -144,11 +172,39 @@ impl ExecutionUpdate {
         conditions: impl IntoIterator<Item = ConditionResolution>,
         skipped: impl IntoIterator<Item = NodeId>,
     ) -> Self {
+        let conditions: Vec<_> = conditions.into_iter().collect();
+        let command = if conditions
+            .iter()
+            .any(|resolution| resolution.value == ConditionResult::Cancelled)
+        {
+            ExecutionCommand::Cancel
+        } else {
+            ExecutionCommand::Continue
+        };
         Self {
             completed: completed.into_iter().collect(),
-            conditions: conditions.into_iter().collect(),
+            conditions,
             skipped: skipped.into_iter().collect(),
+            command,
+            cancelled: Vec::new(),
         }
+    }
+
+    /// Requests cancellation without changing an already terminal execution.
+    #[must_use]
+    pub fn cancel(mut self) -> Self {
+        self.command = ExecutionCommand::Cancel;
+        self
+    }
+
+    /// Acknowledges dispatched actions that cooperatively stopped.
+    #[must_use]
+    pub fn cancelled(mut self, nodes: impl IntoIterator<Item = NodeId>) -> Self {
+        self.cancelled.extend(nodes);
+        if !self.cancelled.is_empty() {
+            self.command = ExecutionCommand::Cancel;
+        }
+        self
     }
 
     /// Appends executor completions without replacing any host outcomes.
@@ -239,7 +295,7 @@ pub struct ExecutionSession {
     ready: VecDeque<NodeId>,
     evaluation_queue: VecDeque<NodeId>,
     queued: Vec<bool>,
-    condition_values: Vec<Option<Result<bool, ()>>>,
+    condition_values: Vec<Option<ConditionResult>>,
     condition_requested: Vec<bool>,
     condition_waiters: Vec<Vec<NodeId>>,
     explicit_skips: Vec<bool>,
@@ -248,6 +304,7 @@ pub struct ExecutionSession {
     started: bool,
     remaining_children: Vec<usize>,
     concurrency: Option<SessionConcurrency>,
+    command: ExecutionCommand,
 }
 
 impl ExecutionSession {
@@ -289,6 +346,7 @@ impl ExecutionSession {
             graph,
             started: false,
             concurrency: None,
+            command: ExecutionCommand::Continue,
         })
     }
 
@@ -358,6 +416,11 @@ impl ExecutionSession {
         if !self.started {
             return Err(SessionError::NotStarted);
         }
+        // 取消先于本批尚未提交的完成通知生效，但不改写之前已提交的终态。
+        // 在途动作随后仍提交真实成功/失败；不会把成功伪造为节点取消。
+        if update.command == ExecutionCommand::Cancel {
+            self.begin_cancel();
+        }
         for node in update.skipped {
             let Some(slot) = self.explicit_skips.get_mut(node.index()) else {
                 return Err(SessionError::UnknownNode(node));
@@ -406,6 +469,18 @@ impl ExecutionSession {
             };
             self.notify_terminal(node);
         }
+        for node in update.cancelled {
+            if self.state(node) != Some(NodeState::Running) {
+                return Err(SessionError::NodeNotRunning(node));
+            }
+            if let Some(concurrency) = &mut self.concurrency {
+                concurrency.release(node);
+            }
+            self.states[node.index()] = NodeState::Cancelled;
+            self.pending_events
+                .push(ExecutionEvent::NodeCancelled(node));
+            self.notify_terminal(node);
+        }
         self.drive(max_actions)
     }
 
@@ -420,13 +495,25 @@ impl ExecutionSession {
         &self.graph
     }
 
+    /// Stops new dispatch while preserving and draining already dispatched work.
+    pub fn request_cancel(&mut self) {
+        self.begin_cancel();
+    }
+
+    #[must_use]
+    pub fn is_cancelling(&self) -> bool {
+        self.command == ExecutionCommand::Cancel
+    }
+
     fn drive(&mut self, max_actions: usize) -> Result<ExecutionBatch, SessionError> {
-        self.drain_evaluations();
+        if self.command == ExecutionCommand::Continue {
+            self.drain_evaluations();
+        }
         if let Some(concurrency) = &mut self.concurrency {
             concurrency.retry(&mut self.ready);
         }
         let mut actions = Vec::new();
-        while actions.len() < max_actions {
+        while self.command == ExecutionCommand::Continue && actions.len() < max_actions {
             let Some(node) = self.ready.pop_front() else {
                 break;
             };
@@ -450,7 +537,8 @@ impl ExecutionSession {
             .graph
             .roots()
             .iter()
-            .all(|root| self.is_terminal(*root));
+            .all(|root| self.is_terminal(*root))
+            && !self.condition_requested.contains(&true);
         let conditions = std::mem::take(&mut self.pending_conditions);
         let events = std::mem::take(&mut self.pending_events);
         // 已派发、尚未返回的谓词也是在途工作，不能只检查本批新增请求。
@@ -487,12 +575,44 @@ impl ExecutionSession {
                 .roots()
                 .iter()
                 .any(|root| self.states[root.index()].is_failure())
+                || self
+                    .condition_values
+                    .contains(&Some(ConditionResult::Failed))
             {
                 SessionStatus::Failed
+            } else if self.command == ExecutionCommand::Cancel {
+                SessionStatus::Cancelled
             } else {
                 SessionStatus::Finished
             },
         })
+    }
+
+    fn begin_cancel(&mut self) {
+        if self.command == ExecutionCommand::Cancel
+            || self.states.iter().all(|state| state.is_terminal())
+        {
+            return;
+        }
+        self.command = ExecutionCommand::Cancel;
+        self.pending_events
+            .push(ExecutionEvent::CancellationRequested);
+        self.ready.clear();
+        self.evaluation_queue.clear();
+        let mut cancelled = Vec::new();
+        for (index, state) in self.states.iter_mut().enumerate() {
+            if matches!(state, NodeState::Pending | NodeState::Ready) {
+                *state = NodeState::Cancelled;
+                let node = NodeId::new(index);
+                self.pending_events
+                    .push(ExecutionEvent::NodeCancelled(node));
+                cancelled.push(node);
+            }
+        }
+        // 先统一转换，再通知父级，防止把尚未遍历的子节点提前归并成成功。
+        for node in cancelled {
+            self.notify_terminal(node);
+        }
     }
 
     fn queue_evaluation(&mut self, node: NodeId) {
@@ -620,7 +740,11 @@ impl ExecutionSession {
             return None;
         }
         if let Some(value) = self.condition_values[condition.index()] {
-            return Some(value.map_err(|()| BlockCause::Condition(site)));
+            return match value {
+                ConditionResult::Resolved(value) => Some(Ok(value)),
+                ConditionResult::Failed => Some(Err(BlockCause::Condition(site))),
+                ConditionResult::Cancelled => None,
+            };
         }
         if !self.condition_requested[condition.index()] {
             self.condition_requested[condition.index()] = true;
@@ -661,6 +785,16 @@ impl ExecutionSession {
                 cause: FailureCause::Child(child),
             });
             self.states[composite.index()] = NodeState::Failed;
+        } else if self
+            .graph
+            .children(composite)
+            .unwrap()
+            .iter()
+            .any(|child| self.states[child.index()] == NodeState::Cancelled)
+        {
+            self.pending_events
+                .push(ExecutionEvent::NodeCancelled(composite));
+            self.states[composite.index()] = NodeState::Cancelled;
         } else {
             self.pending_events
                 .push(ExecutionEvent::CompositeCompleted(composite));

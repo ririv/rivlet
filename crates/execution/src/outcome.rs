@@ -16,6 +16,7 @@ pub enum NodeFailure {
 pub enum NodeOutcome {
     Succeeded(Value),
     Skipped,
+    Cancelled,
     Failed(NodeFailure),
     Blocked(BlockCause),
 }
@@ -24,6 +25,7 @@ pub enum NodeOutcome {
 #[derive(Debug)]
 pub enum ConditionOutcome {
     NotEvaluated,
+    Cancelled,
     Resolved(bool),
     Failed(ActionError),
 }
@@ -33,6 +35,7 @@ pub enum ConditionOutcome {
 pub enum ExecutionStatus {
     Succeeded,
     Failed,
+    Cancelled,
 }
 
 /// Immutable terminal outcomes bound to the exact compilation that produced them.
@@ -40,6 +43,7 @@ pub struct ExecutionOutcome {
     compilation: Arc<Compilation>,
     nodes: Vec<NodeOutcome>,
     conditions: Vec<ConditionOutcome>,
+    status: ExecutionStatus,
 }
 
 impl ExecutionOutcome {
@@ -47,11 +51,13 @@ impl ExecutionOutcome {
         compilation: Arc<Compilation>,
         nodes: Vec<NodeOutcome>,
         conditions: Vec<ConditionOutcome>,
+        status: ExecutionStatus,
     ) -> Self {
         Self {
             compilation,
             nodes,
             conditions,
+            status,
         }
     }
 
@@ -83,15 +89,6 @@ impl ExecutionOutcome {
 
     #[must_use]
     pub fn status(&self) -> ExecutionStatus {
-        if self.compilation.graph().roots().iter().any(|root| {
-            matches!(
-                self.nodes[root.index()],
-                NodeOutcome::Failed(_) | NodeOutcome::Blocked(_)
-            )
-        }) {
-            ExecutionStatus::Failed
-        } else {
-            ExecutionStatus::Succeeded
-        }
+        self.status
     }
 }

@@ -87,6 +87,7 @@ apply: 42
 | --- | --- |
 | `NotEvaluated` | 没有实际求值，例如所属节点跳过或输入失败 |
 | `Resolved(bool)` | 已返回判断结果 |
+| `Cancelled` | 本次执行取消，待定谓词 Future 已释放或已确认取消 |
 | `Failed(ActionError)` | 原始谓词、解码错误，或被捕获的谓词 panic |
 
 只有条件索引超出本次编译才返回 None。运行时索引可从

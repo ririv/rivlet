@@ -41,6 +41,10 @@ impl Conditions {
 }
 
 impl Coordinator {
+    /// Cancels new dispatch; outstanding host/native work is still drained.
+    pub fn request_cancel(&mut self) {
+        self.session.request_cancel();
+    }
     /// Connects complete native/host dispatch tables to an existing core session.
     ///
     /// # Errors

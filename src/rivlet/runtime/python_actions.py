@@ -5,6 +5,7 @@ import traceback
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ..cancellation import CancellationRequested
 from ..compile import CompiledPythonStep, GraphCompilation, _compile_graph_scope
 from ..observe import GraphObservationPhase
 from ..option import Nothing, Option
@@ -136,6 +137,8 @@ class PythonActionRuntime:
             if inspect.isawaitable(value):
                 return self._await_step(run, step, step_log_path, value)
             return self._finish_step(run, step, step_log_path, value)
+        except CancellationRequested:
+            raise
         except Exception:
             self._log_exception(step_log_path)
             raise
@@ -149,6 +152,8 @@ class PythonActionRuntime:
     ) -> StepOutcome:
         try:
             return self._finish_step(run, step, step_log_path, await value)
+        except CancellationRequested:
+            raise
         except Exception:
             self._log_exception(step_log_path)
             raise
@@ -162,6 +167,7 @@ class PythonActionRuntime:
     ) -> StepOutcome:
         expansion = as_graph_result(value)
         if expansion is not None:
+            self.control.require_running()
             compilation = _compile_graph_scope(
                 expansion,
                 root_label=step.path.labels[-1],

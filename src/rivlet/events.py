@@ -14,6 +14,7 @@ class NodeExecutionState(StrEnum):
     FAILED = "failed"
     BLOCKED = "blocked"
     SKIPPED = "skipped"
+    CANCELLED = "cancelled"
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,7 +82,10 @@ type NodeBlockCause = (
     BlockedByDependency | BlockedByCondition | BlockedByConditionInput | BlockedByParent
 )
 type StepLifecycleState = Literal[
-    NodeExecutionState.STARTED, NodeExecutionState.COMPLETED, NodeExecutionState.SKIPPED
+    NodeExecutionState.STARTED,
+    NodeExecutionState.COMPLETED,
+    NodeExecutionState.SKIPPED,
+    NodeExecutionState.CANCELLED,
 ]
 type NodeExecutionStateDetail = StepLifecycleState | NodeFailureCause | NodeBlockCause
 
@@ -102,6 +106,7 @@ class NodeExecutionEvent:
                 NodeExecutionState.STARTED
                 | NodeExecutionState.COMPLETED
                 | NodeExecutionState.SKIPPED
+                | NodeExecutionState.CANCELLED
             ):
                 return self.state_detail
             case ActionFailed() | SubgraphFailed():

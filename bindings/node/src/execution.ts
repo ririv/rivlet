@@ -20,12 +20,14 @@ import type {
 export type NodeOutcome<T = unknown> =
   | { readonly state: "succeeded"; readonly value: T }
   | { readonly state: "skipped" }
+  | { readonly state: "cancelled" }
   | { readonly state: "failed"; readonly failure: NodeFailure }
   | { readonly state: "blocked"; readonly cause: BlockCause };
 export type NodeFailure =
   | { readonly kind: "action"; readonly error: unknown }
   | { readonly kind: "child"; readonly node: number };
 export interface RunOptions {
+  readonly signal?: AbortSignal;
   readonly maxConcurrency?: ReadonlyMap<Node, number>;
   readonly skip?: readonly Node[];
 }
@@ -36,7 +38,7 @@ export class ExecutionOutcome {
   readonly #conditionErrors: ReadonlyMap<number, unknown>;
   constructor(
     readonly compilation: Compilation,
-    readonly status: "succeeded" | "failed",
+    readonly status: "succeeded" | "failed" | "cancelled",
     outcomes: readonly NodeOutcome[],
     values: ReadonlyMap<number, Option<unknown>>,
     conditionErrors: ReadonlyMap<number, unknown>,
@@ -60,7 +62,7 @@ export class ExecutionOutcome {
   result<T>(source: ResultSource<T>): Option<T> {
     const index = this.compilation.resultIndex(source);
     const outcome = this.node(index);
-    if (outcome.state === "failed" || outcome.state === "blocked")
+    if (outcome.state === "failed" || outcome.state === "blocked" || outcome.state === "cancelled")
       throw new Error("failed/blocked nodes have no successful result");
     const value = this.#results.get(index);
     if (value === undefined) throw new Error("terminal result is missing");
@@ -89,6 +91,13 @@ export class ExecutionError extends Error {
   constructor(readonly outcome: ExecutionOutcome) {
     super("graph execution failed");
     this.name = "ExecutionError";
+  }
+}
+
+export class ExecutionCancelled extends Error {
+  constructor(readonly outcome: ExecutionOutcome) {
+    super("graph execution cancelled");
+    this.name = "ExecutionCancelled";
   }
 }
 
@@ -124,6 +133,14 @@ type Settled =
   | { readonly kind: "action"; readonly value: Completion }
   | { readonly kind: "condition"; readonly value: ConditionResolution };
 
+function acknowledgedCancellation(signal: AbortSignal, error: unknown): boolean {
+  // Node 的定时器会用 AbortError.cause 包装 signal.reason，不能只比较外层对象。
+  return signal.aborted && (
+    Object.is(error, signal.reason) ||
+    (error instanceof Error && error.name === "AbortError" && "cause" in error && Object.is(error.cause, signal.reason))
+  );
+}
+
 /** Single-use Promise driver; readiness, admission and failure propagation stay in Rust. */
 export class Execution {
   #compilation: Compilation | undefined;
@@ -148,9 +165,19 @@ export class Execution {
     const conditionErrors = new Map<number, unknown>();
     const events = new Map<number, CoreEvent>();
     const pending = new Set<`action:${number}` | `condition:${number}`>();
+    const signal = options.signal ?? new AbortController().signal;
     const inbox: Settled[] = [];
     let cursor = 0;
     let wake: (() => void) | undefined;
+    const abort = (): void => {
+      if (!signal.aborted) return;
+      session.requestCancel();
+      const notify = wake;
+      wake = undefined;
+      notify?.();
+    };
+    signal.addEventListener("abort", abort, { once: true });
+    if (signal.aborted) abort();
     const complete = (settled: Settled): void => {
       inbox.push(settled);
       const notify = wake;
@@ -163,7 +190,9 @@ export class Execution {
         throw new Error("scheduled input producer has no result");
       return value;
     };
-    let batch: Batch = session.start(capacity);
+    let batch: Batch;
+    try {
+    batch = session.start(capacity);
     for (;;) {
       for (const event of batch.events) {
         if (event.kind === "graphCompleted")
@@ -179,6 +208,7 @@ export class Execution {
           throw new Error("core scheduled a non-action node");
         const node = record.node;
         const context: NodeRunContext = Object.freeze({
+          signal,
           nodeId: node.id,
           nodePath: record.nodePath,
           labelPath: record.labelPath,
@@ -187,6 +217,7 @@ export class Execution {
         void Promise.resolve()
           .then(async (): Promise<Settled> => {
             try {
+              signal.throwIfAborted();
               const value = await node[invokeAction](
                 context,
                 record.inputs.map(result),
@@ -201,6 +232,9 @@ export class Execution {
                 value: { kind: "succeeded", node: index },
               };
             } catch (error: unknown) {
+              if (acknowledgedCancellation(signal, error)) {
+                return { kind: "action", value: { kind: "cancelled", node: index } };
+              }
               failures.set(index, error);
               return { kind: "action", value: { kind: "failed", node: index } };
             }
@@ -214,6 +248,7 @@ export class Execution {
         void Promise.resolve()
           .then(async (): Promise<Settled> => {
             try {
+              signal.throwIfAborted();
               const inputs = bound.inputs.map(result);
               const value = await bound.predicate(...(inputs as never[]));
               if (typeof value !== "boolean")
@@ -227,6 +262,9 @@ export class Execution {
                 },
               };
             } catch (error: unknown) {
+              if (acknowledgedCancellation(signal, error)) {
+                return { kind: "condition", value: { kind: "cancelled", condition: request.condition } };
+              }
               conditionErrors.set(request.condition, error);
               return {
                 kind: "condition",
@@ -237,6 +275,10 @@ export class Execution {
           .then(complete);
       }
       if (batch.status !== "running" && pending.size === 0) break;
+      if (pending.size === 0 && signal.aborted) {
+        batch = session.advance({ completed: [], conditions: [], skipped: [] }, capacity);
+        continue;
+      }
       if (pending.size === 0)
         throw new Error("running graph has no outstanding action or condition");
       // 每项任务只注册一次完成回调，不在每个完成事件上重建 Promise.race。
@@ -262,6 +304,9 @@ export class Execution {
       cursor = 0;
       batch = session.advance({ completed, conditions, skipped: [] }, capacity);
     }
+    } finally {
+      signal.removeEventListener("abort", abort);
+    }
     const outcomes = session
       .states()
       .map((state: NodeState, index): NodeOutcome => {
@@ -274,6 +319,7 @@ export class Execution {
             return Object.freeze({ state, value: value.value });
           }
           case "skipped":
+          case "cancelled":
             return Object.freeze({ state });
           case "failed":
             if (event?.kind !== "failed")
@@ -309,6 +355,7 @@ export class Execution {
       conditionErrors,
     );
     if (outcome.status === "failed") throw new ExecutionError(outcome);
+    if (outcome.status === "cancelled") throw new ExecutionCancelled(outcome);
     return outcome;
   }
 }

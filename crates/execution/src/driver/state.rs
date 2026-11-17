@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
-use action::{ActionContext, ActionError};
+use action::{ActionContext, ActionError, CancellationToken};
 use graph::{Compilation, ConditionEvaluation, ProjectedKind};
 use rivlet::{
     ConditionId, ConditionResolution, ExecutionBatch, ExecutionSession, ExecutionUpdate, NodeId,
+    SessionStatus,
 };
 
 use crate::{
@@ -24,6 +25,9 @@ pub(super) struct State {
     pub(super) workers: PoolOwner,
     limit: usize,
     running: usize,
+    pub(super) cancellation: CancellationToken,
+    cancelled: Vec<NodeId>,
+    status: SessionStatus,
 }
 
 impl State {
@@ -46,19 +50,34 @@ impl State {
             workers,
             limit: options.workers.get(),
             running: 0,
+            cancellation: options.cancellation,
+            cancelled: Vec::new(),
+            status: SessionStatus::Running,
         })
     }
 
     pub(super) fn start(&mut self) -> Result<ExecutionBatch, ExecutionError> {
+        if self.cancellation.is_cancelled() {
+            self.session.request_cancel();
+        }
         Ok(self.session.start(self.limit)?)
+    }
+
+    pub(super) fn cancellation_pending(&self) -> bool {
+        self.cancellation.is_cancelled() && !self.session.is_cancelling()
     }
 
     pub(super) fn dispatch(
         &mut self,
         batch: &ExecutionBatch,
     ) -> Result<Vec<ConditionWork>, ExecutionError> {
+        self.status = batch.status();
         self.results.events(batch.events())?;
         for node in batch.actions() {
+            if self.cancellation.is_cancelled() {
+                self.cancelled.push(*node);
+                continue;
+            }
             let projected = self.compilation.node(*node);
             let ProjectedKind::Step(action) = projected.kind() else {
                 return Err(ExecutionError::UnexpectedComposite(*node));
@@ -74,7 +93,7 @@ impl State {
                 .submit(
                     node.index(),
                     action.clone(),
-                    ActionContext::default(),
+                    ActionContext::default().with_cancellation(self.cancellation.clone()),
                     inputs,
                 )
                 .map_err(ExecutionError::Executor)?;
@@ -85,6 +104,9 @@ impl State {
             .iter()
             .map(|request| {
                 let id = request.condition();
+                if self.cancellation.is_cancelled() {
+                    return Ok((id, ConditionEvaluation::Ready(Err(ActionError::Cancelled))));
+                }
                 let predicate = self.compilation.condition(id);
                 let inputs = predicate
                     .inputs()
@@ -105,6 +127,10 @@ impl State {
             Ok(value) => (
                 ConditionOutcome::Resolved(value),
                 ConditionResolution::new(id, value),
+            ),
+            Err(ActionError::Cancelled) if self.cancellation.is_cancelled() => (
+                ConditionOutcome::Cancelled,
+                ConditionResolution::cancelled(id),
             ),
             Err(error) => (
                 ConditionOutcome::Failed(error),
@@ -131,13 +157,19 @@ impl State {
                 let node = NodeId::new(completion.node());
                 let (outcome, status) = match completion.into_result() {
                     Ok(value) => (NodeOutcome::Succeeded(value), Ok(())),
+                    Err(ActionError::Cancelled) if self.cancellation.is_cancelled() => {
+                        self.cancelled.push(node);
+                        self.results.record(node, NodeOutcome::Cancelled)?;
+                        return Ok(None);
+                    }
                     Err(error) => (NodeOutcome::Failed(NodeFailure::Action(error)), Err(())),
                 };
                 // 先提交真实结果，再把完成事实交给唯一的 core 状态机。
                 self.results.record(node, outcome)?;
-                Ok((node, status))
+                Ok(Some((node, status)))
             })
-            .collect()
+            .collect::<Result<Vec<_>, _>>()
+            .map(|values| values.into_iter().flatten().collect())
     }
 
     pub(super) fn advance(
@@ -145,15 +177,30 @@ impl State {
         completed: Completions,
         conditions: Vec<ConditionResolution>,
     ) -> Result<ExecutionBatch, ExecutionError> {
-        Ok(self.session.advance(
-            ExecutionUpdate::new(completed, conditions, []),
-            self.limit - self.running,
-        )?)
+        let update = ExecutionUpdate::new(completed, conditions, [])
+            .cancelled(std::mem::take(&mut self.cancelled));
+        let update = if self.cancellation.is_cancelled() {
+            update.cancel()
+        } else {
+            update
+        };
+        Ok(self.session.advance(update, self.limit - self.running)?)
     }
 
     pub(super) fn finish(self) -> Result<(ExecutionOutcome, PoolOwner), ExecutionError> {
+        let status = match self.status {
+            SessionStatus::Finished => crate::ExecutionStatus::Succeeded,
+            SessionStatus::Failed => crate::ExecutionStatus::Failed,
+            SessionStatus::Cancelled => crate::ExecutionStatus::Cancelled,
+            SessionStatus::Running => return Err(ExecutionError::Stalled),
+        };
         Ok((
-            ExecutionOutcome::new(self.compilation, self.results.finish()?, self.conditions),
+            ExecutionOutcome::new(
+                self.compilation,
+                self.results.finish()?,
+                self.conditions,
+                status,
+            ),
             self.workers,
         ))
     }

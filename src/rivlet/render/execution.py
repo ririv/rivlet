@@ -33,6 +33,7 @@ class ExecutionRenderStatus(StrEnum):
     ENTERED = "entered"
     COMPLETED = "completed"
     SKIPPED = "skipped"
+    CANCELLED = "cancelled"
     SKIPPED_BY_ANCESTOR = "skipped_by_ancestor"
     NOT_REACHED = "not_reached"
     FAILED = "failed"
@@ -75,6 +76,7 @@ def render_live_execution(
         for node_path, _label_path in steps
         if node_path not in snapshot.completed_steps
         and node_path not in snapshot.skipped_steps
+        and node_path not in snapshot.cancelled_steps
         and node_path not in snapshot.node_failures
     )
     last_step_path = snapshot.executed_steps[-1] if snapshot.executed_steps else None
@@ -102,7 +104,8 @@ def _render_execution_impl(
     title: str,
 ) -> str:
     snapshot = state.snapshot()
-    lines = [f"{title}: {root_label} (mode={mode})"]
+    cancellation = " [cancellation=requested]" if snapshot.cancelled else ""
+    lines = [f"{title}: {root_label} (mode={mode}){cancellation}"]
     active_step_paths = active_execution_step_paths(snapshot)
     if not active_step_paths and not include_not_reached:
         return "\n".join(lines)
@@ -216,6 +219,8 @@ def resolve_execution_status(
 ) -> ExecutionRenderStatus:
     if failure := snapshot.node_failures.get(node_path):
         return ExecutionRenderStatus(failure.value)
+    if node_path in snapshot.cancelled_steps:
+        return ExecutionRenderStatus.CANCELLED
     if ancestor_skipped:
         return ExecutionRenderStatus.SKIPPED_BY_ANCESTOR
     if node_path in snapshot.skipped_steps:
@@ -260,6 +265,7 @@ def active_execution_step_paths(
         *snapshot.executed_steps,
         *snapshot.entered_composites,
         *snapshot.skipped_steps,
+        *snapshot.cancelled_steps,
         *snapshot.node_failures,
     ]:
         current: NodePath | None = node_path
@@ -279,6 +285,7 @@ def deepest_running_step_paths(
         for node_path in snapshot.executed_steps
         if node_path not in snapshot.completed_steps
         and node_path not in snapshot.skipped_steps
+        and node_path not in snapshot.cancelled_steps
         and node_path not in snapshot.node_failures
     ]
     running_set = set(running)

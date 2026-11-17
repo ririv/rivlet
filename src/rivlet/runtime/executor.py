@@ -106,11 +106,15 @@ class GraphExecutor:
         )
 
     def _prepare(self, graph: ExecutableGraph) -> SessionDefinition:
-        self.execution_control.require_running()
+        self.execution_control.require_not_stopped()
         self.state.begin_run()
         return self._runtime.prepare(graph)
 
     def _finish(self, graph: ExecutableGraph) -> ExecutionState:
+        if self.state.cancelled:
+            from ..cancellation import ExecutionCancelled
+
+            raise ExecutionCancelled(self.state)
         self.state.require_skip_requests_resolved()
         self._runtime.after_success(graph)
         return self.state

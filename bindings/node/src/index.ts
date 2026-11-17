@@ -29,6 +29,7 @@ export {
   Execution,
   ExecutionOutcome,
   ExecutionError,
+  ExecutionCancelled,
   run,
 } from "./execution.js";
 export type { RunOptions, NodeOutcome, NodeFailure } from "./execution.js";

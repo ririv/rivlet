@@ -208,6 +208,14 @@ Predicate errors are available through `conditionError(index)` using the conditi
 index in the compilation. Missing results on failed/blocked nodes raise errors;
 they are not disguised as successful `undefined` or skipped values.
 
+## Cancellation
+
+`execution.run({ signal: controller.signal })` accepts a native AbortSignal.
+Actions cooperate through `ctx.signal`. Cancellation stops new dispatch, drains
+in-flight Promises, then rejects with `ExecutionCancelled` and its partial outcome.
+Real failures still produce ExecutionError; an AbortError name alone is not a
+cancellation acknowledgement. See the [cancellation contract (Chinese)](./zh-CN/cancellation.md).
+
 ## Architecture and current scope
 
 ```text
@@ -232,7 +240,7 @@ blocks, and core's policy is unchanged.
 This first frontend supports explicit constructors, hierarchical composition,
 anonymous/named ports, result passing, node/edge runtime conditions, subtree limits,
 skips, compilation reuse and failure isolation. It does **not** yet expose Python's
-wire/DSL helpers, static conditions/selection, runtime-generated graphs, cancellation,
+wire/DSL helpers, static conditions/selection, runtime-generated graphs,
 shared state, observation subscriptions, rendering, symbolic provider selection, or
 Rust-native action registration. Returning a Graph from a JS action raises an error;
 it is not silently treated as an ordinary value.

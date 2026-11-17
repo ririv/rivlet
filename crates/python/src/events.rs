@@ -6,6 +6,7 @@ use rivlet::{BlockCause, ConditionSite, ExecutionEvent, FailureCause};
 // 不为无载荷事件传占位字段；失败只携带索引，不跨语言传递异常或业务结果。
 #[derive(Clone, IntoPyObject)]
 pub(crate) enum EncodedEvent {
+    Cancellation((u8,)),
     Lifecycle(u8, usize),
     Condition(u8, usize, bool),
     Related(u8, usize, usize),
@@ -15,6 +16,7 @@ pub(crate) enum EncodedEvent {
 
 pub(crate) fn encode_event(event: &ExecutionEvent) -> EncodedEvent {
     match *event {
+        ExecutionEvent::CancellationRequested => EncodedEvent::Cancellation((16,)),
         ExecutionEvent::ConditionEvaluated { node, value } => {
             EncodedEvent::Condition(0, node.index(), value)
         }
@@ -22,6 +24,7 @@ pub(crate) fn encode_event(event: &ExecutionEvent) -> EncodedEvent {
         ExecutionEvent::CompositeEntered(node) => EncodedEvent::Lifecycle(2, node.index()),
         ExecutionEvent::CompositeCompleted(node) => EncodedEvent::Lifecycle(3, node.index()),
         ExecutionEvent::NodeSkipped(node) => EncodedEvent::Lifecycle(4, node.index()),
+        ExecutionEvent::NodeCancelled(node) => EncodedEvent::Lifecycle(15, node.index()),
         ExecutionEvent::NodeFailed {
             node,
             cause: FailureCause::Action,

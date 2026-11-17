@@ -6,6 +6,7 @@ from dataclasses import InitVar, dataclass, field
 from threading import Lock
 from typing import TYPE_CHECKING
 
+from .cancellation import CancellationToken
 from .compile import (
     GraphCompilation,
     _compile_graph_scope,
@@ -59,9 +60,9 @@ class Execution:
     _declaration_graph: Graph = field(init=False, repr=False, compare=False)
     shared: object | None = field(default=None, kw_only=True, repr=False)
     execution_state: ExecutionState = field(default_factory=ExecutionState)
-    execution_control: ExecutionControl = field(
-        default_factory=ExecutionControl,
-    )
+    execution_control: ExecutionControl | None = None
+    cancellation: InitVar[CancellationToken | None] = field(default=None, kw_only=True)
+    _control: ExecutionControl = field(init=False, repr=False, compare=False)
     action_log: ActionLog = NO_ACTION_LOG
     execution_output: ExecutionOutput = NO_EXECUTION_OUTPUT
     node_log_paths: InitVar[Mapping[NodeKind, Path] | None] = field(
@@ -86,10 +87,19 @@ class Execution:
 
     def __post_init__(
         self,
+        cancellation: CancellationToken | None,
         node_log_paths: Mapping[NodeKind, Path] | None,
         events: NodeEventSink | None,
     ) -> None:
         from .model import Graph, Step
+
+        if self.execution_control is not None and cancellation is not None:
+            raise ValueError("pass cancellation or execution_control, not both")
+        control = self.execution_control or ExecutionControl(
+            CancellationToken() if cancellation is None else cancellation
+        )
+        object.__setattr__(self, "_control", control)
+        object.__setattr__(self, "execution_control", control)
 
         if not isinstance(self.root, (Step, Graph)):
             raise TypeError("Execution requires a root Node")
@@ -207,7 +217,7 @@ class Execution:
         return resolve_node_label(self.root, NodePath((0,)))
 
     def _compile_for_run(self, mode: GraphMode) -> GraphCompilation:
-        self.execution_control.require_running()
+        self._control.require_not_stopped()
         if mode not in ("dynamic", "compiled"):
             raise GraphError(f"unsupported graph mode: {mode}")
         return self.compile()
@@ -258,7 +268,7 @@ class Execution:
             result = GraphExecutor(
                 self.execution_state,
                 shared=self.shared,
-                execution_control=self.execution_control,
+                execution_control=self._control,
                 observer=observer,
                 action_log=self.action_log,
                 record_composites_as_steps=mode == "dynamic",
@@ -288,7 +298,7 @@ class Execution:
             result = await GraphExecutor(
                 self.execution_state,
                 shared=self.shared,
-                execution_control=self.execution_control,
+                execution_control=self._control,
                 observer=observer,
                 action_log=self.action_log,
                 record_composites_as_steps=mode == "dynamic",

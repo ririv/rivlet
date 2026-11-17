@@ -32,6 +32,9 @@ class NodeControl:
     def require_running(self) -> None:
         self._execution_control.require_running()
 
+    async def wait_cancelled(self) -> None:
+        await self._execution_control.wait_cancelled()
+
 
 @dataclass(frozen=True, slots=True)
 class ResultView:

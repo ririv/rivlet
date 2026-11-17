@@ -52,6 +52,8 @@ class ExecutionState:
     _skip_requests: set[NodePath]
     _matched_skip_requests: set[NodePath]
     _skipped_steps: set[NodePath]
+    _cancelled_steps: set[NodePath]
+    _cancelled: bool
     _executed_steps: list[NodePath]
     _completed_steps: set[NodePath]
     _entered_composites: set[NodePath]
@@ -75,6 +77,8 @@ class ExecutionState:
         self._skip_requests = set(initial_skip_requests)
         self._matched_skip_requests = set()
         self._skipped_steps = set()
+        self._cancelled_steps = set()
+        self._cancelled = False
         self._executed_steps = []
         self._completed_steps = set()
         self._entered_composites = set()
@@ -138,6 +142,25 @@ class ExecutionState:
             return list(self._executed_steps)
 
     @property
+    def cancelled_steps(self) -> frozenset[NodePath]:
+        with self._lock:
+            return frozenset(self._cancelled_steps)
+
+    @property
+    def cancelled(self) -> bool:
+        with self._lock:
+            return self._cancelled
+
+    def record_cancellation(self) -> None:
+        with self._lock:
+            self._cancelled = True
+
+    def record_cancelled_step(self, node_path: NodePath) -> None:
+        with self._lock:
+            self._cancelled_steps.add(node_path)
+        self._emit(node_path, NodeExecutionState.CANCELLED)
+
+    @property
     def completed_steps(self) -> frozenset[NodePath]:
         with self._lock:
             return frozenset(self._completed_steps)
@@ -171,6 +194,8 @@ class ExecutionState:
         with self._lock:
             return ExecutionSnapshot(
                 skipped_steps=frozenset(self._skipped_steps),
+                cancelled_steps=frozenset(self._cancelled_steps),
+                cancelled=self._cancelled,
                 executed_steps=tuple(self._executed_steps),
                 completed_steps=frozenset(self._completed_steps),
                 entered_composites=frozenset(self._entered_composites),
@@ -394,6 +419,8 @@ class ExecutionSnapshot:
     """从执行状态原子复制出的渲染与观察快照。"""
 
     skipped_steps: frozenset[NodePath]
+    cancelled_steps: frozenset[NodePath]
+    cancelled: bool
     executed_steps: tuple[NodePath, ...]
     completed_steps: frozenset[NodePath]
     entered_composites: frozenset[NodePath]

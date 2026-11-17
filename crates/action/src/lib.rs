@@ -1,5 +1,6 @@
 //! Rust-owned graph actions and their execution contracts.
 
+mod cancellation;
 mod executor;
 mod process;
 mod value;
@@ -9,6 +10,7 @@ use std::fmt::{self, Debug, Display, Formatter};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+pub use cancellation::{CancellationRegistration, CancellationSource, CancellationToken};
 pub use process::ProcessAction;
 pub use value::{ActionInputs, ExternalValue, Value, ValueType, ValueTypeId};
 
@@ -16,12 +18,27 @@ pub use value::{ActionInputs, ExternalValue, Value, ValueType, ValueTypeId};
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct ActionContext {
     component_log_path: Option<PathBuf>,
+    cancellation: CancellationToken,
 }
 
 impl ActionContext {
     #[must_use]
     pub fn new(component_log_path: Option<PathBuf>) -> Self {
-        Self { component_log_path }
+        Self {
+            component_log_path,
+            cancellation: CancellationToken::default(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_cancellation(mut self, token: CancellationToken) -> Self {
+        self.cancellation = token;
+        self
+    }
+
+    #[must_use]
+    pub fn control(&self) -> &CancellationToken {
+        &self.cancellation
     }
 
     #[must_use]
@@ -190,22 +207,24 @@ impl Debug for ActionHandle {
 
 /// Stable error value crossing native action and language-adapter boundaries.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ActionError {
-    message: String,
+pub enum ActionError {
+    Failed(String),
+    Cancelled,
 }
 
 impl ActionError {
     #[must_use]
     pub fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
+        Self::Failed(message.into())
     }
 }
 
 impl Display for ActionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
+        match self {
+            Self::Failed(message) => formatter.write_str(message),
+            Self::Cancelled => formatter.write_str("execution cancelled"),
+        }
     }
 }
 

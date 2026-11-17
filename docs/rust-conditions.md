@@ -98,6 +98,7 @@ high-level driver, not a simulated scheduler.
 | --- | --- |
 | `NotEvaluated` | No request was evaluated, e.g. the owner was skipped or an input failed |
 | `Resolved(bool)` | The predicate returned this decision |
+| `Cancelled` | The execution cancelled and the pending predicate was dropped or acknowledged |
 | `Failed(ActionError)` | The original predicate/decoding error, or a caught predicate panic |
 
 None means only that the condition index is outside this compilation. Obtain the

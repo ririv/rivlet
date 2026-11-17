@@ -28,6 +28,7 @@ use std::sync::Arc;
 use graph::Compilation;
 use rivlet::NodeId;
 
+pub use action::{CancellationSource, CancellationToken};
 pub use error::ExecutionError;
 pub use outcome::{ConditionOutcome, ExecutionOutcome, ExecutionStatus, NodeFailure, NodeOutcome};
 
@@ -36,6 +37,7 @@ pub use outcome::{ConditionOutcome, ExecutionOutcome, ExecutionStatus, NodeFailu
 pub struct ExecutionOptions {
     workers: NonZeroUsize,
     skipped: Vec<NodeId>,
+    cancellation: CancellationToken,
 }
 
 impl ExecutionOptions {
@@ -47,6 +49,7 @@ impl ExecutionOptions {
         Ok(Self {
             workers: NonZeroUsize::new(workers).ok_or(ExecutionError::InvalidWorkers)?,
             skipped: Vec::new(),
+            cancellation: CancellationToken::default(),
         })
     }
 
@@ -54,6 +57,12 @@ impl ExecutionOptions {
     #[must_use]
     pub fn skip(mut self, nodes: impl IntoIterator<Item = NodeId>) -> Self {
         self.skipped.extend(nodes);
+        self
+    }
+
+    #[must_use]
+    pub fn cancellation(mut self, token: CancellationToken) -> Self {
+        self.cancellation = token;
         self
     }
 }

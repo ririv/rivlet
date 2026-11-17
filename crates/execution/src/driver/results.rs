@@ -26,7 +26,7 @@ impl Results {
         match &self.0[source.index()] {
             Some(NodeOutcome::Succeeded(value)) => Ok(Some(value.clone())),
             Some(NodeOutcome::Skipped) => Ok(None),
-            Some(NodeOutcome::Failed(_) | NodeOutcome::Blocked(_)) => {
+            Some(NodeOutcome::Failed(_) | NodeOutcome::Blocked(_) | NodeOutcome::Cancelled) => {
                 Err(ExecutionError::InvalidTransition(source))
             }
             None => Err(ExecutionError::MissingResult(source)),
@@ -36,13 +36,19 @@ impl Results {
     pub(super) fn events(&mut self, events: &[ExecutionEvent]) -> Result<(), ExecutionError> {
         for event in events {
             match *event {
-                ExecutionEvent::CompositeEntered(_)
+                ExecutionEvent::CancellationRequested
+                | ExecutionEvent::CompositeEntered(_)
                 | ExecutionEvent::ConditionEvaluated { .. }
                 | ExecutionEvent::ConditionSkipped(_) => {}
                 ExecutionEvent::CompositeCompleted(node) => {
                     self.record(node, NodeOutcome::Succeeded(Value::new(())))?;
                 }
                 ExecutionEvent::NodeSkipped(node) => self.record(node, NodeOutcome::Skipped)?,
+                ExecutionEvent::NodeCancelled(node) => {
+                    if self.0[node.index()].is_none() {
+                        self.record(node, NodeOutcome::Cancelled)?;
+                    }
+                }
                 ExecutionEvent::NodeBlocked { node, cause } => {
                     self.record(node, NodeOutcome::Blocked(cause))?;
                 }

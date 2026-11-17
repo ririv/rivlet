@@ -177,6 +177,8 @@ class CompiledExecutionHost:
             self.state.record_result(self._require_rust_step(node).path, value)
         for event in events:
             match event:
+                case (16,):
+                    self.state.record_cancellation()
                 case (0, node, value):
                     self.record_condition(node, value)
                 case (1, node):
@@ -188,6 +190,10 @@ class CompiledExecutionHost:
                 case (4, node):
                     node_path = self.compilation._execution_node(node).path
                     self.state.record_skipped_step(node_path)
+                case (15, node):
+                    self.state.record_cancelled_step(
+                        self.compilation._execution_node(node).path
+                    )
                 case (5, node):
                     step = self._require_rust_step(node)
                     self.state.record_step(step.path, step.path.labels)
@@ -364,6 +370,31 @@ class CompiledExecutionHost:
     def require_running(self) -> None:
         if self.execution_control is not None:
             self.execution_control.require_running()
+
+    def cancellation_requested(self) -> bool:
+        return (
+            self.execution_control is not None
+            and self.execution_control.cancellation.is_cancelled()
+        )
+
+    def owns_cancellation(self, error: object) -> bool:
+        from ..cancellation import CancellationRequested
+
+        return (
+            isinstance(error, CancellationRequested)
+            and self.execution_control is not None
+            and error.token is self.execution_control.cancellation
+            and self.cancellation_requested()
+        )
+
+    def subscribe_cancellation(self, handler: Callable[[], None]) -> Callable[[], None]:
+        if self.execution_control is None:
+            raise RuntimeError("cancellation requires an execution control")
+        return self.execution_control.cancellation._subscribe(handler)
+
+    def require_not_stopped(self) -> None:
+        if self.execution_control is not None:
+            self.execution_control.require_not_stopped()
 
     def _require_composite(self, node: int) -> CompiledComposite:
         compiled_node = self.compilation._execution_node(node)

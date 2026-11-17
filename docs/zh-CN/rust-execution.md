@@ -60,6 +60,7 @@ NodeOutcome 是封闭的终态联合：
 | --- | --- |
 | `Succeeded(Value)` | action 成功值，或 composite 完成后的 unit |
 | `Skipped` | 显式跳过，或节点/祖先条件为假，没有成功值 |
+| `Cancelled` | 尚未派发，或已配合执行取消退出；没有成功值 |
 | `Failed(NodeFailure::Action(error))` | action 原始错误 |
 | `Failed(NodeFailure::Child(id))` | composite 因该直接子节点失败 |
 | `Blocked(cause)` | 依赖、父节点、谓词或谓词输入失败，导致无法执行 |
@@ -107,7 +108,7 @@ let outcome = Execution::new(compilation, options).run()?;
 `Edge::with_condition` / `Edge::ports_with_condition` 声明。编译不调用谓词；
 `Execution::run()` / `run_async()` 等输入结果就绪后才求值，失败只阻断相关下游。
 
-`outcome.condition(id)` 返回 `ConditionOutcome::{NotEvaluated, Resolved, Failed}`；
+`outcome.condition(id)` 返回 `ConditionOutcome::{NotEvaluated, Resolved, Failed, Cancelled}`；
 失败保留原始 `ActionError`。谓词在宿主驱动线程执行，不占动作 worker 名额。
 完整规则见 [Rust 运行时谓词](./rust-conditions.md)，可运行示例位于
 `crates/execution/examples/conditions.rs`。
@@ -128,9 +129,13 @@ let outcome = Execution::new(compilation, options).run()?;
 
 ## 边界与开销
 
+显式取消通过 `ExecutionOptions::cancellation(token)` 配置，动作读取
+`ctx.control()`。同步和异步入口共用 core 取消协议；取消不等于丢弃 Future，
+已提交工作收尾后才返回带独立取消终态的 outcome。详见[协作取消](./cancellation.md)。
+
 - 支持同步 Rust action 与同步/异步谓词；不新增异步 action trait、Tokio 硬依赖、
-  运行时生成子图或取消命令。异步入口的 Future 执行环境由调用方提供。
-- ActionContext 使用无日志路径的缺省值。需要定制上下文、实时观察、停止控制或
+  运行时生成子图。异步入口的 Future 执行环境由调用方提供。
+- ActionContext 使用无日志路径的缺省值，并绑定本次执行的只读取消 Token。需要定制上下文、实时观察或
   混合语言分发的宿主，仍可直接组合 ExecutionSession 和 ActionExecutor。
 
 - 当前创建 session 时会复制一次 core 编译图，O(V + E)，初始化节点状态和结果表为

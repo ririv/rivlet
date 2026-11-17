@@ -42,18 +42,20 @@ pub(crate) fn run(
             drop(workers);
             return Ok(outcome);
         }
-        if !resolutions.is_empty() {
+        if !resolutions.is_empty() || state.cancellation_pending() {
             batch = state.advance(Vec::new(), resolutions)?;
             continue;
         }
         if !state.actions_running() {
             return Err(ExecutionError::Stalled);
         }
-        state
+        let wait = state
             .workers
             .prepare_wait()
-            .expect("running actions own workers")
-            .wait();
+            .expect("running actions own workers");
+        let _wake = (!state.cancellation.is_cancelled())
+            .then(|| wait.wake_on_cancellation(&state.cancellation));
+        wait.wait();
         let completed = state.complete_actions()?;
         batch = state.advance(completed, Vec::new())?;
     }

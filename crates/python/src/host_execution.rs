@@ -80,11 +80,16 @@ impl HostExecutionSession {
 
 #[pymethods]
 impl HostExecutionSession {
+    fn request_cancel(&mut self) {
+        self.session.request_cancel();
+    }
     fn start(&mut self, capacity: usize) -> PyResult<HostExecutionBatch> {
         self.session.start(capacity).map(HostExecutionBatch)
     }
 
-    #[pyo3(signature = (completed, conditions, skipped, available, values=Vec::new()))]
+    #[pyo3(signature = (completed, conditions, skipped, available, values=Vec::new(), cancelled=Vec::new(), cancelled_conditions=Vec::new()))]
+    // 固定批量 FFI 协议；不把 Python 容器或取消语义下沉进执行器。
+    #[allow(clippy::too_many_arguments)]
     fn advance(
         &mut self,
         completed: Vec<(usize, bool)>,
@@ -92,6 +97,8 @@ impl HostExecutionSession {
         skipped: Vec<usize>,
         available: usize,
         values: Vec<(usize, Py<PyAny>)>,
+        cancelled: Vec<usize>,
+        cancelled_conditions: Vec<usize>,
     ) -> PyResult<HostExecutionBatch> {
         if values.into_iter().next().is_some() {
             return Err(PyValueError::new_err(
@@ -99,7 +106,14 @@ impl HostExecutionSession {
             ));
         }
         self.session
-            .advance(completed, conditions, skipped, available)
+            .advance(
+                completed,
+                conditions,
+                skipped,
+                available,
+                cancelled,
+                cancelled_conditions,
+            )
             .map(HostExecutionBatch)
     }
 

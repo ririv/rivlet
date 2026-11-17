@@ -74,6 +74,9 @@ struct ExecutionSession {
 
 #[pymethods]
 impl ExecutionSession {
+    fn request_cancel(&mut self) {
+        self.session.request_cancel();
+    }
     fn start(&mut self, max_actions: usize) -> PyResult<ExecutionBatch> {
         self.session
             .start(max_actions)
@@ -81,13 +84,15 @@ impl ExecutionSession {
             .map_err(|error| PyValueError::new_err(error.to_string()))
     }
 
-    #[pyo3(signature = (completed, conditions, skipped, max_actions))]
+    #[pyo3(signature = (completed, conditions, skipped, max_actions, cancelled=Vec::new(), cancelled_conditions=Vec::new()))]
     fn advance(
         &mut self,
         completed: Vec<(usize, bool)>,
         conditions: Vec<(usize, Option<bool>)>,
         skipped: Vec<usize>,
         max_actions: usize,
+        cancelled: Vec<usize>,
+        cancelled_conditions: Vec<usize>,
     ) -> PyResult<ExecutionBatch> {
         self.session
             .advance(
@@ -102,9 +107,15 @@ impl ExecutionSession {
                                 ConditionResolution::new(ConditionId::new(condition), value)
                             }
                             None => ConditionResolution::failed(ConditionId::new(condition)),
-                        }),
+                        })
+                        .chain(
+                            cancelled_conditions
+                                .into_iter()
+                                .map(|id| ConditionResolution::cancelled(ConditionId::new(id))),
+                        ),
                     skipped.into_iter().map(NodeId::new),
-                ),
+                )
+                .cancelled(cancelled.into_iter().map(NodeId::new)),
                 max_actions,
             )
             .map(ExecutionBatch::from)

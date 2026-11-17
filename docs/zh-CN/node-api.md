@@ -186,6 +186,13 @@ try {
 则指向失败子节点，不伪造异常字段。谓词异常通过 `conditionError(index)` 读取，索引
 对应编译中的条件。失败、阻断节点取结果时报错，不伪装成成功 undefined 或跳过。
 
+## 显式取消
+
+`execution.run({ signal: controller.signal })` 接收原生 AbortSignal，动作通过
+`ctx.signal` 配合退出。取消停止新派发，等待在途 Promise 收尾，然后抛出携带
+部分结果的 `ExecutionCancelled`。有真实失败时仍抛 ExecutionError；不会仅凭
+AbortError 这个错误名把业务错误当作取消。完整三端规则见[协作取消](./cancellation.md)。
+
 ## 架构与当前范围
 
 ```text
@@ -206,7 +213,7 @@ napi-rs 注册宏需要在生成 FFI 代码中局部允许 unsafe，因此仅此
 
 首版前端支持显式构造、层级组合、匿名与具名端口、结果传递、节点与边的运行时条件、
 子图限额、跳过、编译复用和失败隔离。尚未暴露 Python 的 wire/DSL、静态条件与选择、
-动态生成子图、取消、共享状态、观察订阅、渲染、符号 provider 选择、Rust 原生动作注册。
+动态生成子图、共享状态、观察订阅、渲染、符号 provider 选择、Rust 原生动作注册。
 JS 动作返回 Graph 会明确报错，不静默当成普通值。
 
 尚无 Python/JS/Rust 混合值协议、浏览器/WASM 绑定、npm 发行或 Node 预编译平台矩阵。

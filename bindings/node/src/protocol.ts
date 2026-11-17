@@ -34,9 +34,10 @@ export type BlockCause =
   | { kind: "condition"; site: ConditionSite }
   | { kind: "conditionInput"; site: ConditionSite; input: number };
 export type CoreEvent =
+  | { kind: "cancellationRequested" }
   | { kind: "conditionEvaluated"; node: number; value: boolean }
   | {
-      kind: "conditionSkipped" | "graphEntered" | "graphCompleted" | "skipped";
+      kind: "conditionSkipped" | "graphEntered" | "graphCompleted" | "skipped" | "cancelled";
       node: number;
     }
   | { kind: "failed"; node: number; cause: FailureCause }
@@ -45,12 +46,12 @@ export interface Batch {
   actions: number[];
   conditions: { node: number; condition: number }[];
   events: CoreEvent[];
-  status: "running" | "succeeded" | "failed";
+  status: "running" | "succeeded" | "failed" | "cancelled";
 }
-export type Completion = { kind: "succeeded" | "failed"; node: number };
+export type Completion = { kind: "succeeded" | "failed" | "cancelled"; node: number };
 export type ConditionResolution =
   | { kind: "resolved"; condition: number; value: boolean }
-  | { kind: "failed"; condition: number };
+  | { kind: "failed" | "cancelled"; condition: number };
 export interface Update {
   completed: Completion[];
   conditions: ConditionResolution[];
@@ -71,9 +72,11 @@ export type NodeState =
   | "succeeded"
   | "skipped"
   | "failed"
-  | "blocked";
+  | "blocked"
+  | "cancelled";
 
 export interface NativeSession {
+  requestCancel(): void;
   start(capacity: number): Batch;
   advance(update: Update, capacity: number): Batch;
   states(): NodeState[];

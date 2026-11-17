@@ -179,6 +179,11 @@ action 所在范围。不传或传空字典时不限流；派发前会对配置�
 
 ## 执行控制
 
+显式协作取消使用 `Execution(root, cancellation=source.token)`。它记录独立取消终态，
+不会伪装成 Skipped 或普通失败；在途工作收尾后抛出携带部分状态的 ExecutionCancelled。
+详见[三端协作取消](./cancellation.md)。以下 ExecutionControl 的 request_stop 和停止
+处理器说明针对宿主资源中断，不应与显式取消终态混为一谈。
+
 `ExecutionControl` 保存停止状态和停止处理器，不保存 step 结果。普通 action 或
 运行时条件的异常不会请求全局停止；宿主主动取消、`ExecutionStopped` 或
 `KeyboardInterrupt` 等执行中断仍终止整图。宿主可以注册资源停止处理器，回收仍在运行的子进程。
@@ -222,7 +227,7 @@ action 可以调用 `ctx.control.stop_requested()` 或 `ctx.control.require_runn
 挂载 node_path（标签由 .labels 读取）、
 结构化 `state_detail` 及派生 `state: NodeExecutionState` 的 `NodeExecutionEvent`：
 `STARTED`、`COMPLETED`、`FAILED`、
-`BLOCKED`、`SKIPPED`。静态子图和动态子图使用同一接口。通知发生在状态
+`BLOCKED`、`SKIPPED`、`CANCELLED`。静态子图和动态子图使用同一接口。通知发生在状态
 提交之后，组合边界的事件不依赖展示模式。回调同步、串行执行；回调失败以
 `EventDeliveryError` 停止执行，不撤销已提交状态。未订阅时不创建事件对象或事件
 标签索引。原有 `GraphObserver` 继续独立负责图级展示消息。示例见[核心模型](./core_model.md)。

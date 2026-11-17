@@ -31,6 +31,7 @@ impl Future for PendingCondition {
 enum Progress {
     Actions,
     Condition(ConditionId, Result<bool, ActionError>),
+    Cancel,
 }
 
 pub(crate) async fn run_async(
@@ -57,7 +58,13 @@ pub(crate) async fn run_async(
             }
             return Ok(outcome);
         }
-        if !resolutions.is_empty() {
+        if state.cancellation.is_cancelled() && !pending.is_empty() {
+            for condition in &pending {
+                resolutions.push(state.resolve(condition.id, Err(ActionError::Cancelled)));
+            }
+            pending.clear();
+        }
+        if !resolutions.is_empty() || state.cancellation_pending() {
             batch = state.advance(Vec::new(), resolutions)?;
             continue;
         }
@@ -69,8 +76,17 @@ pub(crate) async fn run_async(
         } else {
             None
         };
+        let token = state.cancellation.clone();
+        let cancellation = token.cancelled();
+        let mut cancellation = std::pin::pin!(cancellation);
         // 同时注册动作与谓词的唤醒；不为等待创建线程、不在事件循环上 Condvar::wait。
         let progress = poll_fn(|cx| {
+            if !state.cancellation.is_cancelled() && cancellation.as_mut().poll(cx).is_ready() {
+                return Poll::Ready(Progress::Cancel);
+            }
+            if state.cancellation_pending() {
+                return Poll::Ready(Progress::Cancel);
+            }
             // 先推进谓词，避免持续就绪的动作通知让它们一直没有首次 poll。
             if let Poll::Ready(Some((id, result))) = Pin::new(&mut pending).poll_next(cx) {
                 return Poll::Ready(Progress::Condition(id, result));
@@ -84,6 +100,7 @@ pub(crate) async fn run_async(
         })
         .await;
         batch = match progress {
+            Progress::Cancel => state.advance(Vec::new(), Vec::new())?,
             Progress::Actions => {
                 let completed = state.complete_actions()?;
                 state.advance(completed, Vec::new())?

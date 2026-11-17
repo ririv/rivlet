@@ -51,6 +51,12 @@ class BatchExecutionHost(Protocol):
     def stop_requested(self) -> bool: ...
     def request_stop(self) -> None: ...
     def require_running(self) -> None: ...
+    def require_not_stopped(self) -> None: ...
+    def cancellation_requested(self) -> bool: ...
+    def owns_cancellation(self, error: object) -> bool: ...
+    def subscribe_cancellation(
+        self, handler: Callable[[], None]
+    ) -> Callable[[], None]: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -100,6 +106,8 @@ class SessionRun:
     completed: list[tuple[int, bool]] = field(default_factory=list)
     resolved_conditions: list[tuple[int, bool | None]] = field(default_factory=list)
     conditions_running: int = 0
+    cancelled: list[int] = field(default_factory=list)
+    cancelled_conditions: list[int] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +142,7 @@ class SessionTree:
             else _ConcurrencyLimits(list(root.limits.maxima))
         )
         self._limit_revision = 0
+        self._cancel_applied = False
         self._add(root, RootSession())
 
     def _add(
@@ -167,6 +176,8 @@ class SessionTree:
             owner,
         )
         self._active.add(run)
+        if self.host.cancellation_requested():
+            run.engine.request_cancel()
         self.wake(run)
 
     def wake(self, run: SessionRun) -> None:
@@ -184,6 +195,10 @@ class SessionTree:
             run.completed.append((work.node, True))
             self.wake(run)
         else:
+            if self.host.cancellation_requested():
+                run.cancelled.append(work.node)
+                self.wake(run)
+                return
             # 父动作已返回，不占用 worker；生命周期仍等待子图完成。
             self._add(
                 outcome.definition,
@@ -221,12 +236,27 @@ class SessionTree:
             run.completed.append((work.node, False))
             self.wake(run)
 
+    def cancel_work(self, work: PythonWork | ConditionWork) -> None:
+        run = work.session
+        if isinstance(work, ConditionWork):
+            run.conditions_running -= 1
+            run.cancelled_conditions.append(work.condition)
+        else:
+            run.python_running -= 1
+            run.cancelled.append(work.node)
+        self.wake(run)
+
     @property
     def has_ready(self) -> bool:
         return bool(self._ready)
 
     def poll(self) -> list[PythonWork | ConditionWork]:
-        self.host.require_running()
+        self.host.require_not_stopped()
+        if self.host.cancellation_requested() and not self._cancel_applied:
+            self._cancel_applied = True
+            for run in self._active:
+                run.engine.request_cancel()
+                self.wake(run)
         if len(self._active) > 1:
             revision = self.host.skip_revision()
             if revision != self._skip_revision:
@@ -256,9 +286,13 @@ class SessionTree:
                     source.host.skipped_nodes(),
                     available,
                     values=source.host.rust_input_values(run.completed),
+                    cancelled=run.cancelled,
+                    cancelled_conditions=run.cancelled_conditions,
                 )
                 run.completed = []
                 run.resolved_conditions = []
+                run.cancelled = []
+                run.cancelled_conditions = []
             (
                 actions,
                 conditions,
@@ -302,6 +336,9 @@ class SessionTree:
                     )
                     parent.completed.append((node, False))
                 else:
-                    complete()
-                    parent.completed.append((node, True))
+                    if self.host.cancellation_requested():
+                        parent.cancelled.append(node)
+                    else:
+                        complete()
+                        parent.completed.append((node, True))
                 self.wake(parent)

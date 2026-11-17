@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from . import static as static
+    from .cancellation import CancellationSource, CancellationToken, ExecutionCancelled
     from .compile import (
         CompiledComposite,
         CompiledCompositeRef,
@@ -132,6 +133,10 @@ if TYPE_CHECKING:
     from .topology import Arc, DAGTopology, DirectedTopology, TopologyCycleError
 
 _EXPORT_GROUPS = (
+    (
+        ".cancellation",
+        ("CancellationSource", "CancellationToken", "ExecutionCancelled"),
+    ),
     (
         ".structure",
         ("CompilationDocument", "DeclarationDocument", "GraphDocument", "export_graph"),
@@ -291,6 +296,9 @@ _EXPORT_GROUPS = (
 )
 
 __all__ = [
+    "CancellationSource",
+    "CancellationToken",
+    "ExecutionCancelled",
     "CompilationDocument",
     "DeclarationDocument",
     "GraphDocument",

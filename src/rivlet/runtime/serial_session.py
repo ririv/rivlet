@@ -6,6 +6,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from ..cancellation import CancellationRequested
 from ..events import EventDeliveryError
 from .control import ExecutionStopped
 from .session_tree import DynamicSubgraph, RootSession, SessionDefinition
@@ -40,6 +41,8 @@ def _frame(definition: SessionDefinition, owner: RootSession | _Child) -> _Frame
         1,
         retain_results=definition.host.retains_rust_results(),
     )
+    if definition.host.cancellation_requested():
+        engine.request_cancel()
     return _Frame(definition, engine, engine.start(1), owner)
 
 
@@ -51,13 +54,20 @@ def _resolve_conditions(
     host: BatchExecutionHost,
     requests: list[tuple[int, int]],
     get_runner: Callable[[], asyncio.Runner],
-) -> list[tuple[int, bool | None]]:
+) -> tuple[list[tuple[int, bool | None]], list[int]]:
     resolutions: list[tuple[int, bool | None]] = []
+    cancelled: list[int] = []
     for node, condition in requests:
         try:
             value = host.evaluate_condition(node, condition)
             if not isinstance(value, bool):
                 value = get_runner().run(_await_condition(value))
+        except CancellationRequested as error:
+            if host.owns_cancellation(error):
+                cancelled.append(condition)
+            else:
+                host.record_failure(node, error)
+                resolutions.append((condition, None))
         except (ExecutionStopped, EventDeliveryError):
             raise
         except Exception as error:
@@ -65,7 +75,7 @@ def _resolve_conditions(
             resolutions.append((condition, None))
         else:
             resolutions.append((condition, value))
-    return resolutions
+    return resolutions, cancelled
 
 
 def run_serial_definition(root: SessionDefinition) -> None:
@@ -92,20 +102,39 @@ def _run_serial_definition(
         while stack:
             frame = stack[-1]
             host = frame.definition.host
-            host.require_running()
+            host.require_not_stopped()
             actions, conditions, events, finished, rust_running, failures, results = (
                 frame.batch.parts()
             )
             host.apply_events(events, results)
             for node, message in failures:
                 host.record_failure(node, RuntimeError(message))
+            if host.cancellation_requested():
+                frame.engine.request_cancel()
+                if actions or conditions or frame.held_actions:
+                    frame.batch = frame.engine.advance(
+                        [],
+                        [],
+                        host.skipped_nodes(),
+                        1,
+                        cancelled=[*frame.held_actions, *actions],
+                        cancelled_conditions=[condition for _, condition in conditions],
+                    )
+                    frame.held_actions.clear()
+                    continue
             if conditions:
                 frame.held_actions.extend(actions)
+                resolutions, cancelled_conditions = _resolve_conditions(
+                    host, conditions, get_runner
+                )
+                if host.cancellation_requested():
+                    frame.engine.request_cancel()
                 frame.batch = frame.engine.advance(
                     [],
-                    _resolve_conditions(host, conditions, get_runner),
+                    resolutions,
                     host.skipped_nodes(),
                     1 - len(frame.held_actions) - rust_running,
+                    cancelled_conditions=cancelled_conditions,
                 )
                 continue
             if frame.held_actions:
@@ -126,6 +155,16 @@ def _run_serial_definition(
                             )
                             success = False
                         else:
+                            if host.cancellation_requested():
+                                parent.engine.request_cancel()
+                                parent.batch = parent.engine.advance(
+                                    [],
+                                    [],
+                                    parent.definition.host.skipped_nodes(),
+                                    1,
+                                    cancelled=[node],
+                                )
+                                continue
                             complete()
                             success = True
                         parent.batch = parent.engine.advance(
@@ -158,6 +197,16 @@ def _run_serial_definition(
                     raise TypeError(
                         "synchronous driver received an asynchronous action host"
                     )
+            except CancellationRequested as error:
+                if not host.owns_cancellation(error):
+                    host.record_failure(node, error)
+                    success = False
+                else:
+                    frame.engine.request_cancel()
+                    frame.batch = frame.engine.advance(
+                        [], [], host.skipped_nodes(), 1, cancelled=[node]
+                    )
+                    continue
             except (ExecutionStopped, EventDeliveryError):
                 raise
             except Exception as error:
@@ -165,6 +214,8 @@ def _run_serial_definition(
                 success = False
             else:
                 success = True
+            if host.cancellation_requested():
+                frame.engine.request_cancel()
             frame.batch = frame.engine.advance(
                 [(node, success)],
                 [],
@@ -175,4 +226,4 @@ def _run_serial_definition(
     except BaseException:
         root.host.request_stop()
         raise
-    root.host.require_running()
+    root.host.require_not_stopped()

@@ -67,6 +67,7 @@ NodeOutcome is a closed terminal-state union:
 | --- | --- |
 | `Succeeded(Value)` | Successful step result, or unit for a completed composite |
 | `Skipped` | Explicit skip or false node/ancestor condition; no successful value |
+| `Cancelled` | Undispatched work or cooperative cancellation; no successful value |
 | `Failed(NodeFailure::Action(error))` | Original action error |
 | `Failed(NodeFailure::Child(id))` | Composite failed because of this direct child |
 | `Blocked(cause)` | Dependency, parent, predicate, or predicate-input failure prevented execution |
@@ -121,7 +122,7 @@ Use `Step::with_condition` / `Graph::with_condition` for node conditions, and
 Compilation does not call predicates; `Execution::run()` / `run_async()` evaluate them when their
 input results are ready. Predicate failure blocks only affected dependents.
 
-`outcome.condition(id)` returns `ConditionOutcome::{NotEvaluated, Resolved, Failed}`;
+`outcome.condition(id)` returns `ConditionOutcome::{NotEvaluated, Resolved, Failed, Cancelled}`;
 failed predicates retain their original `ActionError`. Predicates run on the host
 driver, outside action worker capacity. See [Rust runtime predicates](./rust-conditions.md)
 and the runnable `crates/execution/examples/conditions.rs` example.
@@ -143,8 +144,13 @@ controls where its blocking Drop occurs; high-level async cleanup does not chang
 
 ## Scope and costs
 
+Explicit cancellation is configured with `ExecutionOptions::cancellation(token)`;
+actions read `ctx.control()`. Both entry points use the same core transitions and
+drain submitted work before returning a cancellation outcome. This differs from
+dropping a Future. See [cancellation (Chinese)](./zh-CN/cancellation.md).
+
 - Synchronous actions and sync/async predicates are supported. No async action trait,
-  Tokio requirement, runtime-created subgraph, or cancellation command is added.
+  Tokio requirement or runtime-created subgraph is added.
 - ActionContext uses its default with no log path. Hosts needing custom contexts,
   live observers, control, or mixed-language dispatch can still compose
   ExecutionSession and ActionExecutor directly.

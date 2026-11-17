@@ -13,6 +13,7 @@ from queue import Empty, SimpleQueue
 from threading import Lock
 from typing import TYPE_CHECKING, cast, overload
 
+from ..cancellation import CancellationRequested
 from ..events import EventDeliveryError
 from .control import ExecutionStopped
 from .session_tree import (
@@ -78,15 +79,15 @@ class _Driver:
         self.deferred: list[_Deferred] = []
         self.deferred_conditions: list[tuple[ConditionWork, Awaitable[bool]]] = []
         self.awaiting: list[PythonWork] = []
-        self.completed: SimpleQueue[_Pending] = SimpleQueue()
-        self._notify_ready: Callable[[_Pending], None] | None = None
+        self.completed: SimpleQueue[_Pending | None] = SimpleQueue()
+        self._notify_ready: Callable[[_Pending | None], None] | None = None
         self._notification_lock = Lock()
 
-    def set_notifier(self, notify: Callable[[_Pending], None] | None) -> None:
+    def set_notifier(self, notify: Callable[[_Pending | None], None] | None) -> None:
         with self._notification_lock:
             self._notify_ready = notify
 
-    def _notify(self, future: _Pending) -> None:
+    def _notify(self, future: _Pending | None) -> None:
         # 必须先入队再读取唤醒器；同步入口切入事件循环时，旧的完成记录
         # 仍在同一个队列里，不会因更换等待方式丢失通知。
         self.completed.put(future)
@@ -114,7 +115,9 @@ class _Driver:
         done: list[_Pending] = []
         while True:
             try:
-                done.append(self.completed.get_nowait())
+                future = self.completed.get_nowait()
+                if future is not None:
+                    done.append(future)
             except Empty:
                 return done
 
@@ -155,9 +158,18 @@ class _Driver:
 
     def _submit_condition(self, work: ConditionWork, dispatch: _Dispatch) -> None:
         host = work.session.definition.host
-        host.require_running()
+        if host.cancellation_requested():
+            self.tree.cancel_work(work)
+            return
+        host.require_not_stopped()
         try:
             value = host.evaluate_condition(work.node, work.condition)
+        except CancellationRequested as error:
+            if host.owns_cancellation(error):
+                self.tree.cancel_work(work)
+            else:
+                self.tree.fail(work, error)
+            return
         except (ExecutionStopped, EventDeliveryError):
             raise
         except Exception as error:
@@ -177,6 +189,11 @@ class _Driver:
     ) -> None:
         try:
             value = future.result()
+        except CancellationRequested as error:
+            if work.session.definition.host.owns_cancellation(error):
+                self.tree.cancel_work(work)
+            else:
+                self.tree.fail(work, error)
         except (CancelledError, asyncio.CancelledError) as error:
             raise ExecutionStopped("graph condition was cancelled") from error
         except (ExecutionStopped, EventDeliveryError):
@@ -200,6 +217,11 @@ class _Driver:
                 continue
             try:
                 result = cast("_ActionPending", future).result()
+            except CancellationRequested as error:
+                if item.session.definition.host.owns_cancellation(error):
+                    self.tree.cancel_work(item)
+                else:
+                    self.tree.fail(item, error)
             except (CancelledError, asyncio.CancelledError) as error:
                 raise ExecutionStopped("graph action was cancelled") from error
             except (ExecutionStopped, EventDeliveryError):
@@ -270,13 +292,14 @@ async def _continue_async(
     driver.resume(loop)
     ready = asyncio.Event()
 
-    def notify(future: _Pending) -> None:
+    def notify(future: _Pending | None) -> None:
         if isinstance(future, asyncio.Future):
             ready.set()
         else:
             loop.call_soon_threadsafe(ready.set)
 
     driver.set_notifier(notify)
+    unregister = driver.tree.host.subscribe_cancellation(lambda: driver._notify(None))
 
     try:
         while True:
@@ -293,19 +316,21 @@ async def _continue_async(
                 done = driver.take_completed()
             driver.consume(done)
             driver.resume(loop)
-        driver.tree.host.require_running()
+        driver.tree.host.require_not_stopped()
     except BaseException:
         driver.tree.host.request_stop()
         raise
     finally:
         await _drain(driver)
         driver.set_notifier(None)
+        unregister()
     driver.tree.host.raise_failures()
 
 
 def run_session(definition: SessionDefinition, pool: ThreadPoolExecutor) -> None:
     driver = _Driver(definition)
     dispatch = _BlockingDispatch(pool)
+    unregister = driver.tree.host.subscribe_cancellation(lambda: driver._notify(None))
     try:
         while True:
             driver.submit(dispatch)
@@ -314,7 +339,8 @@ def run_session(definition: SessionDefinition, pool: ThreadPoolExecutor) -> None
             if driver.awaiting or driver.deferred_conditions:
                 break
             driver.require_pending()
-            done = [driver.completed.get(), *driver.take_completed()]
+            first = driver.completed.get()
+            done = ([] if first is None else [first]) + driver.take_completed()
             driver.consume(done)
             if driver.deferred:
                 # 只在实际遇到 awaitable 时创建一次循环；沿用当前 driver、
@@ -339,11 +365,13 @@ def run_session(definition: SessionDefinition, pool: ThreadPoolExecutor) -> None
             with asyncio.Runner() as runner:
                 runner.run(_drain(driver))
         raise
+    finally:
+        unregister()
     if driver.deferred or driver.awaiting or driver.deferred_conditions:
         with asyncio.Runner() as runner:
             runner.run(_continue_async(driver, pool))
     else:
-        driver.tree.host.require_running()
+        driver.tree.host.require_not_stopped()
         driver.tree.host.raise_failures()
 
 

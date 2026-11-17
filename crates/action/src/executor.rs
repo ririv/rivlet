@@ -6,7 +6,9 @@ use std::sync::{Arc, Condvar, Mutex, mpsc};
 use std::task::{Context, Poll, Waker};
 use std::thread::{self, JoinHandle};
 
-use crate::{ActionContext, ActionError, ActionHandle, Value};
+use crate::{
+    ActionContext, ActionError, ActionHandle, CancellationRegistration, CancellationToken, Value,
+};
 
 struct ActionJob {
     node: usize,
@@ -62,6 +64,27 @@ pub struct CompletionWait {
 }
 
 impl CompletionWait {
+    /// Wakes this wait on cancellation while the returned registration is alive.
+    ///
+    /// # Panics
+    /// Panics if the completion lock is poisoned or its revision overflows.
+    #[must_use]
+    pub fn wake_on_cancellation(&self, token: &CancellationToken) -> CancellationRegistration {
+        let queue = Arc::clone(&self.queue);
+        token.subscribe(move || {
+            let mut state = queue.state.lock().expect("completion lock poisoned");
+            state.revision = state
+                .revision
+                .checked_add(1)
+                .expect("completion revision overflow");
+            let waiters = std::mem::take(&mut state.waiters);
+            drop(state);
+            queue.ready.notify_all();
+            for waiter in waiters {
+                waiter.wake();
+            }
+        })
+    }
     pub fn wait(self) {
         match self.state {
             WaitState::Ready => (),
@@ -241,6 +264,7 @@ fn worker_loop(jobs: &Mutex<mpsc::Receiver<Option<ActionJob>>>, completions: &Co
             return;
         };
         let result = catch_unwind(AssertUnwindSafe(|| {
+            job.context.control().require_running()?;
             job.action.execute(&job.context, &job.inputs)
         }))
         .unwrap_or_else(|_| Err(ActionError::new("native action panicked")));

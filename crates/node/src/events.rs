@@ -19,6 +19,7 @@ fn site(value: ConditionSite) -> Value {
 
 fn event(value: &ExecutionEvent) -> Value {
     match *value {
+        ExecutionEvent::CancellationRequested => json!({"kind":"cancellationRequested"}),
         ExecutionEvent::ConditionEvaluated { node, value } => {
             json!({"kind":"conditionEvaluated", "node":node.index(), "value":value})
         }
@@ -32,6 +33,7 @@ fn event(value: &ExecutionEvent) -> Value {
             json!({"kind":"graphCompleted", "node":node.index()})
         }
         ExecutionEvent::NodeSkipped(node) => json!({"kind":"skipped", "node":node.index()}),
+        ExecutionEvent::NodeCancelled(node) => json!({"kind":"cancelled", "node":node.index()}),
         ExecutionEvent::NodeFailed { node, cause } => {
             let cause = match cause {
                 FailureCause::Action => json!({"kind":"action"}),
@@ -62,6 +64,7 @@ pub(crate) fn batch(value: &ExecutionBatch) -> Value {
         SessionStatus::Running => "running",
         SessionStatus::Finished => "succeeded",
         SessionStatus::Failed => "failed",
+        SessionStatus::Cancelled => "cancelled",
     };
     json!({
         "actions":value.actions().iter().map(|node|node.index()).collect::<Vec<_>>(),

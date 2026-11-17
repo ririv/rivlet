@@ -184,6 +184,12 @@ action waiting for a peer. This policy is not a resource-specific rate limit or 
 
 ## Execution control
 
+Explicit cooperative cancellation uses `Execution(root, cancellation=source.token)`.
+It preserves separate cancelled outcomes and raises ExecutionCancelled with partial
+state after in-flight work settles. See [the three-adapter contract (Chinese)](./zh-CN/cancellation.md).
+The ExecutionControl request_stop/handler mechanism below is the host interruption
+path, not the new explicit cancellation terminal protocol.
+
 ExecutionControl holds stop state and stop handlers, not action results.
 Ordinary action or runtime-predicate exceptions do not request global cancellation.
 Explicit host cancellation, ExecutionStopped, KeyboardInterrupt, and other

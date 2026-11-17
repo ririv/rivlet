@@ -41,10 +41,14 @@ class SerialGraphExecutor:
     def execute(self, graph: ExecutableGraph) -> ExecutionState:
         from .serial_session import run_serial_definition
 
-        self.execution_control.require_running()
+        self.execution_control.require_not_stopped()
         self.state.begin_run()
         definition = self._runtime.prepare(graph)
         run_serial_definition(definition)
+        if self.state.cancelled:
+            from ..cancellation import ExecutionCancelled
+
+            raise ExecutionCancelled(self.state)
         self.state.require_skip_requests_resolved()
         self._runtime.after_success(graph)
         return self.state

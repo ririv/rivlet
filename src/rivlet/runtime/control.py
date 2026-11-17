@@ -4,6 +4,8 @@ import threading
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from ..cancellation import CancellationSource, CancellationToken
+
 type StopHandler = Callable[[], None]
 
 
@@ -20,6 +22,7 @@ class ExecutionControl:
     `ExecutionState` 中，不进入本对象。
     """
 
+    cancellation: CancellationToken = field(default_factory=CancellationToken)
     _stop_event: threading.Event = field(
         default_factory=threading.Event,
         init=False,
@@ -37,10 +40,28 @@ class ExecutionControl:
     )
 
     def stop_requested(self) -> bool:
-        return self._stop_event.is_set()
+        return self._stop_event.is_set() or self.cancellation.is_cancelled()
 
     def require_running(self) -> None:
-        if self.stop_requested():
+        self.cancellation.require_running()
+        if self._stop_event.is_set():
+            raise ExecutionStopped("graph execution stop requested")
+
+    async def wait_cancelled(self) -> None:
+        # 合并两种通知，不把宿主中断写回调用方可能共享的取消来源。
+        wake = CancellationSource()
+        unregister = self.cancellation._subscribe(wake.cancel)
+        handler = wake.cancel
+        self.register_stop_handler(handler)
+        try:
+            await wake.token.wait_cancelled()
+        finally:
+            unregister()
+            with self._handler_lock:
+                self._stop_handlers.remove(handler)
+
+    def require_not_stopped(self) -> None:
+        if self._stop_event.is_set():
             raise ExecutionStopped("graph execution stop requested")
 
     def register_stop_handler(self, handler: StopHandler) -> None:

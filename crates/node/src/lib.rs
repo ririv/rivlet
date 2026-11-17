@@ -24,6 +24,7 @@ fn invalid(error: impl std::fmt::Display) -> Error {
 enum Completion {
     Succeeded { node: usize },
     Failed { node: usize },
+    Cancelled { node: usize },
 }
 
 #[derive(Deserialize)]
@@ -31,6 +32,7 @@ enum Completion {
 enum Condition {
     Resolved { condition: usize, value: bool },
     Failed { condition: usize },
+    Cancelled { condition: usize },
 }
 
 #[derive(Deserialize)]
@@ -116,6 +118,9 @@ pub struct Session {
 
 #[napi]
 impl Session {
+    /// Cancels undispatched work; in-flight callbacks must still acknowledge completion.
+    #[napi]
+    pub fn request_cancel(&mut self) { self.session.request_cancel(); }
     /// Starts the session and returns its first scheduling batch.
     ///
     /// # Errors
@@ -138,10 +143,15 @@ impl Session {
     )]
     pub fn advance(&mut self, update: Value, capacity: u32) -> Result<Value> {
         let update: Update = serde_json::from_value(update).map_err(invalid)?;
-        let completed = update.completed.into_iter().map(|item| match item {
-            Completion::Succeeded { node } => (NodeId::new(node), Ok(())),
-            Completion::Failed { node } => (NodeId::new(node), Err(())),
-        });
+        let mut completed = Vec::new();
+        let mut cancelled = Vec::new();
+        for item in update.completed {
+            match item {
+                Completion::Succeeded { node } => completed.push((NodeId::new(node), Ok(()))),
+                Completion::Failed { node } => completed.push((NodeId::new(node), Err(()))),
+                Completion::Cancelled { node } => cancelled.push(NodeId::new(node)),
+            }
+        }
         let conditions = update.conditions.into_iter().map(|item| match item {
             Condition::Resolved { condition, value } => {
                 ConditionResolution::new(ConditionId::new(condition), value)
@@ -149,6 +159,7 @@ impl Session {
             Condition::Failed { condition } => {
                 ConditionResolution::failed(ConditionId::new(condition))
             }
+            Condition::Cancelled { condition } => ConditionResolution::cancelled(ConditionId::new(condition)),
         });
         self.session
             .advance(
@@ -156,7 +167,7 @@ impl Session {
                     completed,
                     conditions,
                     update.skipped.into_iter().map(NodeId::new),
-                ),
+                ).cancelled(cancelled),
                 capacity as usize,
             )
             .map(|value| events::batch(&value))
@@ -184,6 +195,7 @@ impl Session {
                     NodeState::Skipped => "skipped",
                     NodeState::Failed => "failed",
                     NodeState::Blocked => "blocked",
+                    NodeState::Cancelled => "cancelled",
                 }
                 .to_owned())
             })

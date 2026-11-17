@@ -438,7 +438,9 @@ impl MixedExecutionSession {
         self.encode_batch(py, batch)
     }
 
-    #[pyo3(signature = (completed, conditions, skipped, available, values=Vec::new()))]
+    #[pyo3(signature = (completed, conditions, skipped, available, values=Vec::new(), cancelled=Vec::new(), cancelled_conditions=Vec::new()))]
+    // 与纯宿主批量协议同形；Rust core 仍只消费类型化 ExecutionUpdate。
+    #[allow(clippy::too_many_arguments)]
     fn advance(
         &self,
         py: Python<'_>,
@@ -447,6 +449,8 @@ impl MixedExecutionSession {
         skipped: Vec<usize>,
         available: usize,
         values: Vec<(usize, Py<PyAny>)>,
+        cancelled: Vec<usize>,
+        cancelled_conditions: Vec<usize>,
     ) -> PyResult<MixedExecutionBatch> {
         let mut state = self
             .state
@@ -473,9 +477,15 @@ impl MixedExecutionSession {
                 .map(|(condition, value)| match value {
                     Some(value) => ConditionResolution::new(ConditionId::new(condition), value),
                     None => ConditionResolution::failed(ConditionId::new(condition)),
-                }),
+                })
+                .chain(
+                    cancelled_conditions
+                        .into_iter()
+                        .map(|id| ConditionResolution::cancelled(ConditionId::new(id))),
+                ),
             skipped.into_iter().map(NodeId::new),
-        );
+        )
+        .cancelled(cancelled.into_iter().map(NodeId::new));
         let MixedExecutionState {
             coordinator,
             python_values,
@@ -491,6 +501,15 @@ impl MixedExecutionSession {
         }
         .map_err(|error| coordination_error(&error))?;
         self.encode_batch(py, batch)
+    }
+
+    /// Waits for actual Rust completion without retaining the Python interpreter.
+    fn request_cancel(&self) {
+        self.state
+            .lock()
+            .expect("mixed execution lock poisoned")
+            .coordinator
+            .request_cancel();
     }
 
     /// Waits for actual Rust completion without retaining the Python interpreter.

@@ -12,6 +12,7 @@ export const edgeDeclaration = Symbol("edgeDeclaration");
 export const resultValueType = Symbol("resultValueType");
 export type Awaitable<T> = T | PromiseLike<T>;
 export interface NodeRunContext {
+  readonly signal: AbortSignal;
   readonly nodeId: bigint;
   readonly nodePath: readonly number[];
   readonly labelPath: readonly string[];
