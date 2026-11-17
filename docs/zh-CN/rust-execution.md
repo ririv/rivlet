@@ -17,7 +17,8 @@ let outcome = Execution::new(compilation, ExecutionOptions::new(4)?).run()?;
 assert_eq!(outcome.status(), ExecutionStatus::Succeeded);
 ```
 
-`4` 是整个执行的 Rust action 并发上限，不是每批或每个子图各有四个名额。
+`4` 是整个执行的阻塞 action worker 容量，不是每批或每个子图各有四个名额。
+异步 action 不占阻塞池；统一限制两类动作使用 `max_concurrency(&node, maximum)`。
 空闲时等待 worker 完成队列，不定时轮询。空图或全跳过图不创建线程池；
 action 完成后，只用实际空出的槽调度后续 ready 节点。
 
@@ -63,6 +64,9 @@ NodeOutcome 是封闭的终态联合：
 | `Cancelled` | 尚未派发，或已配合执行取消退出；没有成功值 |
 | `Failed(NodeFailure::Action(error))` | action 原始错误 |
 | `Failed(NodeFailure::Child(id))` | composite 因该直接子节点失败 |
+| `Failed(NodeFailure::Expansion(error))` | 动态 Graph 编译失败 |
+| `Failed(NodeFailure::Subgraph)` | 生成的子图失败，见 `outcome.subgraph(id)` |
+| `Failed(NodeFailure::AsyncSubgraph)` | 同步入口遇到带异步动作或谓词的动态子图，需使用 `run_async()` |
 | `Blocked(cause)` | 依赖、父节点、谓词或谓词输入失败，导致无法执行 |
 
 读取成功值继续使用已有的类型校验接口 `Value::downcast::<T>()`：
@@ -119,9 +123,13 @@ let outcome = Execution::new(compilation, options).run()?;
 方式上分发。同步谓词保留直接求值路径，不包装为 Future。低阶宿主可以调用
 `compilation.condition(id).start(&values)`，得到 Ready 或 Pending 求值分支。
 
+`AsyncAction` / `ActionHandle::new_async` 的 Future 在调用方环境中推进，不占 worker；
+输入、结果、子图展开和取消与同步动作共用同一条通路。同步 `run()` 明确拒绝异步动作。
+
 同步 action 仍在首次派发时创建的 worker 池中执行，另有一条只负责收尾的清理线程，
 不执行动作或谓词。正常返回前异步等待 worker 退出；丢弃执行 Future 释放待定谓词，
-不在事件循环线程 join。已派发同步动作继续结束，未派发动作不启动，不回滚副作用。
+不在事件循环线程 join。丢弃执行 Future 也丢弃待定异步动作；已派发同步动作继续结束，
+未派发动作不启动，不回滚副作用。显式取消则继续 poll 在途异步动作直到真实收尾。
 
 低阶 `ActionExecutor::prepare_wait()` 返回的 CompletionWait 同时支持 `.wait()`
 和 `.await`，按完成通知唤醒，不轮询。低阶池的最后一个引用仍由调用方管理销毁位置；
@@ -133,9 +141,10 @@ let outcome = Execution::new(compilation, options).run()?;
 `ctx.control()`。同步和异步入口共用 core 取消协议；取消不等于丢弃 Future，
 已提交工作收尾后才返回带独立取消终态的 outcome。详见[协作取消](./cancellation.md)。
 
-- 支持同步 Rust action 与同步/异步谓词；不新增异步 action trait、Tokio 硬依赖、
-  运行时生成子图。异步入口的 Future 执行环境由调用方提供。
-- ActionContext 使用无日志路径的缺省值，并绑定本次执行的只读取消 Token。需要定制上下文、实时观察或
+- 支持同步/异步 Rust action、同步/异步谓词、运行时生成子图与显式事件观察；
+  不新增 Tokio 硬依赖。异步入口的 Future 执行环境由调用方提供。
+  完整规则见[Node/Rust 扩展 API](./node-rust-advanced.md)。
+- ActionContext 使用无日志路径的缺省值，并绑定本次执行的只读取消 Token。需要定制上下文或
   混合语言分发的宿主，仍可直接组合 ExecutionSession 和 ActionExecutor。
 
 - 当前创建 session 时会复制一次 core 编译图，O(V + E)，初始化节点状态和结果表为

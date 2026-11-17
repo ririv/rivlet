@@ -144,8 +144,10 @@ worker，workers=4 也不是最多四个异步谓词。Err、工厂 panic 与每
 线程池仅在首次实际派发动作时创建；条件使全部动作跳过的图不启动空闲 worker。
 载荷仍通过现有 Rust Value/Arc 协议共享，不复制载荷，不转换成 JSON。
 
-本次不增加异步 action trait、静态选择、运行时生成 Rust 子图、取消命令或观察订阅。
-纯 Rust 条件可交给 Rust 高阶执行器，或由自定义低阶宿主处理。
+纯 Rust 条件可交给 Rust 高阶执行器，或由自定义低阶宿主处理；
+异步动作单独使用 `AsyncAction`，不与谓词合并成一个模糊的回调类型。
+静态选择、动态子图和事件观察见[Node/Rust 高级 API](./node-rust-advanced.md)，
+显式取消见[协作取消](./cancellation.md)。这些能力不改变运行时谓词的输入模型。
 
 主线 Python 和 Node.js 执行各自语言的谓词。实验 Python/Rust SDK 仅支持同步 Rust
 谓词；异步谓词导出在桥接边界明确报错，不隐式等待，见[SDK](./python-native.md)。

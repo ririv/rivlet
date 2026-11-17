@@ -95,6 +95,8 @@ const apply = new Step<number, [Plan]>(
 
 These annotations do not validate arbitrary user payload schemas at runtime.
 Applications remain responsible for domain validation.
+Port types are inferred from actual interface endpoints, not caller-provided payload generics.
+Use tuple entries to preserve exact named signatures; see the [typed port guide (Chinese)](./zh-CN/node-rust-advanced.md#typescript-结果边).
 In TypeScript conditions, annotate callback parameters explicitly, for example
 `condition: [(value: Option<boolean>) => value.unwrap(), enabled]`; an Edge does not
 infer a callback's parameter schema from its runtime producer list.
@@ -239,11 +241,10 @@ blocks, and core's policy is unchanged.
 
 This first frontend supports explicit constructors, hierarchical composition,
 anonymous/named ports, result passing, node/edge runtime conditions, subtree limits,
-skips, compilation reuse and failure isolation. It does **not** yet expose Python's
-wire/DSL helpers, static conditions/selection, runtime-generated graphs,
-shared state, observation subscriptions, rendering, symbolic provider selection, or
-Rust-native action registration. Returning a Graph from a JS action raises an error;
-it is not silently treated as an ordinary value.
+skips, compilation reuse, failure isolation, static selection, runtime-generated graphs
+and event observation. See the [Node/Rust advanced API guide (Chinese)](./zh-CN/node-rust-advanced.md)
+for examples and boundaries. It does **not** yet expose Python's wire/DSL helpers,
+shared state, rendering, symbolic provider selection, or Rust-native action registration.
 
 There is no mixed Python/JS/Rust value protocol, browser/WASM binding, npm release,
 or prebuilt Node platform matrix yet. Reusing core does not imply these features

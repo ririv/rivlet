@@ -87,6 +87,9 @@ const apply = new Step<number, [Plan]>(
 ```
 
 类型标注不等于运行时业务 schema 校验，业务载荷仍由应用验证。
+结果边会检查来源与 Step 接收参数的类型、顺序和数量；公开端口从实际声明推导类型，
+不再由调用者指定载荷泛型。具名类型需要精确区分时使用 tuple entries，见
+[端口类型示例](./node-rust-advanced.md#typescript-结果边)。
 TypeScript 条件回调需显式标注参数，例如
 `condition: [(value: Option<boolean>) => value.unwrap(), enabled]`；
 Edge 不根据运行时生产者列表自动推导回调参数 schema。
@@ -212,9 +215,9 @@ napi-rs 注册宏需要在生成 FFI 代码中局部允许 unsafe，因此仅此
 `deny(unsafe_code)` 而非工作区的 forbid；手写适配代码没有 unsafe 块，core 规则不变。
 
 首版前端支持显式构造、层级组合、匿名与具名端口、结果传递、节点与边的运行时条件、
-子图限额、跳过、编译复用和失败隔离。尚未暴露 Python 的 wire/DSL、静态条件与选择、
-动态生成子图、共享状态、观察订阅、渲染、符号 provider 选择、Rust 原生动作注册。
-JS 动作返回 Graph 会明确报错，不静默当成普通值。
+子图限额、跳过、编译复用、失败隔离、静态条件与选择、动态生成子图和事件观察。
+完整写法与边界见[Node/Rust 高级 API](./node-rust-advanced.md)。
+尚未暴露 Python 的 wire/DSL、共享状态、渲染、符号 provider 选择、Rust 原生动作注册。
 
 尚无 Python/JS/Rust 混合值协议、浏览器/WASM 绑定、npm 发行或 Node 预编译平台矩阵。
 复用 core 不意味着这些能力已存在。Python 的发行和既有 API 保持独立。

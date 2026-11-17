@@ -18,8 +18,9 @@ let outcome = Execution::new(compilation, ExecutionOptions::new(4)?).run()?;
 assert_eq!(outcome.status(), ExecutionStatus::Succeeded);
 ```
 
-`4` is the total Rust action concurrency limit for this execution, not an extra
-allowance for each batch or subgraph. Idle execution waits on the worker completion
+`4` is the blocking-action worker capacity, not an extra allowance for each batch
+or subgraph. Async actions do not occupy this pool; `max_concurrency(&node, maximum)`
+limits admission across both kinds. Idle execution waits on the worker completion
 queue rather than polling on a timer. Empty or fully skipped graphs need no worker
 pool. Completed actions free slots for the next ready batch.
 
@@ -135,7 +136,7 @@ Low-level hosts may call `compilation.condition(id).start(&values)` for Ready or
 
 The action pool is lazy; async execution adds one cleanup-only thread, not a
 predicate worker. Normal completion awaits shutdown. Dropping the Future drops
-pending predicates without joining workers on the event-loop thread. Submitted
+pending predicates and async actions without joining workers on the event-loop thread. Submitted
 synchronous actions finish; undispatched work does not start and effects are not rolled back.
 
 Low-level `ActionExecutor::prepare_wait()` returns a CompletionWait supporting both
@@ -149,10 +150,11 @@ actions read `ctx.control()`. Both entry points use the same core transitions an
 drain submitted work before returning a cancellation outcome. This differs from
 dropping a Future. See [cancellation (Chinese)](./zh-CN/cancellation.md).
 
-- Synchronous actions and sync/async predicates are supported. No async action trait,
-  Tokio requirement or runtime-created subgraph is added.
+- Synchronous actions, sync/async predicates, runtime-created graphs and explicit event
+  observation are supported. `AsyncAction` adds runtime-independent futures without a Tokio requirement.
+  See the [advanced API guide (Chinese)](./zh-CN/node-rust-advanced.md).
 - ActionContext uses its default with no log path. Hosts needing custom contexts,
-  live observers, control, or mixed-language dispatch can still compose
+  control, or mixed-language dispatch can still compose
   ExecutionSession and ActionExecutor directly.
 
 - Session creation currently clones the compiled core graph once, O(V + E), and

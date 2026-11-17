@@ -85,7 +85,9 @@ println!("{:?}", outcome.status());
 示例中取消与执行并发发生：若执行已全部结束，迟到的取消不改写成功状态。
 
 `run_async()` 使用相同选项。取消时丢弃待定的 Rust 谓词 Future，并确认其取消；
-已提交的同步动作仍收尾，之后才返回。Rust 没有新增异步 action trait。
+已提交的同步动作仍收尾。`AsyncAction` 的在途 Future 则继续被 poll，直到动作配合取消
+或返回真实成功/失败，之后才返回。直接丢弃整个执行 Future 才会丢弃待定异步动作，
+这不等于显式协作取消。详见[异步动作](./node-rust-advanced.md#rust-异步动作)。
 NodeOutcome::Cancelled、ConditionOutcome::Cancelled 与失败、跳过各自独立。
 
 ## Node.js

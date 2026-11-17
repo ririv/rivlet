@@ -162,9 +162,10 @@ conditions skip all actions does not create idle workers. Successful payloads ar
 shared through the existing Rust Value/Arc protocol without cloning the payload
 or converting it to JSON.
 
-This change does not add async actions, static selection, runtime-created
-Rust graphs, cancellation commands, or observation subscriptions. Pure Rust conditions can
-be consumed by the Rust high-level driver or a custom low-level host.
+Pure Rust conditions can be consumed by the high-level driver or a custom low-level host;
+asynchronous actions use the separate `AsyncAction` trait. Static selection, runtime-created graphs and event observation
+are documented in the [advanced API guide (Chinese)](./zh-CN/node-rust-advanced.md);
+see also [cancellation](./zh-CN/cancellation.md). These do not change predicate input bindings.
 
 Mainline Python and Node.js execute their own predicates. The experimental Python/Rust
 SDK still rejects async Rust predicate exports; see [the SDK](./python-native.md).

@@ -11,6 +11,8 @@ for (const [path, heading, expected] of [
   ["../../../docs/node-api.md", "Subgraphs and public ports", "42"],
   ["../../../docs/zh-CN/node-api.md", "子图与公开端口", "42"],
   ["../../../docs/zh-CN/cancellation.md", "Node.js", "cancelled"],
+  ["../../../docs/zh-CN/node-rust-advanced.md", "静态声明", "android"],
+  ["../../../docs/zh-CN/node-rust-advanced.md", "运行时生成子图", "42"],
 ]) {
   test(`文档示例可独立执行：${path}`, async () => {
     const document = await readFile(new URL(path, import.meta.url), "utf8");
