@@ -146,6 +146,22 @@ impl Snapshot {
     /// # Errors
     /// Rejects a type which cannot be represented by this transport.
     pub fn from_projection(projection: &Projection) -> Result<Self, ActionError> {
+        if projection.nodes().iter().any(
+            |node| matches!(node.kind(),graph::ProjectedKind::Step(action) if action.is_async()),
+        ) {
+            return Err(ActionError::new(
+                "experimental node export does not support asynchronous Rust actions",
+            ));
+        }
+        if projection
+            .scopes()
+            .iter()
+            .any(|scope| !scope.declaration().static_rules().is_empty())
+        {
+            return Err(ActionError::new(
+                "experimental node export does not support static Rust declarations",
+            ));
+        }
         if projection
             .conditions()
             .iter()

@@ -329,6 +329,39 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 0);
     }
 
+    #[test]
+    fn sdk_export_rejects_static_declarations_instead_of_discarding_unselected_nodes() {
+        let a = graph::Graph::new("a", [], []).unwrap();
+        let b = graph::Graph::new("b", [], []).unwrap();
+        let graph = graph::Graph::new("root", [a.clone().into(), b.clone().into()], [])
+            .unwrap()
+            .with_static([graph::StaticRule::select([
+                graph::Case::new(true, &a),
+                graph::Case::new(false, &b),
+            ])]);
+        let exported = crate::ExportedGraph::from_node(graph.into());
+        assert!(
+            matches!(exported,Err(error) if error.to_string().contains("does not support static"))
+        );
+    }
+
+    #[test]
+    fn sdk_export_rejects_async_actions_before_their_function_runs() {
+        struct Work;
+        impl action::AsyncAction for Work {
+            type Inputs = ();
+            type Output = ();
+            async fn execute(&self, _: action::ActionContext, (): ()) -> Result<(), ActionError> {
+                panic!("must not execute during export")
+            }
+        }
+        let node = graph::Step::new("async", action::ActionHandle::new_async(Work)).unwrap();
+        let exported = crate::ExportedGraph::from_node(node.into());
+        assert!(
+            matches!(exported,Err(error) if error.to_string().contains("does not support asynchronous Rust actions"))
+        );
+    }
+
     fn fixture() -> Snapshot {
         Snapshot {
             nodes: vec![NodeInfo {
