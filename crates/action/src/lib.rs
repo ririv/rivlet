@@ -3,6 +3,7 @@
 mod asynchronous;
 mod cancellation;
 mod executor;
+mod location;
 mod process;
 mod shared;
 mod value;
@@ -14,6 +15,7 @@ use std::sync::Arc;
 
 pub use asynchronous::{ActionFuture, AsyncAction};
 pub use cancellation::{CancellationRegistration, CancellationSource, CancellationToken};
+pub use location::NodeLocation;
 pub use process::ProcessAction;
 pub use shared::{SharedState, SharedStateError};
 pub use value::{ActionInputs, ExternalValue, Value, ValueType, ValueTypeId};
@@ -24,6 +26,7 @@ pub struct ActionContext {
     component_log_path: Option<PathBuf>,
     cancellation: CancellationToken,
     shared: Option<SharedState>,
+    location: Option<NodeLocation>,
 }
 
 impl ActionContext {
@@ -33,6 +36,7 @@ impl ActionContext {
             component_log_path,
             cancellation: CancellationToken::default(),
             shared: None,
+            location: None,
         }
     }
 
@@ -68,6 +72,39 @@ impl ActionContext {
     #[must_use]
     pub fn component_log_path(&self) -> Option<&Path> {
         self.component_log_path.as_deref()
+    }
+
+    /// Binds all positional facts together for low-level execution hosts.
+    #[must_use]
+    pub fn with_location(mut self, location: NodeLocation) -> Self {
+        self.location = Some(location);
+        self
+    }
+    fn require_location(&self) -> Result<&NodeLocation, ActionError> {
+        self.location
+            .as_ref()
+            .ok_or_else(|| ActionError::new("action context is not bound to a graph node"))
+    }
+    /// Returns the declaration identity, shared by repeated mounts.
+    ///
+    /// # Errors
+    /// Fails for a low-level context without an explicit node binding.
+    pub fn node_id(&self) -> Result<rivlet::NodeIdentity, ActionError> {
+        Ok(self.require_location()?.node_id())
+    }
+    /// Returns this actual mount, including generated-graph ancestors.
+    ///
+    /// # Errors
+    /// Fails for a low-level context without an explicit node binding.
+    pub fn node_path(&self) -> Result<&[usize], ActionError> {
+        Ok(self.require_location()?.node_path())
+    }
+    /// Returns display labels; these are not result or scheduling identities.
+    ///
+    /// # Errors
+    /// Fails for a low-level context without an explicit node binding.
+    pub fn label_path(&self) -> Result<&[String], ActionError> {
+        Ok(self.require_location()?.label_path())
     }
 }
 

@@ -41,6 +41,13 @@ pub struct Step {
 }
 
 impl Step {
+    /// Compiles this actual root without adding a wrapping executable Graph.
+    ///
+    /// # Errors
+    /// Returns a declaration or common compiler error.
+    pub fn compile(&self) -> Result<crate::Compilation, GraphError> {
+        NodeKind::from(self.clone()).compile()
+    }
     /// Creates a step. Cloning it preserves its declaration identity.
     ///
     /// # Errors
@@ -213,7 +220,7 @@ impl Graph {
     /// # Errors
     /// Returns a structural or declaration compilation error.
     pub fn compile(&self) -> Result<crate::Compilation, GraphError> {
-        Projection::from_node(self.clone().into())?.compile()
+        NodeKind::from(self.clone()).compile()
     }
 }
 
@@ -234,6 +241,15 @@ impl Node for Graph {
 pub enum NodeKind {
     Step(Step),
     Graph(Graph),
+}
+impl NodeKind {
+    /// Compiles either concrete root through the same projection path.
+    ///
+    /// # Errors
+    /// Returns a declaration or common compiler error.
+    pub fn compile(&self) -> Result<crate::Compilation, GraphError> {
+        Projection::from_node(self.clone())?.compile()
+    }
 }
 
 impl Node for NodeKind {

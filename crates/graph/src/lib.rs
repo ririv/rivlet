@@ -40,6 +40,8 @@ pub use inspection;
 mod edge;
 mod error;
 mod interface;
+mod lookup;
+pub use lookup::LookupError;
 mod node;
 mod projection;
 mod static_rules;

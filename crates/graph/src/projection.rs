@@ -291,6 +291,7 @@ impl Projection {
         Ok(Compilation {
             graph,
             projection: self,
+            lookup: std::sync::OnceLock::new(),
         })
     }
 
@@ -623,9 +624,16 @@ impl Projection {
 pub struct Compilation {
     graph: GraphCompilation,
     projection: Projection,
+    lookup: std::sync::OnceLock<crate::lookup::LookupIndex>,
 }
 
 impl Compilation {
+    pub(crate) fn mapping(&self) -> &[NodeId] {
+        self.graph.declaration_nodes()
+    }
+    pub(crate) const fn lookup_index(&self) -> &std::sync::OnceLock<crate::lookup::LookupIndex> {
+        &self.lookup
+    }
     #[must_use]
     pub const fn graph(&self) -> &CompiledExecutionGraph {
         self.graph.graph()

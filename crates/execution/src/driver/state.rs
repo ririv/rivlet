@@ -7,9 +7,9 @@ use crate::{
 };
 use action::{
     ActionContext, ActionError, ActionFuture, CancellationRegistration, CancellationToken,
-    SharedState, Value, ValueType,
+    NodeLocation, SharedState, Value, ValueType,
 };
-use graph::{Compilation, ConditionEvaluation, Graph, ProjectedKind};
+use graph::{Compilation, ConditionEvaluation, Graph, Node, ProjectedKind};
 use rivlet::{
     ConditionId, ConditionResolution, ExecutionEvent as SchedulerEvent, ExecutionSession,
     ExecutionUpdate, FailureCause, NodeId, SessionStatus,
@@ -55,6 +55,7 @@ struct Frame {
     updates: Updates,
     parent: Option<Parent>,
     prefix: Vec<usize>,
+    label_prefix: Vec<String>,
     subgraphs: HashMap<NodeId, ExecutionOutcome>,
 }
 impl Frame {
@@ -63,6 +64,7 @@ impl Frame {
         skipped: Vec<NodeId>,
         parent: Option<Parent>,
         prefix: Vec<usize>,
+        label_prefix: Vec<String>,
         admission: Option<rivlet::SessionConcurrency>,
     ) -> Result<Self, ExecutionError> {
         let session = ExecutionSession::new(Arc::new(compilation.graph().clone()), skipped)?;
@@ -83,6 +85,7 @@ impl Frame {
             updates: Updates::default(),
             parent,
             prefix,
+            label_prefix,
             subgraphs: HashMap::new(),
         })
     }
@@ -146,6 +149,7 @@ impl State {
                 compilation,
                 options.skipped,
                 None,
+                Vec::new(),
                 Vec::new(),
                 binding,
             )?)],
@@ -326,7 +330,7 @@ impl State {
                     frame: id,
                     node: *node,
                 };
-                match action.start_async(self.action_context(), &inputs) {
+                match action.start_async(self.action_context(id, *node), &inputs) {
                     Ok(future) => self.pending_async.push((site, future)),
                     Err(error) => self.returned(id, *node, Err(error))?,
                 }
@@ -334,7 +338,7 @@ impl State {
             }
             let job = self.next_job;
             self.next_job = job.checked_add(1).expect("job identity overflow");
-            let context = self.action_context();
+            let context = self.action_context(id, *node);
             self.workers
                 .executor(self.limit)
                 .map_err(ExecutionError::Executor)?
@@ -346,8 +350,34 @@ impl State {
         Ok(())
     }
 
-    fn action_context(&self) -> ActionContext {
-        let context = ActionContext::default().with_cancellation(self.cancellation.clone());
+    fn node_labels(&self, id: usize, node: NodeId) -> Vec<String> {
+        let frame = self.frame(id);
+        let mut labels = frame.label_prefix.clone();
+        let mut nodes = frame.compilation.projection().scopes()[0]
+            .declaration()
+            .nodes();
+        let path = frame.compilation.node(node).path();
+        for (depth, index) in path.iter().enumerate() {
+            let declared = &nodes[*index];
+            labels.push(declared.label().to_owned());
+            if depth + 1 < path.len() {
+                let graph::NodeKind::Graph(graph) = declared else {
+                    unreachable!("compiled path traverses only Graph ancestors")
+                };
+                nodes = graph.nodes();
+            }
+        }
+        labels
+    }
+    fn action_context(&self, id: usize, node: NodeId) -> ActionContext {
+        let frame = self.frame(id);
+        let metadata = frame.compilation.node(node);
+        let mut path = frame.prefix.clone();
+        path.extend(metadata.path());
+        let location = NodeLocation::new(metadata.identity(), path, self.node_labels(id, node));
+        let context = ActionContext::default()
+            .with_cancellation(self.cancellation.clone())
+            .with_location(location);
         match &self.shared {
             Some(state) => context.with_shared(state.clone()),
             None => context,
@@ -518,6 +548,7 @@ impl State {
                 }
                 let mut prefix = self.frame(frame).prefix.clone();
                 prefix.extend(self.frame(frame).compilation.node(node).path());
+                let label_prefix = self.node_labels(frame, node);
                 let inherited = self.frame_mut(frame).session.suspend_action(node)?;
                 let binding = self
                     .admission
@@ -527,6 +558,7 @@ impl State {
                     Vec::new(),
                     Some(Parent { frame, node, value }),
                     prefix,
+                    label_prefix,
                     binding,
                 )?;
                 let id = self.frames.len();

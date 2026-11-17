@@ -5,6 +5,9 @@ version = 4
 [[package]]
 name = "action"
 version = "0.4.0"
+dependencies = [
+ "rivlet",
+]
 
 [[package]]
 name = "graph"

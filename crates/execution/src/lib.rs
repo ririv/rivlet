@@ -23,6 +23,8 @@ mod driver;
 mod error;
 mod events;
 mod outcome;
+mod result_lookup;
+pub use result_lookup::ResultLookupError;
 
 use std::num::NonZeroUsize;
 use std::sync::Arc;
