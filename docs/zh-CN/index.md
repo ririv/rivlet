@@ -39,6 +39,7 @@
 - [执行 Rust 图](./rust-execution.md)
 - [Rust 运行时谓词](./rust-conditions.md)
 - [实验性 Node.js API](./node-api.md)
+- [Node.js 接线](./node-wiring.md)
 - [Rust 类型化结果值](./rust-results.md)
 - [结果记录、生命周期与未来保留策略候选](./result_lifetime.md)
 - [三端共享状态与结果、依赖的边界](./shared_state.md)

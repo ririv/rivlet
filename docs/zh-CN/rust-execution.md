@@ -57,7 +57,47 @@ action handle 仍然共享；action 自己显式捕获的可变状态是否共�
 NodeId 只属于对应编译图，不是跨图身份。通过 `outcome.compilation().node(id)`
 读取挂载元信息和路径。重复挂载相同图结构时，即使内部声明身份相同，结果槽也分别保存。
 
+根 `Step`、`Graph`、`NodeKind` 均可直接 `.compile()`，共用同一编译器，
+不需要为根 Step 另包一个可执行 Graph，也不需要调用方手工组装 Projection。
+
+## 上下文身份与挂载位置
+
+action 可以直接读取：
+
+```rust,ignore
+let identity = ctx.node_id()?;
+let path = ctx.node_path()?;
+let labels = ctx.label_path()?;
+```
+
+`node_id` 是进程内声明身份；重复挂载共享声明身份，但 `node_path` 不同。
+路径从实际根的 `[0]` 开始，保留原始声明位置，不因静态裁剪重新编号；
+动态子图还包含生成节点的祖先路径。`label_path` 对应实际祖先的展示标签，
+不能用来定位结果或作为跨版本业务身份。
+
+高阶 Execution 在派发同步和异步 action 时绑定这些事实。低阶 ActionExecutor
+并不要求任务一定属于图，因此默认 ActionContext 未绑定位置，读取会明确返回错误，
+不会捏造一个零 ID 或空路径。低阶宿主可显式通过
+`ActionContext::with_location(NodeLocation::new(id, path, labels))` 一起绑定。
+实验性跨库 SDK 尚不传递此位置绑定，不能把纯 Rust 的新能力当作已扩展 SDK ABI。
+
 ## 结果与失败
+
+宿主无需扫描节点或写裸索引，可以按 Step 或公开输出端口读取：
+
+```rust,ignore
+let answer = outcome.result::<usize>(&apply)?; // Option<Arc<usize>>
+let exported = outcome.result::<usize>(producer.interface().output("answer")?)?;
+```
+
+只有运行时跳过返回 `Ok(None)`；成功的 unit 为 `Ok(Some(Arc<()>))`。
+引用不属于本次编译、已被静态裁剪、重复挂载有歧义、失败、阻断、取消和类型不符，
+分别返回 `ResultLookupError` 的明确分支，不能当作没有值。
+重复挂载的内部 Step 应改用唯一挂载的外层 Graph 的公开出口；不任意选择第一份。
+`compilation.node_index(&node)` / `result_index(source)` 可用于需要 core 索引的低阶 API。
+引用索引首次查询才按本次编译建立，O(V) 一次，后续不重复扫描或编译。
+动态子图结果属于其独立 outcome，先 `outcome.subgraph(generator_index)` 再查其中节点。
+这些是宿主的只读结果查询；action 仍通过结果边接收参数，ctx 不恢复跨步骤取值。
 
 NodeOutcome 是封闭的终态联合：
 
@@ -148,7 +188,7 @@ let outcome = Execution::new(compilation, options).run()?;
 - 支持同步/异步 Rust action、同步/异步谓词、运行时生成子图与显式事件观察；
   不新增 Tokio 硬依赖。异步入口的 Future 执行环境由调用方提供。
   完整规则见[Node/Rust 扩展 API](./node-rust-advanced.md)。
-- ActionContext 默认没有日志路径，绑定本次执行的只读取消 Token，以及显式提供的共享对象。
+- ActionContext 默认没有日志路径；高阶执行绑定真实节点位置、本次执行的只读取消 Token，以及显式提供的共享对象。
   更低阶的上下文或分发策略仍可直接组合 ExecutionSession 和 ActionExecutor。
 
 - 当前创建 session 时会复制一次 core 编译图，O(V + E)，初始化节点状态和结果表为

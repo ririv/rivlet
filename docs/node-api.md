@@ -243,8 +243,10 @@ This first frontend supports explicit constructors, hierarchical composition,
 anonymous/named ports, result passing, node/edge runtime conditions, subtree limits,
 skips, compilation reuse, failure isolation, static selection, runtime-generated graphs
 and event observation. See the [Node/Rust advanced API guide (Chinese)](./zh-CN/node-rust-advanced.md)
-for examples and boundaries. It does **not** yet expose Python's wire/DSL helpers,
-live execution rendering, symbolic provider selection, or Rust-native action registration.
+for examples and boundaries. `node.wire({ after: [...] })` and `Graph.fromWiring(...)`
+provide declaration-only wiring; see the [wiring guide (中文)](./zh-CN/node-wiring.md).
+Live execution rendering, symbolic provider selection, and Rust-native action registration
+are not exposed.
 `run(node, { shared })` injects one host object; actions access it through
 `ctx.shared(ExpectedClass)`, including generated children. See [shared state (中文)](./zh-CN/shared_state.md).
 Structural export and Tree/Mermaid rendering use the shared Rust inspection layer;

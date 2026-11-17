@@ -280,9 +280,10 @@ cargo run --locked -p execution --example async_actions
 
 ## 当前边界
 
-Node.js 包仍为 private；npm 发布、预编译平台矩阵、wire/DSL、实时执行渲染、
+Node.js 包仍为 private；npm 发布、预编译平台矩阵、实时执行渲染、
 符号 provider 和原生动作注册尚未提供。共享对象已支持，见[共享状态](./shared_state.md)；
 结构导出和 Tree／Mermaid 已复用 Rust，见[结构导出](./graph_export.md)。
+wire 已支持，见[接线](./node-wiring.md)。
 Rust 提供 AsyncAction，但不新增 Tokio 生产依赖；Future 运行环境仍由使用者提供。
 实验性跨库导出协议尚不承载 Rust 静态声明或异步动作/谓词，在导出时明确拒绝，
 不丢掉规则或降级到同步执行。

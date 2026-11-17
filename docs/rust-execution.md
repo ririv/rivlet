@@ -64,7 +64,30 @@ its compilation, not a cross-graph identifier. Use
 `outcome.compilation().node(id)` for mounted metadata and paths. Repeated graph
 mounts receive separate result slots even when their declaration identities match.
 
+`Step`, `Graph`, and `NodeKind` all provide `.compile()` through the same compiler;
+a root Step needs no synthetic executable Graph wrapper.
+
+## Action context location
+
+`ctx.node_id()?` is the process-local declaration identity; `ctx.node_path()?`
+identifies the actual mount, including generated ancestors. Paths start at `[0]`
+and retain declaration positions after static pruning. `ctx.label_path()?` is for display,
+not result lookup. Both synchronous and asynchronous actions receive these facts.
+Low-level unbound ActionContext values return an error, never a fabricated identity;
+hosts can explicitly bind `action::NodeLocation` through `with_location(...)`.
+The experimental cross-library SDK does not yet transport this binding.
+
 ## Results and failures
+
+`outcome.result::<T>(&step)?` and
+`outcome.result::<T>(graph.interface().output("answer")?)?` return `Option<Arc<T>>`.
+Only skipped producers return None. Foreign/pruned or ambiguous references, failed,
+blocked or cancelled nodes, and type mismatches return distinct ResultLookupError variants.
+For repeated internal declarations, select a uniquely mounted outer graph output.
+`compilation.node_index(&node)` and `result_index(source)` expose the matching core index.
+The reference index is built lazily once, without recompilation or repeated full scans.
+Generated children keep their own outcome namespace. Action inputs still use result edges;
+these host queries do not add a context-based cross-step result API.
 
 NodeOutcome is a closed terminal-state union:
 

@@ -13,6 +13,7 @@ for (const [path, heading, expected] of [
   ["../../../docs/zh-CN/cancellation.md", "Node.js", "cancelled"],
   ["../../../docs/zh-CN/node-rust-advanced.md", "静态声明", "android"],
   ["../../../docs/zh-CN/node-rust-advanced.md", "运行时生成子图", "42"],
+  ["../../../docs/zh-CN/node-wiring.md", "wire：把依赖写在接收节点旁", "42"],
 ]) {
   test(`文档示例可独立执行：${path}`, async () => {
     const document = await readFile(new URL(path, import.meta.url), "utf8");
