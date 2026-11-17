@@ -2,12 +2,13 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 use action::ActionError;
-use rivlet::{NodeId, SessionError};
+use rivlet::{ConditionId, NodeId, SessionError};
 
 /// Infrastructure failures, distinct from action failures in an execution outcome.
 #[derive(Debug)]
 pub enum ExecutionError {
     InvalidWorkers,
+    AsyncPredicate(ConditionId),
     Session(SessionError),
     Executor(ActionError),
     UnexpectedComposite(NodeId),
@@ -21,6 +22,11 @@ pub enum ExecutionError {
 impl Display for ExecutionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::AsyncPredicate(id) => write!(
+                formatter,
+                "condition {} is asynchronous; use run_async()",
+                id.index()
+            ),
             Self::InvalidWorkers => formatter.write_str("workers must be greater than zero"),
             Self::Session(error) => Display::fmt(error, formatter),
             Self::Executor(error) => Display::fmt(error, formatter),
@@ -45,7 +51,7 @@ impl Display for ExecutionError {
             Self::InvalidCompletion => {
                 formatter.write_str("completion count exceeds running action count")
             }
-            Self::Stalled => formatter.write_str("execution has no running action to wait for"),
+            Self::Stalled => formatter.write_str("execution has no running work to wait for"),
         }
     }
 }

@@ -2,7 +2,7 @@
 
 [English](../rust-execution.md) | 简体中文
 
-workspace 的 `execution` crate 提供同步、单次使用的纯 Rust 执行入口。它组合
+workspace 的 `execution` crate 提供同步或异步、单次使用的纯 Rust 执行入口。它组合
 `graph::Compilation`、core 的 `ExecutionSession` 和 `action::ActionExecutor`，
 不依赖 Python，不新增调度器，也不把执行策略放进图声明层。
 
@@ -102,20 +102,34 @@ let outcome = Execution::new(compilation, options).run()?;
 
 ## 运行时谓词
 
-`Condition::new(predicate, inputs)` 声明同步、类型化的 Rust 谓词。
+`Condition::new(predicate, inputs)` 声明同步谓词，`Condition::new_async` 声明异步谓词。
 节点条件通过 `Step::with_condition` / `Graph::with_condition` 声明，条件边通过
 `Edge::with_condition` / `Edge::ports_with_condition` 声明。编译不调用谓词；
-`Execution::run()` 等输入结果就绪后才求值，失败只阻断相关下游。
+`Execution::run()` / `run_async()` 等输入结果就绪后才求值，失败只阻断相关下游。
 
 `outcome.condition(id)` 返回 `ConditionOutcome::{NotEvaluated, Resolved, Failed}`；
 失败保留原始 `ActionError`。谓词在宿主驱动线程执行，不占动作 worker 名额。
 完整规则见 [Rust 运行时谓词](./rust-conditions.md)，可运行示例位于
 `crates/execution/examples/conditions.rs`。
 
+## 异步执行与资源生命周期
+
+`Execution::run_async().await` 共用 core 状态机和结果提交逻辑，只在等待和池所有权
+方式上分发。同步谓词保留直接求值路径，不包装为 Future。低阶宿主可以调用
+`compilation.condition(id).start(&values)`，得到 Ready 或 Pending 求值分支。
+
+同步 action 仍在首次派发时创建的 worker 池中执行，另有一条只负责收尾的清理线程，
+不执行动作或谓词。正常返回前异步等待 worker 退出；丢弃执行 Future 释放待定谓词，
+不在事件循环线程 join。已派发同步动作继续结束，未派发动作不启动，不回滚副作用。
+
+低阶 `ActionExecutor::prepare_wait()` 返回的 CompletionWait 同时支持 `.wait()`
+和 `.await`，按完成通知唤醒，不轮询。低阶池的最后一个引用仍由调用方管理销毁位置；
+高阶 run_async 的收尾不改变所有低阶 ActionExecutor 的阻塞 Drop 语义。
+
 ## 边界与开销
 
-- 支持同步 Rust action 与谓词；不新增异步 action/predicate trait、Tokio 依赖、
-  运行时生成子图或取消 API。
+- 支持同步 Rust action 与同步/异步谓词；不新增异步 action trait、Tokio 硬依赖、
+  运行时生成子图或取消命令。异步入口的 Future 执行环境由调用方提供。
 - ActionContext 使用无日志路径的缺省值。需要定制上下文、实时观察、停止控制或
   混合语言分发的宿主，仍可直接组合 ExecutionSession 和 ActionExecutor。
 

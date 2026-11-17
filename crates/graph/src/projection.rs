@@ -85,6 +85,16 @@ pub struct ProjectedCondition {
 
 impl ProjectedCondition {
     #[must_use]
+    pub fn is_async(&self) -> bool {
+        self.declaration.is_async()
+    }
+
+    /// Starts one evaluation without assuming an asynchronous runtime.
+    pub fn start(&self, values: &[Option<Value>]) -> crate::ConditionEvaluation {
+        self.declaration.start(values)
+    }
+
+    #[must_use]
     pub fn sources(&self) -> &[OutputEndpoint] {
         self.declaration.inputs()
     }

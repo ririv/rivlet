@@ -1,6 +1,9 @@
 use std::collections::VecDeque;
+use std::future::Future;
 use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::pin::Pin;
 use std::sync::{Arc, Condvar, Mutex, mpsc};
+use std::task::{Context, Poll, Waker};
 use std::thread::{self, JoinHandle};
 
 use crate::{ActionContext, ActionError, ActionHandle, Value};
@@ -38,6 +41,7 @@ impl ActionCompletion {
 struct CompletionState {
     values: VecDeque<ActionCompletion>,
     revision: u64,
+    waiters: Vec<Waker>,
 }
 
 #[derive(Default)]
@@ -75,6 +79,36 @@ impl CompletionWait {
                         .wait(state)
                         .unwrap_or_else(std::sync::PoisonError::into_inner);
                 }
+            }
+        }
+    }
+}
+
+impl Future for CompletionWait {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
+        let this = self.get_mut();
+        match this.state {
+            WaitState::Ready => Poll::Ready(()),
+            WaitState::Pending(revision) => {
+                let mut state = this
+                    .queue
+                    .state
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner);
+                if !state.values.is_empty() || state.revision != revision {
+                    return Poll::Ready(());
+                }
+                // 检查与注册共用队列锁，避免完成通知落在两者之间。
+                if !state
+                    .waiters
+                    .iter()
+                    .any(|waker| waker.will_wake(cx.waker()))
+                {
+                    state.waiters.push(cx.waker().clone());
+                }
+                Poll::Pending
             }
         }
     }
@@ -222,8 +256,12 @@ fn worker_loop(jobs: &Mutex<mpsc::Receiver<Option<ActionJob>>>, completions: &Co
             .revision
             .checked_add(1)
             .expect("native completion revision overflow");
+        let waiters = std::mem::take(&mut state.waiters);
         drop(state);
         completions.ready.notify_all();
+        for waiter in waiters {
+            waiter.wake();
+        }
     }
 }
 

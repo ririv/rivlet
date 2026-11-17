@@ -12,6 +12,10 @@ experimental-mixed-execution = []
 action = { path = "../action" }
 graph = { path = "../graph" }
 rivlet = { path = "../core" }
+futures-util = { version = "0.3.34", default-features = false, features = ["alloc"] }
+
+[dev-dependencies]
+tokio = { version = "1.54.1", features = ["rt", "macros", "sync", "time"] }
 
 [lints]
 workspace = true

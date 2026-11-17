@@ -2,8 +2,8 @@
 
 [English](../rust-conditions.md) | 简体中文
 
-`graph` crate 声明同步、类型化的 Rust 谓词，`execution` crate 通过已有 core
-`ExecutionSession` 求值。没有 Python 回调、Tokio 依赖、额外 Step 或值序列化。
+`graph` crate 声明同步或异步、类型化的 Rust 谓词，`execution` crate 通过已有 core
+`ExecutionSession` 求值。没有 Python 回调、Tokio 硬依赖、额外 Step 或值序列化。
 这是运行时判断，不是编译时的静态裁剪。
 
 ## 声明判断
@@ -99,16 +99,52 @@ apply: 42
 `BlockCause::ConditionInput`，谓词保持 NotEvaluated。panic 与动作 panic 一样捕获，
 不安装或替换全局 panic hook。
 
+## 异步谓词
+
+```rust,ignore
+let approved = Condition::new_async(
+    |(flag,): (Option<Arc<bool>>,)| async move {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        Ok(flag.is_some_and(|flag| *flag))
+    },
+    [(&probe).into()],
+)?;
+let outcome = Execution::new(compilation, ExecutionOptions::new(4)?)
+    .run_async()
+    .await?;
+```
+
+两种构造器都返回 Condition，节点、子图和条件边的接线 API 不变。异步工厂为
+`Fn(I) -> Fut + Send + Sync + 'static`，Fut 必须实现
+`Future<Output = Result<bool, ActionError>> + Send + 'static`。
+输入是拥有的 Option/Arc 元组，不借用 driver 的临时缓冲区。编译不调用工厂，
+每个挂载的条件在每次执行中创建独立 Future，不缓存或复用旧 Future。
+
+调用方提供 Future 执行环境；本例的 Tokio 定时器必须在 Tokio runtime 内使用，
+但 Rivlet 不依赖或自动创建 Tokio。只含就绪 Future 的图不需要 Tokio 或动作 worker。
+`run_async()` 支持同步与异步谓词；同步 `run()` 在任何动作开始前拒绝异步声明，
+不内部 block_on，也不降级。
+
+多个待定谓词按唤醒并行推进，不逐个 await；等待时仍处理动作完成。谓词不占动作
+worker，workers=4 也不是最多四个异步谓词。Err、工厂 panic 与每次 poll 的 panic
+都作为条件失败，不转为 false；失败输入不调用工厂，跳过仍为 None，成功 unit 仍为 Some。
+
+完整示例：[async_conditions.rs](../../crates/execution/examples/async_conditions.rs)。
+运行 `cargo run -p execution --example async_conditions`，输出 condition: true 与 apply: 42。
+
 ## 调度与边界
 
 同步谓词在宿主驱动线程求值，不占动作 worker 名额，应保持短小；阻塞谓词会延后驱动
 继续处理事件，已经启动的 worker 动作仍可运行。需要动作级限额或独立输出的重工作，
 应组合成 Step。
 
+异步工厂和每次 Future poll 也应保持短小；异步入口不会自动把阻塞代码搬到线程池。
+
 线程池仅在首次实际派发动作时创建；条件使全部动作跳过的图不启动空闲 worker。
 载荷仍通过现有 Rust Value/Arc 协议共享，不复制载荷，不转换成 JSON。
 
-本次不增加 Rust 异步谓词、静态选择、运行时生成 Rust 子图、取消或观察订阅。
+本次不增加异步 action trait、静态选择、运行时生成 Rust 子图、取消命令或观察订阅。
 纯 Rust 条件可交给 Rust 高阶执行器，或由自定义低阶宿主处理。
 
-Python 和 Node.js 前端执行各自语言的谓词，不注册 Rust 原生动作或谓词。
+主线 Python 和 Node.js 执行各自语言的谓词。实验 Python/Rust SDK 仅支持同步 Rust
+谓词；异步谓词导出在桥接边界明确报错，不隐式等待，见[SDK](./python-native.md)。

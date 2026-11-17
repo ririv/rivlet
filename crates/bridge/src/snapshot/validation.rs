@@ -294,6 +294,41 @@ mod tests {
     use crate::Type;
     use crate::snapshot::NodeInfo;
 
+    #[test]
+    fn sdk_export_rejects_async_predicates_before_their_factory_runs() {
+        use action::{Action, ActionContext, ActionHandle};
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+
+        struct Noop;
+        impl Action for Noop {
+            type Inputs = ();
+            type Output = ();
+            fn execute(&self, _: &ActionContext, (): ()) -> Result<(), ActionError> {
+                Ok(())
+            }
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let observed = Arc::clone(&calls);
+        let condition = graph::Condition::new_async(
+            move |()| {
+                observed.fetch_add(1, Ordering::SeqCst);
+                async { Ok(true) }
+            },
+            [],
+        )
+        .unwrap();
+        let node =
+            graph::Step::with_condition("async", ActionHandle::new(Noop), condition).unwrap();
+        let exported = crate::ExportedGraph::from_node(node.into());
+        assert!(
+            matches!(exported, Err(error) if error.to_string().contains("does not support asynchronous"))
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 0);
+    }
+
     fn fixture() -> Snapshot {
         Snapshot {
             nodes: vec![NodeInfo {

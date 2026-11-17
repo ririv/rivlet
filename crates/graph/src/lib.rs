@@ -41,7 +41,7 @@ mod node;
 mod projection;
 mod validation;
 
-pub use condition::Condition;
+pub use condition::{Condition, ConditionEvaluation, ConditionFuture};
 pub use edge::{Edge, ResultSources, ResultTarget};
 pub use error::GraphError;
 pub use interface::{

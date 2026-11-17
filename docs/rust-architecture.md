@@ -14,10 +14,12 @@ integration.
   Python callbacks. It does not depend on PyO3, Tokio, or Graph core.
 - `crates/graph` exposes actual Rust Step/Graph nodes, the common Node trait,
   reusable Graph, typed interfaces/edges/predicates, and GraphError.
-- `crates/execution` composes graph/action/core into a single-use synchronous Rust
-  Execution with typed terminal outcomes and synchronous predicate evaluation.
+- `crates/execution` composes graph/action/core into a single-use Rust
+  Execution with typed outcomes and synchronous/asynchronous predicate evaluation.
   It depends on no Python or third-party
-  runtime; declarations and the Python adapter do not depend on it.
+  runtime; declarations and the mainline Python adapter do not depend on it.
+  The experimental mixed adapter explicitly enables its coordinator feature;
+  see [experimental boundaries](./mixed-execution.md).
 - `crates/topology` uses only the Rust standard library for integer nodes,
   adjacency indexes, and DAG algorithms. It knows nothing about actions or domains.
 - `crates/core` (package `rivlet`) depends on the workspace topology crate,
@@ -82,7 +84,7 @@ graph releases action admission. Explicit subtree limits and dynamic inheritance
 use the existing core's shared counters.
 
 Pure Rust Step/Graph declarations use the graph projection and the same compiler.
-The execution crate supplies synchronous Execution::run, native workers and typed
+The execution crate supplies Execution::run/run_async, native workers and typed
 outcomes, independently of Python. The Node.js frontend independently uses its JS
 callbacks and event loop with the same core.
 

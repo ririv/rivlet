@@ -17,8 +17,9 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
 - `crates/graph`
   - 提供真实 Rust `Step/Graph`、共同 `Node` trait、类型化端口/边/谓词与错误
 - `crates/execution`
-  - 组合 graph/action/core，提供单次使用的同步 Rust Execution、类型化终态与同步谓词求值
-  - 不依赖 Python 或第三方 runtime；图声明和 Python adapter 不依赖它
+  - 组合 graph/action/core，提供单次使用的 Rust Execution、类型化终态与同步/异步谓词求值
+  - 不依赖 Python 或第三方 runtime；图声明和主线 Python adapter 不依赖它
+  - 实验混合 adapter 显式启用其 coordinator feature，见[实验边界](./mixed-execution.md)
 - `crates/topology`
   - 只依赖 Rust 标准库，持有整数节点、邻接索引和 DAG 算法
   - 不认识 action、条件或宿主领域
@@ -91,7 +92,7 @@ Python driver 使用 core 的 start/advance 交换批量动作、条件和事件
 计数，动态子图继承父范围，不另设一套限额算法。
 
 纯 Rust Step/Graph 由 graph crate 投影，再进入同一 core 编译器；execution crate
-提供同步 Execution::run，拥有自己的 Rust 动作执行和类型化结果，不依赖 Python。
+提供 Execution::run / run_async，拥有自己的 Rust 动作执行和类型化结果，不依赖 Python。
 Node.js 前端同样独立接入 core，使用自己的 JS 回调和事件循环。
 
 主线没有 RustGraph、原生结果 codec、SDK 或跨语言混合执行入口。完整实验

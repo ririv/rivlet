@@ -2,7 +2,7 @@
 
 English | [简体中文](./zh-CN/rust-execution.md)
 
-The workspace `execution` crate provides a synchronous, single-use Rust execution
+The workspace `execution` crate provides synchronous and asynchronous single-use Rust execution
 entry. It composes `graph::Compilation`, the core `ExecutionSession`, and
 `action::ActionExecutor`. It does not require Python, introduce another scheduler,
 or move execution policy into graph declarations.
@@ -115,10 +115,10 @@ workers start.
 
 ## Runtime predicates
 
-`Condition::new(predicate, inputs)` declares a synchronous, typed Rust predicate.
+`Condition::new(predicate, inputs)` declares a synchronous predicate; `new_async` declares an async one.
 Use `Step::with_condition` / `Graph::with_condition` for node conditions, and
 `Edge::with_condition` / `Edge::ports_with_condition` for conditional edges.
-Compilation does not call predicates; `Execution::run()` evaluates them when their
+Compilation does not call predicates; `Execution::run()` / `run_async()` evaluate them when their
 input results are ready. Predicate failure blocks only affected dependents.
 
 `outcome.condition(id)` returns `ConditionOutcome::{NotEvaluated, Resolved, Failed}`;
@@ -126,10 +126,25 @@ failed predicates retain their original `ActionError`. Predicates run on the hos
 driver, outside action worker capacity. See [Rust runtime predicates](./rust-conditions.md)
 and the runnable `crates/execution/examples/conditions.rs` example.
 
+## Asynchronous execution and resource lifetime
+
+`Execution::run_async().await` shares core transitions and result commits; only
+waiting and pool ownership differ. Sync predicates retain direct evaluation.
+Low-level hosts may call `compilation.condition(id).start(&values)` for Ready or Pending.
+
+The action pool is lazy; async execution adds one cleanup-only thread, not a
+predicate worker. Normal completion awaits shutdown. Dropping the Future drops
+pending predicates without joining workers on the event-loop thread. Submitted
+synchronous actions finish; undispatched work does not start and effects are not rolled back.
+
+Low-level `ActionExecutor::prepare_wait()` returns a CompletionWait supporting both
+`.wait()` and `.await` through notifications. The last low-level pool owner still
+controls where its blocking Drop occurs; high-level async cleanup does not change that.
+
 ## Scope and costs
 
-- Synchronous Rust actions and predicates are supported. No async action/predicate
-  trait, Tokio requirement, runtime-created subgraph, or cancellation API is added.
+- Synchronous actions and sync/async predicates are supported. No async action trait,
+  Tokio requirement, runtime-created subgraph, or cancellation command is added.
 - ActionContext uses its default with no log path. Hosts needing custom contexts,
   live observers, control, or mixed-language dispatch can still compose
   ExecutionSession and ActionExecutor directly.

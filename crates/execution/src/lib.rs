@@ -1,7 +1,7 @@
-//! A synchronous Rust host composing the shared scheduler, workers and typed results.
+//! Rust execution hosts composing one shared scheduler, workers and typed results.
 //!
 //! Graph declarations and the low-level session/executor APIs remain independent.
-//! An Execution is consumed by run; an `Arc<Compilation>` can be shared by separate
+//! An Execution is consumed by `run` or `run_async`; an `Arc<Compilation>` can be shared by separate
 //! executions, each with its own workers and results. No Python runtime is involved.
 //!
 //! ```
@@ -73,17 +73,25 @@ impl Execution {
         }
     }
 
-    /// Runs to completion, including independent branches after an action/predicate failure.
+    /// Runs synchronous actions alongside synchronous and asynchronous predicates.
     ///
-    /// Action and predicate failures are retained in the returned outcome, not returned as early
-    /// errors. Predicates run on this thread, outside worker slots. Idle execution
-    /// waits on worker completion, not a timer. Action
-    /// contexts use their default (no log path); custom hosts can compose the
-    /// low-level session and executor instead.
+    /// The caller provides the Future executor and any required I/O/timer runtime.
+    /// Dropping the Future drops pending predicates; already-submitted synchronous actions
+    /// finish under their pool owner. No blocking worker join runs on the caller's thread.
     ///
     /// # Errors
-    /// Returns an error for invalid skip indexes, executor
-    /// infrastructure failures, or inconsistent scheduler/result transitions.
+    /// Returns infrastructure or session transition errors; user failures stay in the outcome.
+    pub async fn run_async(self) -> Result<ExecutionOutcome, ExecutionError> {
+        driver::run_async(self.compilation, self.options).await
+    }
+
+    /// Runs synchronous declarations to completion, preserving independent branches.
+    ///
+    /// Predicates run on this thread outside action worker slots. The action pool is lazy.
+    ///
+    /// # Errors
+    /// Rejects asynchronous predicates before dispatching any action. Also returns
+    /// invalid skips, executor failures, or inconsistent scheduler/result transitions.
     pub fn run(self) -> Result<ExecutionOutcome, ExecutionError> {
         driver::run(self.compilation, self.options)
     }

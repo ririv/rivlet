@@ -146,6 +146,15 @@ impl Snapshot {
     /// # Errors
     /// Rejects a type which cannot be represented by this transport.
     pub fn from_projection(projection: &Projection) -> Result<Self, ActionError> {
+        if projection
+            .conditions()
+            .iter()
+            .any(graph::ProjectedCondition::is_async)
+        {
+            return Err(ActionError::new(
+                "experimental node export does not support asynchronous Rust predicates",
+            ));
+        }
         let nodes = projection_nodes(projection)?;
         let edge_conditions: HashMap<_, _> = projection
             .conditions()

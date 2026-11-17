@@ -2,7 +2,7 @@
 
 English | [简体中文](./zh-CN/rust-conditions.md)
 
-The `graph` crate declares synchronous, typed Rust predicates. The `execution`
+The `graph` crate declares typed synchronous and asynchronous Rust predicates. The `execution`
 crate evaluates them through the same core `ExecutionSession` used by the other
 frontends. No Python callback, Tokio dependency, extra Step, or serialized value
 is involved. This is runtime selection, not compile-time static pruning.
@@ -112,21 +112,58 @@ decision nor a fabricated action failure. Input failures instead retain a
 `BlockCause::ConditionInput` witness and leave the predicate NotEvaluated. Panics
 are caught like action panics, without installing or replacing a global panic hook.
 
+## Asynchronous predicates
+
+```rust,ignore
+let approved = Condition::new_async(
+    |(flag,): (Option<Arc<bool>>,)| async move {
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        Ok(flag.is_some_and(|flag| *flag))
+    },
+    [(&probe).into()],
+)?;
+let outcome = Execution::new(compilation, ExecutionOptions::new(4)?)
+    .run_async()
+    .await?;
+```
+
+Both constructors return Condition; node, graph and edge wiring is unchanged.
+The factory is `Fn(I) -> Fut + Send + Sync + 'static`; Fut implements
+`Future<Output = Result<bool, ActionError>> + Send + 'static`.
+Inputs are owned Option/Arc tuples. Compilation calls neither factory nor Future;
+each mounted condition gets a fresh Future in each execution.
+
+The caller supplies the Future executor and any I/O/timer runtime. Rivlet neither
+requires nor creates Tokio; the timer above must be used inside Tokio. Ready-only
+futures need no Tokio or action workers. `run_async()` accepts both kinds of predicate;
+synchronous `run()` rejects async declarations before any action starts, without block_on.
+
+Pending predicates are polled by wakeup concurrently with action completions, not
+awaited serially. They do not consume action workers. Err and factory/poll panics
+remain failures, not false decisions. Failed inputs never invoke the factory;
+skipped inputs remain None and successful unit remains Some.
+
+Run the complete [example](../crates/execution/examples/async_conditions.rs) using
+`cargo run -p execution --example async_conditions`; it prints condition: true and apply: 42.
+
 ## Scheduling and boundaries
 
-Predicates execute synchronously on the host driver, outside action worker slots.
+Synchronous predicates execute on the host driver, outside action worker slots.
 They should remain short: a blocking predicate delays further driver processing,
 although already-started worker actions can continue. Use a Step for expensive
 work needing action concurrency budgets or its own output.
+
+Async factories and each Future poll must also remain short; async execution does
+not move blocking code into a thread pool automatically.
 
 The worker pool is created only on the first actual action dispatch. A graph whose
 conditions skip all actions does not create idle workers. Successful payloads are
 shared through the existing Rust Value/Arc protocol without cloning the payload
 or converting it to JSON.
 
-This change does not add Rust async predicates, static selection, runtime-created
-Rust graphs, cancellation, or observation subscriptions. Pure Rust conditions can
+This change does not add async actions, static selection, runtime-created
+Rust graphs, cancellation commands, or observation subscriptions. Pure Rust conditions can
 be consumed by the Rust high-level driver or a custom low-level host.
 
-The Python and Node.js frontends execute their own language predicates; they do
-not register Rust-native actions or predicates.
+Mainline Python and Node.js execute their own predicates. The experimental Python/Rust
+SDK still rejects async Rust predicate exports; see [the SDK](./python-native.md).

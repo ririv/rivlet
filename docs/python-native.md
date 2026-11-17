@@ -181,6 +181,7 @@ released around evaluation. Node, Graph, completion-edge and port-edge uses keep
 their own mounted inputs and decisions. They should be short, because they run on
 the driver rather than an action worker. Python predicates may still be async.
 
-This SDK does not add Rust async predicates, runtime-created Rust graphs, or
+The pure Rust API supports async predicates, but SDK export rejects them before
+creating a capsule or invoking the factory. This SDK does not add runtime-created Rust graphs or
 registration of native actions/predicates in the Node.js frontend. It also does
 not establish a performance guarantee; benchmark the actual workflow.
