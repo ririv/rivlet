@@ -1,7 +1,8 @@
 import { native } from "./backend.js";
 import {
   edgeDeclaration,
-  type Condition,
+  type ConditionDeclaration,
+  type Predicate,
   type Node,
   type ResultSource,
 } from "./model.js";
@@ -52,7 +53,7 @@ interface Scope {
 }
 export interface BoundCondition {
   readonly site: PredicateSite;
-  readonly predicate: (...args: never[]) => boolean | PromiseLike<boolean>;
+  readonly predicate: Predicate;
   readonly inputs: readonly number[];
 }
 
@@ -184,7 +185,7 @@ export class Compilation {
         .flatMap((item) => inputs(item, child));
     };
     const condition = (
-      value: Condition,
+      value: ConditionDeclaration,
       scope: Scope,
       site: PredicateSite,
     ): number => {

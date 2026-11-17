@@ -447,7 +447,11 @@ export class Execution {
               try {
                 signal.throwIfAborted();
                 const inputs = bound.inputs.map(result);
-                const value = await bound.predicate(...(inputs as never[]));
+                // 参数顺序已由声明和编译绑定，这里是唯一的异构谓词调用边界。
+                const predicate = bound.predicate as (
+                  ...args: Option<unknown>[]
+                ) => boolean | PromiseLike<boolean>;
+                const value = await predicate(...inputs);
                 if (typeof value !== "boolean")
                   throw new Error("a condition must return a boolean");
                 return {

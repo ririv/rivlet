@@ -1,7 +1,7 @@
 import {
   edgeDeclaration,
   type AnyGraph,
-  type Condition,
+  type ConditionDeclaration,
   type Node,
   type ResultSource,
 } from "./model.js";
@@ -52,7 +52,11 @@ export class DeclarationIndex {
   readonly #conditions: ConditionDocument[] = [];
   readonly #static: StaticDocument[] = [];
   readonly #selections: SelectionDocument[] = [];
-  readonly #pending: { scope: number; id: string; condition: Condition }[] = [];
+  readonly #pending: {
+    scope: number;
+    id: string;
+    condition: ConditionDeclaration;
+  }[] = [];
 
   constructor(root: Node) {
     this.#visit(undefined, null, [root], [], []);
@@ -162,7 +166,11 @@ export class DeclarationIndex {
       .input(endpoint.name)
       .flatMap((target) => this.#inputs(child, target));
   }
-  #condition(scope: number, target: string, condition: Condition): string {
+  #condition(
+    scope: number,
+    target: string,
+    condition: ConditionDeclaration,
+  ): string {
     const id = `${target}/condition:${this.#pending.length}`;
     this.#pending.push({ scope, id, condition });
     return id;

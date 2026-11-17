@@ -47,7 +47,7 @@ export interface StepNode<
   readonly kind: "step";
   readonly id: bigint;
   readonly label: string;
-  readonly condition: Condition | undefined;
+  readonly condition: ConditionDeclaration | undefined;
   readonly [resultValueType]: T;
   readonly [resultInputTypes]: (values: Inputs) => void;
   [invokeAction](
@@ -67,26 +67,39 @@ export type SourceValues<Sources extends readonly ResultSource[]> = {
 };
 type Receiver<Sources extends readonly ResultSource[]> =
   StepNode<unknown, SourceValues<Sources>> | InputPort<SourceValues<Sources>>;
-export type Predicate = (...inputs: never[]) => Awaitable<boolean>;
-export type Condition =
+export type Predicate = (...inputs: never) => Awaitable<boolean>;
+/** Erased only after a declaration boundary has checked its ordered inputs. */
+export type ConditionDeclaration =
   Predicate | readonly [Predicate, ResultSource, ...ResultSource[]];
-export interface NodeOptions {
+export type Condition<Sources extends ResultSources = ResultSources> =
+  | (() => Awaitable<boolean>)
+  | readonly [
+      // 仅从来源推导，不能反向用回调参数扩大来源的类型。
+      predicate: (
+        ...inputs: NoInfer<OptionInputs<SourceValues<Sources>>>
+      ) => Awaitable<boolean>,
+      ...sources: Sources,
+    ];
+export interface NodeOptions<Sources extends ResultSources = ResultSources> {
   readonly label?: string;
-  readonly condition?: Condition;
+  readonly condition?: Condition<Sources>;
 }
 
-export function snapshotCondition(
-  condition: Condition | undefined,
-): Condition | undefined {
+export function snapshotCondition<
+  Sources extends ResultSources = ResultSources,
+>(
+  condition: ConditionDeclaration | Condition<Sources> | undefined,
+): ConditionDeclaration | undefined {
   return condition === undefined || typeof condition === "function"
     ? condition
-    : (Object.freeze([...condition]) as Condition);
+    : (Object.freeze([...condition]) as ConditionDeclaration);
 }
 
 /** An actual action node; construction does not execute its callback. */
 export class Step<
   T,
   Inputs extends readonly unknown[] = [],
+  const ConditionSources extends ResultSources = ResultSources,
 > implements StepNode<T, Inputs> {
   wire(): NodeWiring;
   wire<const A extends readonly Prerequisite[]>(options: {
@@ -98,7 +111,7 @@ export class Step<
   readonly kind = "step";
   readonly id = native.allocateNodeId();
   readonly label: string;
-  readonly condition: Condition | undefined;
+  readonly condition: ConditionDeclaration | undefined;
   declare readonly [resultValueType]: T;
   declare readonly [resultInputTypes]: (values: Inputs) => void;
   readonly #action: (
@@ -111,7 +124,7 @@ export class Step<
       context: NodeRunContext,
       ...inputs: OptionInputs<Inputs>
     ) => Awaitable<T>,
-    options: NodeOptions = {},
+    options: NodeOptions<ConditionSources> = {},
   ) {
     this.#action = action;
     this.label = options.label ?? "step";
@@ -127,43 +140,51 @@ export class Step<
   }
 }
 
-export type GraphOptions<I extends AnyGraphInterface = GraphInterface> =
-  NodeOptions & {
-    readonly static?: readonly StaticRule[];
-    readonly nodes: readonly Node[];
-    readonly edges?: readonly Edge[];
-    readonly interface?: I;
-  } & (I extends GraphInterface ? {} : { readonly interface: I });
+export type GraphOptions<
+  I extends AnyGraphInterface = GraphInterface,
+  Sources extends ResultSources = ResultSources,
+> = NodeOptions<Sources> & {
+  readonly static?: readonly StaticRule[];
+  readonly nodes: readonly Node[];
+  readonly edges?: readonly Edge[];
+  readonly interface?: I;
+} & (I extends GraphInterface ? {} : { readonly interface: I });
 
 /** A complete graph declaration with identity, topology and public ports. */
-export class Graph<I extends AnyGraphInterface = GraphInterface> {
+export class Graph<
+  I extends AnyGraphInterface = GraphInterface,
+  const ConditionSources extends ResultSources = ResultSources,
+> {
   wire(
     options: { readonly after?: readonly OrderPrerequisite[] } = {},
   ): NodeWiring {
     return NodeWiring[createNodeWire](this, options.after ?? []);
   }
-  static fromWiring<I extends AnyGraphInterface = GraphInterface>(
+  static fromWiring<
+    I extends AnyGraphInterface = GraphInterface,
+    const Sources extends ResultSources = ResultSources,
+  >(
     input: readonly NodeWiring[],
-    ...args: WiringGraphArgs<I>
-  ): Graph<I> {
+    ...args: WiringGraphArgs<I, Sources>
+  ): Graph<I, Sources> {
     const wiring = normalizeWiring(input);
-    const options = args[0] as WiringGraphOptions<I> | undefined;
+    const options = args[0] as WiringGraphOptions<I, Sources> | undefined;
     // 条件参数组已要求非空接口提供实际声明；此处仅恢复合并前的泛型关系。
-    return new Graph<I>({
+    return new Graph<I, Sources>({
       ...options,
       nodes: wiring.nodes,
       edges: [...wiring.edges, ...(options?.edges ?? [])],
-    } as unknown as GraphOptions<I>);
+    } as unknown as GraphOptions<I, Sources>);
   }
   readonly static: readonly StaticRule[];
   readonly kind = "graph";
   readonly id = native.allocateNodeId();
   readonly label: string;
-  readonly condition: Condition | undefined;
+  readonly condition: ConditionDeclaration | undefined;
   readonly nodes: readonly Node[];
   readonly edges: readonly Edge[];
   readonly interface: GraphInterfaceView<I>;
-  constructor(options: GraphOptions<I>) {
+  constructor(options: GraphOptions<I, ConditionSources>) {
     this.static = snapshotStatic(options.static ?? []);
     if (new Set(options.nodes).size !== options.nodes.length) {
       throw new Error("a node may occur only once in one Graph");
@@ -195,7 +216,7 @@ export type EdgeDeclaration =
       readonly kind: "order";
       readonly source: Node | OutputPort;
       readonly target: Node | InputPort<never>;
-      readonly condition: Condition | undefined;
+      readonly condition: ConditionDeclaration | undefined;
     }
   | {
       readonly kind: "results";
@@ -204,23 +225,28 @@ export type EdgeDeclaration =
     };
 
 /** Completion/readiness or ordered results; result connections also impose waiting. */
-export class Edge<const Sources extends ResultSources = ResultSources> {
+export class Edge<
+  const Sources extends ResultSources = ResultSources,
+  const ConditionSources extends ResultSources = ResultSources,
+> {
   readonly [edgeDeclaration]: EdgeDeclaration;
   constructor(
     source: Node,
     target: Node,
-    options?: { readonly condition?: Condition },
+    options?: { readonly condition?: Condition<ConditionSources> },
   );
   constructor(
     source: OutputPort,
     target: InputPort<never>,
-    options?: { readonly condition?: Condition },
+    options?: { readonly condition?: Condition<ConditionSources> },
   );
   constructor(source: Results<Sources>, target: Receiver<NoInfer<Sources>>);
   constructor(
     source: Node | OutputPort | Results,
     target: Node | InputPort<never>,
-    options: { readonly condition?: Condition } = {},
+    options: {
+      readonly condition?: ConditionDeclaration | Condition<ConditionSources>;
+    } = {},
   ) {
     if (source instanceof Results) {
       if (options.condition !== undefined)

@@ -4,6 +4,7 @@ import {
   Results,
   snapshotCondition,
   type Condition,
+  type ConditionDeclaration,
   type Node,
   type SourceValues,
   type GraphOptions,
@@ -17,12 +18,14 @@ import {
   type GraphInterface,
 } from "./interface.js";
 
-export class ConditionalPrerequisite {
+export class ConditionalPrerequisite<
+  const Sources extends ResultSources = ResultSources,
+> {
   readonly kind = "conditional";
-  readonly condition: Condition;
+  readonly condition: ConditionDeclaration;
   constructor(
     readonly node: Node,
-    condition: Condition,
+    condition: Condition<Sources>,
   ) {
     this.condition = snapshotCondition(condition)!;
     Object.freeze(this);
@@ -49,12 +52,16 @@ export type CheckedAfter<
       : ResultValues<A> extends Inputs
         ? A
         : never;
-export type WiringGraphOptions<I extends AnyGraphInterface = GraphInterface> =
-  Omit<GraphOptions<I>, "nodes">;
-export type WiringGraphArgs<I extends AnyGraphInterface> =
-  I extends GraphInterface
-    ? [options?: WiringGraphOptions<I>]
-    : [options: WiringGraphOptions<I>];
+export type WiringGraphOptions<
+  I extends AnyGraphInterface = GraphInterface,
+  Sources extends ResultSources = ResultSources,
+> = Omit<GraphOptions<I, Sources>, "nodes">;
+export type WiringGraphArgs<
+  I extends AnyGraphInterface,
+  Sources extends ResultSources = ResultSources,
+> = I extends GraphInterface
+  ? [options?: WiringGraphOptions<I, Sources>]
+  : [options: WiringGraphOptions<I, Sources>];
 
 export const createNodeWire = Symbol("createNodeWire");
 const wireKey = Symbol("wireKey");
@@ -110,12 +117,13 @@ export function normalizeWiring(input: readonly NodeWiring[]): {
           throw new Error(
             "prerequisite must be explicitly declared in this wiring",
           );
+        // 条件已在 ConditionalPrerequisite 的构造边界检查，异构列表只擦除类型。
         edges.push(
           new Edge(
             source,
             wire.node,
             prerequisite instanceof ConditionalPrerequisite
-              ? { condition: prerequisite.condition }
+              ? { condition: prerequisite.condition as Condition }
               : {},
           ),
         );

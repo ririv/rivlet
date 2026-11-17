@@ -27,7 +27,7 @@ new Step((ctx) => {
 });
 const design = new Step((): Plan => ({ count: 21 }));
 const enabled = new Step(() => true);
-const apply = new Step<number, [Plan]>(
+const apply = new Step<number, [Plan], [typeof enabled]>(
   (_ctx: NodeRunContext, plan: Option<Plan>) => plan.unwrap().count * 2,
   { condition: [(value: Option<boolean>) => value.unwrap(), enabled] },
 );

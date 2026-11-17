@@ -1,5 +1,5 @@
 {
   "extends": "./tsconfig.json",
   "compilerOptions": { "rootDir": ".", "noEmit": true },
-  "include": ["src/**/*.ts", "test/types.ts"]
+  "include": ["src/**/*.ts", "test/types.ts", "test/condition-types.ts"]
 }
