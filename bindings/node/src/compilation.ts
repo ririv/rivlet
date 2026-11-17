@@ -20,6 +20,10 @@ import type {
 import { staticBindings } from "./static.js";
 
 export const createSession = Symbol("createSession");
+export const inspectionFacts = Symbol("inspectionFacts");
+type PredicateSite =
+  | { readonly kind: "node"; readonly target: number }
+  | { readonly kind: "edge"; readonly owner: number; readonly edge: number };
 
 export interface MountedNode {
   readonly index: number;
@@ -47,6 +51,7 @@ interface Scope {
     ReadonlyMap<import("./model.js").Edge, boolean> | undefined;
 }
 export interface BoundCondition {
+  readonly site: PredicateSite;
   readonly predicate: (...args: never[]) => boolean | PromiseLike<boolean>;
   readonly inputs: readonly number[];
 }
@@ -112,12 +117,17 @@ export class Compilation {
         };
         for (const edge of node.edges) {
           const spec = edge[edgeDeclaration];
-          const target = spec.target instanceof InputPort ? spec.target.owner : spec.target;
-          if (!child.declared.has(target)) throw new Error("edge target is outside its graph");
-          const sources = spec.kind === "results" ? spec.sources : [spec.source];
+          const target =
+            spec.target instanceof InputPort ? spec.target.owner : spec.target;
+          if (!child.declared.has(target))
+            throw new Error("edge target is outside its graph");
+          const sources =
+            spec.kind === "results" ? spec.sources : [spec.source];
           for (const endpoint of sources) {
-            const source = endpoint instanceof OutputPort ? endpoint.owner : endpoint;
-            if (!child.declared.has(source)) throw new Error("edge source is outside its graph");
+            const source =
+              endpoint instanceof OutputPort ? endpoint.owner : endpoint;
+            if (!child.declared.has(source))
+              throw new Error("edge source is outside its graph");
           }
         }
         record.child = child;
@@ -173,13 +183,21 @@ export class Compilation {
         .input(endpoint.name)
         .flatMap((item) => inputs(item, child));
     };
-    const condition = (value: Condition, scope: Scope): number => {
+    const condition = (
+      value: Condition,
+      scope: Scope,
+      site: PredicateSite,
+    ): number => {
       const predicate = typeof value === "function" ? value : value[0];
       const sources =
         typeof value === "function" ? [] : (value.slice(1) as ResultSource[]);
       const reads = sources.map((source) => output(source, scope));
       const index = drafts.length;
-      drafts.push({ predicate, inputs: Object.freeze(reads) });
+      drafts.push({
+        predicate,
+        inputs: Object.freeze(reads),
+        site: Object.freeze(site),
+      });
       declaration.conditions.push(reads);
       return index;
     };
@@ -194,10 +212,11 @@ export class Compilation {
         spec.activation.condition = condition(
           record.node.condition,
           record.scope,
+          { kind: "node", target: record.index },
         );
       if (record.node.kind !== "graph") continue;
       const scope = requireValue(record.child, "graph has no scope");
-      for (const edge of record.node.edges) {
+      for (const [edgeIndex, edge] of record.node.edges.entries()) {
         if (scope.staticEdges?.get(edge) === false) continue;
         const edgeSpec = edge[edgeDeclaration];
         const receiver =
@@ -241,7 +260,11 @@ export class Compilation {
           const guard =
             edgeSpec.condition === undefined
               ? undefined
-              : condition(edgeSpec.condition, scope);
+              : condition(edgeSpec.condition, scope, {
+                  kind: "edge",
+                  owner: record.index,
+                  edge: edgeIndex,
+                });
           for (const target of inputs(edgeSpec.target, scope)) {
             if (edgeSpec.source instanceof OutputPort) {
               declaration.ports.push(
@@ -341,4 +364,34 @@ export class Compilation {
   [createSession](options: SessionOptions): NativeSession {
     return this.#backend.session(options);
   }
+  [inspectionFacts](): {
+    readonly disabledEdges: readonly (readonly [number, number])[];
+    readonly dependencies: readonly InspectionDependency[];
+  } {
+    return {
+      disabledEdges: [...this.#scopes].flatMap(([owner, scope]) => {
+        const node = this.nodes[owner]!.node;
+        if (node.kind !== "graph")
+          throw new Error("scope owner is not a Graph");
+        return node.edges.flatMap((edge, position) =>
+          scope.staticEdges?.get(edge) === false
+            ? [[owner, position] as const]
+            : [],
+        );
+      }),
+      dependencies: this.#backend.dependencies(),
+    };
+  }
 }
+export type InspectionDependency =
+  | {
+      readonly kind: "required";
+      readonly source: number;
+      readonly target: number;
+    }
+  | {
+      readonly kind: "conditional";
+      readonly source: number;
+      readonly target: number;
+      readonly condition: number;
+    };

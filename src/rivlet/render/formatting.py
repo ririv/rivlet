@@ -1,3 +1,5 @@
+"""Local annotations and Python live-execution formatting."""
+
 from __future__ import annotations
 
 import json
@@ -5,27 +7,20 @@ from typing import TYPE_CHECKING
 
 from .._native import _NativeStep
 from ..compile import (
-    CompiledComposite,
-    CompiledCompositeRef,
-    CompiledConditionalDependency,
-    CompiledPrerequisite,
     CompiledPythonStep,
     CompiledRuntimeCondition,
     CompiledRustStep,
     CompiledStep,
-    CompiledStepRef,
     GraphCompilation,
     _compile_graph_scope,
 )
 from ..interface import InputPort, OutputPort
 from ..model import (
-    ConditionalPrerequisite,
     Edge,
     Graph,
     GraphEdge,
     Node,
     NodePath,
-    NodePrerequisite,
     _BoundNativeCondition,
     _condition_uses,
     _RuntimeCondition,
@@ -68,33 +63,6 @@ def render_step_label(
         if isinstance(step, Step) and isinstance(step.action, _NativeStep)
         else label
     )
-
-
-def render_compiled_step_label(step: CompiledStep, path: tuple[str, ...]) -> str:
-    del step
-    return render_step_path(path)
-
-
-def render_condition_suffix(
-    step: Node | CompiledStep | CompiledComposite,
-) -> str:
-    condition = step.condition
-    if condition is None:
-        return ""
-    return f" [condition: {condition_name(condition)}]"
-
-
-def render_after_suffix(
-    step: CompiledStep | CompiledComposite,
-    *,
-    step_labels: Mapping[NodePath, str] | None = None,
-) -> str:
-    if not step.after:
-        return ""
-    deps = ", ".join(
-        format_prerequisite(dep, step_labels=step_labels) for dep in step.after
-    )
-    return f" [after: {deps}]"
 
 
 def render_graph_after_suffix(
@@ -149,28 +117,6 @@ def port_label(name: str | None) -> str:
     return "(anonymous)" if name is None else name
 
 
-def render_graph_port_suffix(graph: Graph, step: Node) -> str:
-    bindings = tuple(
-        edge
-        for edge in graph.edges
-        if isinstance(edge, Edge) and edge.ports is not None and edge.target is step
-    )
-    if not bindings:
-        return ""
-    requirements = ", ".join(
-        f"{port_label(edge.ports[1])} <- {port_label(edge.ports[0])} @ "
-        f"{'<unlabeled>' if edge.source.label is None else edge.source.label}"
-        + (
-            ""
-            if edge.condition is None
-            else f" (条件边: {condition_name(edge.condition)})"
-        )
-        for edge in bindings
-        if edge.ports is not None
-    )
-    return f" [requires: {requirements}]"
-
-
 def format_graph_edge(
     edge: GraphEdge,
     *,
@@ -201,46 +147,6 @@ def result_edge_label(edge: Edge) -> str:
     return label
 
 
-def render_step_path(path: tuple[str, ...]) -> str:
-    return ".".join(path)
-
-
-def format_prerequisite(
-    dep: NodePrerequisite | CompiledPrerequisite,
-    *,
-    step_labels: Mapping[NodePath, str] | None = None,
-) -> str:
-    def _label(node_path: NodePath) -> str:
-        if step_labels is None:
-            return str(node_path)
-        return step_labels[node_path]
-
-    match dep:
-        case ConditionalPrerequisite(node=source, condition=condition):
-            if source.label is None:
-                raise ValueError(
-                    "declaration prerequisite label requires its mounted step id"
-                )
-            return f"{source.label} (条件边: {condition_name(condition)})"
-        case CompiledConditionalDependency(node=node, condition=condition):
-            dep_id = _label(node.path)
-            return f"{dep_id} (条件边: {condition_name(condition)})"
-        case CompiledStepRef(path=dep_id) | CompiledCompositeRef(path=dep_id):
-            return _label(dep_id)
-        case NodePath() as node_path:
-            return _label(node_path)
-        case source:
-            if source.label is None:
-                raise ValueError("declaration step label requires its mounted step id")
-            return source.label
-
-
-def prerequisite_step_label(dep: NodePrerequisite) -> str | None:
-    if isinstance(dep, ConditionalPrerequisite):
-        return dep.node.label
-    return dep.label
-
-
 def condition_name(
     condition: StaticCondition
     | _RuntimeCondition
@@ -267,33 +173,6 @@ def condition_name(
 
 def format_static_condition(condition: StaticCondition) -> str:
     return condition.description
-
-
-def escape_label(value: str) -> str:
-    return value.replace("\\", "\\\\").replace('"', '\\"')
-
-
-def mermaid_graph_node_id(graph_path: tuple[str, ...]) -> str:
-    return "graph_" + "_".join(sanitize_mermaid_token(part) for part in graph_path)
-
-
-def mermaid_step_node_id(
-    graph_path: tuple[str, ...],
-    step_label: str,
-    index: int,
-) -> str:
-    path_token = "_".join(sanitize_mermaid_token(part) for part in graph_path)
-    return f"step_{path_token}_{index}_{sanitize_mermaid_token(step_label)}"
-
-
-def sanitize_mermaid_token(value: str) -> str:
-    sanitized = "".join(char if char.isalnum() else "_" for char in value)
-    sanitized = sanitized.strip("_")
-    if not sanitized:
-        return "node"
-    if sanitized[0].isdigit():
-        return f"n_{sanitized}"
-    return sanitized
 
 
 def render_execution_result_suffix(

@@ -124,7 +124,7 @@ def index_declaration(
 ) -> DeclarationIndex:
     root = scope_id(parent)
     document: DeclarationDocument = {
-        "schema_version": 2,
+        "schema_version": 3,
         "view": "declaration",
         "root": root,
         "parent": None if parent is None else str(parent),
@@ -176,7 +176,7 @@ def index_declaration(
             if isinstance(action, Graph):
                 node = {
                     "kind": "subgraph",
-                    "node_id": step.id.value,
+                    "node_id": str(step.id.value),
                     "id": key,
                     "graph": scope.id,
                     "label": step_label,
@@ -189,7 +189,7 @@ def index_declaration(
             elif isinstance(action, Step):
                 node = {
                     "kind": "leaf",
-                    "node_id": step.id.value,
+                    "node_id": str(step.id.value),
                     "id": key,
                     "graph": scope.id,
                     "label": step_label,

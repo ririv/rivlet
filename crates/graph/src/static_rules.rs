@@ -46,6 +46,14 @@ pub struct Case {
 }
 impl Case {
     #[must_use]
+    pub const fn node(&self) -> NodeIdentity {
+        self.node
+    }
+    #[must_use]
+    pub const fn condition(&self) -> &StaticCondition {
+        &self.condition
+    }
+    #[must_use]
     pub fn new(condition: impl Into<StaticCondition>, node: &(impl Node + ?Sized)) -> Self {
         Self {
             condition: condition.into(),

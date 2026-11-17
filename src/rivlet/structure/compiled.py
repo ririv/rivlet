@@ -132,7 +132,7 @@ def export_compilation(compilation: GraphCompilation) -> CompilationDocument:
     # V/E/I/P/L 为节点、边、条件实例及其输入引用总数、端口及路径总长度，
     # 时间/空间 O(V + E + I + P + L)，包含同一 predicate 多位置实例化的实际输出量。
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "view": "compiled",
         "root": declaration["root"],
         "parent": declaration["parent"],

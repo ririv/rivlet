@@ -212,6 +212,17 @@ export class GraphInterface<
       throw new Error(`input port is not declared: ${String(name)}`);
     return endpoints;
   }
+  /** Detached entries for read-only structural inspection. */
+  inputEntries(): readonly (readonly [PortName, readonly InputEndpoint[]])[] {
+    return Object.freeze(
+      [...this.#inputs].map((entry) => Object.freeze(entry)),
+    );
+  }
+  outputEntries(): readonly (readonly [PortName, OutputEndpoint])[] {
+    return Object.freeze(
+      [...this.#outputs].map((entry) => Object.freeze(entry)),
+    );
+  }
   output(name: PortName): OutputEndpoint {
     const endpoint = this.#outputs.get(name);
     if (endpoint === undefined)

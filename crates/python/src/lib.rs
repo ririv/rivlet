@@ -4,6 +4,7 @@ mod declaration;
 mod events;
 mod experiment;
 mod host_execution;
+mod inspection;
 mod mixed_execution;
 mod native_structure;
 mod result_fixture;
@@ -429,6 +430,11 @@ fn node_indexes(nodes: &[NodeId]) -> Vec<usize> {
 #[pymodule]
 #[allow(clippy::unnecessary_wraps)]
 fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
+    module.add_function(wrap_pyfunction!(
+        inspection::validate_graph_document,
+        module
+    )?)?;
+    module.add_function(wrap_pyfunction!(inspection::render_graph_document, module)?)?;
     module.add_function(wrap_pyfunction!(allocate_node_id, module)?)?;
     module.add_function(wrap_pyfunction!(dag_cycle, module)?)?;
     module.add_function(wrap_pyfunction!(resolve_port_connections, module)?)?;

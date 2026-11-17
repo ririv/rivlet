@@ -222,7 +222,7 @@ def test_nested_shared_rust_graph_has_ports_paths_logs_and_no_python_actions(
         assert str(tmp_path) not in encoded
     assert "left [graph]" in render_graph(root, root_label="mixed")
     assert "task [native]" in render_graph(root, root_label="mixed")
-    assert "done -> start" in render_graph_mermaid(root, root_label="mixed")
+    assert "done -&gt; start" in render_graph_mermaid(root, root_label="mixed")
 
 
 @pytest.mark.parametrize("backend", ("serial", "thread", "async"))

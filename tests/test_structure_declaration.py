@@ -33,7 +33,7 @@ def test_declaration_does_not_evaluate_any_host_code_or_select_cases() -> None:
     document = export_graph(graph)
     assert document["view"] == "declaration"
     assert len(document["nodes"]) == 3
-    assert document["nodes"][0]["node_id"] == graph.id.value
+    assert document["nodes"][0]["node_id"] == str(graph.id.value)
     assert document["nodes"][1]["condition"] == document["conditions"][0]["id"]
     assert document["static_rules"][0]["kind"] == "node"
     assert document["selections"][0]["cases"] == [{"node": "0.1", "condition": False}]

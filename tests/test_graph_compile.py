@@ -488,11 +488,11 @@ def test_render_graph_mermaid_renders_graph_structure() -> None:
         root_label="root",
     )
 
-    assert 'subgraph graph_root["root"]' in rendered
-    assert 'subgraph graph_root_n_0_stage["stage"]' in rendered
-    assert 'step_root_n_0_1_stage["stage"]' in rendered
-    assert "step_root_n_0_0_prepare --> step_root_n_0_1_stage" in rendered
-    assert "step_root_n_0_stage_0_configure --> step_root_n_0_stage_1_build" in rendered
+    assert 'subgraph graph_67726170683a726f6f74["root"]' in rendered
+    assert 'subgraph graph_67726170683a302e31["stage"]' in rendered
+    assert 'node_302e31["stage"]' in rendered
+    assert "node_302e30 --> node_302e31" in rendered
+    assert "node_302e312e30 --> node_302e312e31" in rendered
 
 
 def test_render_graph_mermaid_accepts_graph_compilation_as_structure_view() -> None:
@@ -504,8 +504,8 @@ def test_render_graph_mermaid_accepts_graph_compilation_as_structure_view() -> N
         root_label="root",
     )
 
-    assert 'subgraph graph_root_stage["stage"]' in rendered
-    assert "step_root_stage_0_configure --> step_root_stage_1_build" in rendered
+    assert 'subgraph graph_67726170683a31["stage"]' in rendered
+    assert "node_312e30 --> node_312e31" in rendered
 
 
 def test_render_graph_compilation_mermaid_shows_compiled_graph_and_composites() -> None:

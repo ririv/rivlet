@@ -5,6 +5,10 @@ from typing import Literal, Protocol
 from .model.graph import Graph
 from .model.step import Step
 
+def validate_graph_document(value: object) -> object: ...
+def render_graph_document(
+    value: object, format: str, root_label: str, condition_labels: dict[str, str]
+) -> str: ...
 def _import_node(capsule: object) -> Step | Graph: ...
 
 class _ResultFixtureKind(Enum):

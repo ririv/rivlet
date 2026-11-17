@@ -25,18 +25,24 @@ def export_graph(subject: Graph | Node | GraphCompilation) -> GraphDocument:
     A Graph is inspected without evaluating static conditions. A GraphCompilation
     exposes decisions already made by compile_graph; it is never recompiled here.
     """
+    from typing import cast
+
+    from .._native import validate_graph_document
     from ..compile import GraphCompilation
     from ..model import Graph, NodePath, Step, resolve_node_label
     from .compiled import export_compilation
     from .declaration import index_declaration
 
     if isinstance(subject, (Step, Graph)):
-        return index_declaration(
+        document = index_declaration(
             Graph(nodes=(subject,)),
             label=resolve_node_label(subject, NodePath((0,))),
         ).document
+        return cast("DeclarationDocument", validate_graph_document(document))
     if isinstance(subject, GraphCompilation):
-        return export_compilation(subject)
+        return cast(
+            "CompilationDocument", validate_graph_document(export_compilation(subject))
+        )
     raise TypeError("export_graph requires Graph, Node or GraphCompilation")
 
 

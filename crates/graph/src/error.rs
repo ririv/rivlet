@@ -6,6 +6,7 @@ use rivlet::NodeIdentity;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GraphError {
+    Inspection(inspection::DocumentError),
     Static(crate::StaticError),
     EmptyNodeLabel,
     DuplicateNode(NodeIdentity),
@@ -40,6 +41,7 @@ pub enum GraphError {
 impl Display for GraphError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Inspection(error) => Display::fmt(error, f),
             Self::Static(error) => Display::fmt(error, f),
             Self::EmptyNodeLabel => f.write_str("node label must not be empty"),
             Self::DuplicateNode(id) => {
@@ -90,11 +92,18 @@ impl Display for GraphError {
 impl Error for GraphError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Inspection(error) => Some(error),
             Self::Static(error) => Some(error),
             Self::Topology(error) => Some(error),
             Self::Declaration(error) => Some(error),
             _ => None,
         }
+    }
+}
+
+impl From<inspection::DocumentError> for GraphError {
+    fn from(error: inspection::DocumentError) -> Self {
+        Self::Inspection(error)
     }
 }
 

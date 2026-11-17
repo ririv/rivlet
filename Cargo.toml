@@ -6,6 +6,7 @@ members = [
     "crates/core",
     "crates/execution",
     "crates/graph",
+    "crates/inspection",
     "crates/python",
     "crates/topology",
     "crates/tokio-runtime",

@@ -381,14 +381,15 @@ def test_exported_module_attributes_are_concrete_nodes(backend: Backend) -> None
     execution = Execution(root)
     document = export_graph(execution.compile())
     assert any(
-        node["node_id"] == demo_native.double.id.value for node in document["nodes"]
+        node["node_id"] == str(demo_native.double.id.value)
+        for node in document["nodes"]
     )
     declaration = export_graph(root)
     assert (
         next(
             node
             for node in declaration["nodes"]
-            if node["node_id"] == demo_native.double.id.value
+            if node["node_id"] == str(demo_native.double.id.value)
         )["action_kind"]
         == "native"
     )
@@ -424,7 +425,7 @@ def test_exported_root_keeps_its_condition_and_identity(
     assert seen == [21 if allowed else None]
     # 同一个完整根可以直接执行；没有额外空动作或包装 Graph。
     direct = Execution(native)
-    assert export_graph(direct.compile())["nodes"][0]["node_id"] == native.id.value
+    assert export_graph(direct.compile())["nodes"][0]["node_id"] == str(native.id.value)
     execute(direct, backend)
 
 

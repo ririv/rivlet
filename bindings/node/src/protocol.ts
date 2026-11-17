@@ -37,7 +37,12 @@ export type CoreEvent =
   | { kind: "cancellationRequested" }
   | { kind: "conditionEvaluated"; node: number; value: boolean }
   | {
-      kind: "conditionSkipped" | "graphEntered" | "graphCompleted" | "skipped" | "cancelled";
+      kind:
+        | "conditionSkipped"
+        | "graphEntered"
+        | "graphCompleted"
+        | "skipped"
+        | "cancelled";
       node: number;
     }
   | { kind: "failed"; node: number; cause: FailureCause }
@@ -48,7 +53,10 @@ export interface Batch {
   events: CoreEvent[];
   status: "running" | "succeeded" | "failed" | "cancelled";
 }
-export type Completion = { kind: "succeeded" | "failed" | "cancelled"; node: number };
+export type Completion = {
+  kind: "succeeded" | "failed" | "cancelled";
+  node: number;
+};
 export type ConditionResolution =
   | { kind: "resolved"; condition: number; value: boolean }
   | { kind: "failed" | "cancelled"; condition: number };
@@ -82,10 +90,17 @@ export interface NativeSession {
   states(): NodeState[];
 }
 export interface NativeCompilation {
+  dependencies(): import("./compilation.js").InspectionDependency[];
   mappings(): { nodes: number[]; conditions: number[] };
   session(options: SessionOptions): NativeSession;
 }
 export interface NativeModule {
+  validateGraphDocument(document: unknown): unknown;
+  renderGraphDocument(
+    document: unknown,
+    format: string,
+    options: unknown,
+  ): string;
   packageVersion(): string;
   allocateNodeId(): bigint;
   compileDeclaration(input: Declaration): NativeCompilation;

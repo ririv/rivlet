@@ -34,6 +34,9 @@
 //! ```
 
 mod condition;
+mod document;
+pub use document::{GraphDocumentSource, export_graph};
+pub use inspection;
 mod edge;
 mod error;
 mod interface;

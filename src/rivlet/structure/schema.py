@@ -54,21 +54,21 @@ type EdgeDocument = (
 
 
 class StepDocument(TypedDict):
-    # schema v2 的 wire tag 不随 Python/Rust 声明类改名；此分支对应 Step。
+    # wire tag 不随声明 API 改名；此分支对应 Step。
     kind: Literal["leaf"]
     id: str
-    node_id: int
+    node_id: str
     graph: str
     label: str
     label_path: list[str]
-    action_kind: Literal["python", "native"]
+    action_kind: Literal["python", "native", "rust", "javascript"]
     condition: str | None
 
 
 class SubgraphDocument(TypedDict):
     kind: Literal["subgraph"]
     id: str
-    node_id: int
+    node_id: str
     graph: str
     label: str
     label_path: list[str]
@@ -126,7 +126,7 @@ class StaticEdgeRuleDocument(TypedDict):
 
 class SelectionCaseDocument(TypedDict):
     node: str
-    condition: bool
+    condition: bool | str
 
 
 class SelectionDocument(TypedDict):
@@ -148,7 +148,7 @@ class ConditionalDependencyDocument(TypedDict):
 
 
 class DeclarationDocument(TypedDict):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     view: Literal["declaration"]
     root: str
     parent: str | None
@@ -161,7 +161,7 @@ class DeclarationDocument(TypedDict):
 
 
 class CompilationDocument(TypedDict):
-    schema_version: Literal[2]
+    schema_version: Literal[3]
     view: Literal["compiled"]
     root: str
     parent: str | None

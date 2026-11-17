@@ -8,6 +8,7 @@ license.workspace = true
 [dependencies]
 action = { path = "../action" }
 rivlet = { path = "../core" }
+inspection = { path = "../inspection" }
 
 [lints]
 workspace = true

@@ -39,3 +39,10 @@ export { EventDeliveryError } from "./events.js";
 export type { NodeExecutionEvent, NodeEventDetail } from "./events.js";
 export { Static, Case } from "./static.js";
 export type { StaticCondition, StaticRule } from "./static.js";
+export { exportGraph, renderTree, renderMermaid } from "./inspection.js";
+export type { RenderOptions } from "./inspection.js";
+export type {
+  GraphDocument,
+  DeclarationDocument,
+  CompilationDocument,
+} from "./document.js";

@@ -1,0 +1,17 @@
+flowchart TD
+    subgraph graph_67726170683a726f6f74["协作"]
+        node_30["producer [select: opaque:opaque-choice]"]
+        subgraph graph_67726170683a30["producer"]
+            node_302e30["read &quot;&lt;bytes&gt;&quot;"]
+            node_302e31["read &quot;&lt;bytes&gt;&quot;"]
+            node_302e30 --> node_302e31
+        end
+        node_31["consumer [select: False]"]
+        subgraph graph_67726170683a31["consumer"]
+            node_312e30["apply<br/>安全"]
+            node_302e30 -.->|"condition input 0"| node_312e30
+        end
+        node_30 -->|"action input 0 from (anonymous) to apply"| node_31
+        node_30 -->|"report -&gt; apply"| node_31
+        node_302e31 -.->|"edge condition input 0"| node_31
+    end

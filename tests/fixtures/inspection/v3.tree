@@ -1,0 +1,7 @@
+协作
+├─ producer [graph] [select: opaque:opaque-choice]
+│  ├─ read "<bytes>"
+│  └─ read "<bytes>" [after: read "<bytes>"]
+└─ consumer [graph] [select: False] [after: producer.(anonymous) (action input: 0 from (anonymous) to apply), producer, read "<bytes>" (edge condition runtime:e input: 0)] [requires: apply <- report @ producer (条件边: runtime:e)]
+   └─ apply
+安全 [condition: runtime:c] [after: read "<bytes>" (condition input: 0)]

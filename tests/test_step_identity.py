@@ -111,8 +111,8 @@ def test_repeated_mounts_share_declaration_id_not_results(
     second = export_graph(Execution(execution.root).compile())
     assert first == second
     assert [node["node_id"] for node in first["nodes"] if node["label"] == "use"] == [
-        consumer.id.value,
-        consumer.id.value,
+        str(consumer.id.value),
+        str(consumer.id.value),
     ]
 
 

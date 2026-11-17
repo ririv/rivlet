@@ -177,7 +177,7 @@ def test_root_identity_is_preserved_in_declaration_and_compiled_exports() -> Non
     compiled = export_graph(execution.compile())
     assert declaration["nodes"] == compiled["nodes"]
     assert len(compiled["nodes"]) == 1
-    assert compiled["nodes"][0]["node_id"] == root.id.value
+    assert compiled["nodes"][0]["node_id"] == str(root.id.value)
     assert compiled["nodes"][0]["label"] == "empty"
     assert execution.compile().steps == ()
     assert len(execution.compile().composites) == 1

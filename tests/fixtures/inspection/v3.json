@@ -1,0 +1,26 @@
+{
+  "schema_version": 3,
+  "view": "declaration",
+  "root": "graph:root",
+  "parent": null,
+  "graphs": [
+    {"id":"graph:root","label":"协作","label_path":[],"owner":null,"nodes":["0","1"],"ports":[]},
+    {"id":"graph:0","label":"producer","label_path":["producer"],"owner":"0","nodes":["0.0","0.1"],"ports":[{"kind":"output","port":null,"node":"0.0"},{"kind":"output","port":"report","node":"0.1"}]},
+    {"id":"graph:1","label":"consumer","label_path":["consumer"],"owner":"1","nodes":["1.0"],"ports":[{"kind":"input","port":"apply","nodes":["1.0"]}]}
+  ],
+  "nodes": [
+    {"kind":"subgraph","id":"0","node_id":"18446744073709551615","graph":"graph:root","label":"producer","label_path":["producer"],"child_graph":"graph:0","condition":null},
+    {"kind":"leaf","id":"0.0","node_id":"2","graph":"graph:0","label":"read \"<bytes>\"","label_path":["producer","read"],"action_kind":"rust","condition":null},
+    {"kind":"leaf","id":"0.1","node_id":"3","graph":"graph:0","label":"read \"<bytes>\"","label_path":["producer","tail"],"action_kind":"javascript","condition":null},
+    {"kind":"subgraph","id":"1","node_id":"4","graph":"graph:root","label":"consumer","label_path":["consumer"],"child_graph":"graph:1","condition":null},
+    {"kind":"leaf","id":"1.0","node_id":"5","graph":"graph:1","label":"apply\n安全","label_path":["consumer","apply"],"action_kind":"python","condition":"c"}
+  ],
+  "edges": [
+    {"kind":"order","id":"e0","graph":"graph:0","source":"0.0","target":"0.1"},
+    {"kind":"result","id":"e1","graph":"graph:root","source":"0","target":"1","source_port":null,"provider_node":"0.0","target_port":"apply","consumer_nodes":["1.0"],"argument_index":0},
+    {"kind":"port","id":"e2","graph":"graph:root","source":"0","target":"1","source_port":"report","provider_node":"0.1","target_port":"apply","consumer_nodes":["1.0"],"condition":"e"}
+  ],
+  "conditions":[{"id":"c","inputs":["0.0"]},{"id":"e","inputs":["0.1"]}],
+  "static_rules":[],
+  "selections":[{"id":"selection","cases":[{"node":"0","condition":"opaque-choice"},{"node":"1","condition":false}]}]
+}

@@ -141,9 +141,14 @@ pub struct ProjectedScope {
     local: HashMap<NodeIdentity, NodeId>,
     inputs: BTreeMap<PortName, Vec<NodeId>>,
     outputs: BTreeMap<PortName, NodeId>,
+    excluded_edges: std::collections::HashSet<usize>,
 }
 
 impl ProjectedScope {
+    #[must_use]
+    pub const fn excluded_edges(&self) -> &std::collections::HashSet<usize> {
+        &self.excluded_edges
+    }
     #[must_use]
     pub const fn declaration(&self) -> &Arc<Graph> {
         &self.declaration
@@ -308,6 +313,11 @@ impl Projection {
             local: HashMap::new(),
             inputs: BTreeMap::new(),
             outputs: BTreeMap::new(),
+            excluded_edges: bindings
+                .edges
+                .iter()
+                .filter_map(|(index, enabled)| (!enabled).then_some(*index))
+                .collect(),
         });
         for (index, node) in body.nodes().iter().enumerate() {
             if bindings.nodes.get(&node.id()) == Some(&false) {

@@ -1,6 +1,8 @@
 //! Node-API adapter for the existing language-independent graph compiler/session.
 
 mod events;
+mod inspection;
+pub use inspection::{render_graph_document, validate_graph_document};
 mod schema;
 
 use std::num::NonZeroUsize;
@@ -70,6 +72,17 @@ pub struct CompiledGraph {
 
 #[napi]
 impl CompiledGraph {
+    /// Returns the actual compiled prerequisites without recompiling a declaration.
+    #[must_use]
+    #[napi(ts_return_type = "unknown")]
+    pub fn dependencies(&self) -> Value {
+        Value::Array(self.graph.nodes().iter().enumerate().flat_map(|(target, node)| {
+            node.prerequisites().iter().map(move |edge| match edge.condition() {
+                None => json!({"kind":"required","source":edge.node().index(),"target":target}),
+                Some(condition) => json!({"kind":"conditional","source":edge.node().index(),"target":target,"condition":condition.index()}),
+            })
+        }).collect())
+    }
     #[must_use]
     #[napi(ts_return_type = "unknown")]
     pub fn mappings(&self) -> Value {
@@ -120,7 +133,9 @@ pub struct Session {
 impl Session {
     /// Cancels undispatched work; in-flight callbacks must still acknowledge completion.
     #[napi]
-    pub fn request_cancel(&mut self) { self.session.request_cancel(); }
+    pub fn request_cancel(&mut self) {
+        self.session.request_cancel();
+    }
     /// Starts the session and returns its first scheduling batch.
     ///
     /// # Errors
@@ -159,7 +174,9 @@ impl Session {
             Condition::Failed { condition } => {
                 ConditionResolution::failed(ConditionId::new(condition))
             }
-            Condition::Cancelled { condition } => ConditionResolution::cancelled(ConditionId::new(condition)),
+            Condition::Cancelled { condition } => {
+                ConditionResolution::cancelled(ConditionId::new(condition))
+            }
         });
         self.session
             .advance(
@@ -167,7 +184,8 @@ impl Session {
                     completed,
                     conditions,
                     update.skipped.into_iter().map(NodeId::new),
-                ).cancelled(cancelled),
+                )
+                .cancelled(cancelled),
                 capacity as usize,
             )
             .map(|value| events::batch(&value))
