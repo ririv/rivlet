@@ -7,6 +7,10 @@ entry. It composes `graph::Compilation`, the core `ExecutionSession`, and
 `action::ActionExecutor`. It does not require Python, introduce another scheduler,
 or move execution policy into graph declarations.
 
+Host state can be injected through `ExecutionOptions::shared(Arc<T>)` and accessed
+with `ctx.shared::<T>()`, including dynamically generated children. See
+[shared state (中文)](./zh-CN/shared_state.md) for synchronization and lifetime rules.
+
 ## Public entry
 
 ```rust,ignore
@@ -153,8 +157,8 @@ dropping a Future. See [cancellation (Chinese)](./zh-CN/cancellation.md).
 - Synchronous actions, sync/async predicates, runtime-created graphs and explicit event
   observation are supported. `AsyncAction` adds runtime-independent futures without a Tokio requirement.
   See the [advanced API guide (Chinese)](./zh-CN/node-rust-advanced.md).
-- ActionContext uses its default with no log path. Hosts needing custom contexts,
-  control, or mixed-language dispatch can still compose
+- ActionContext has no default log path, carries the execution cancellation token,
+  and inherits the explicitly supplied shared object. Hosts needing lower-level contexts or dispatch can compose
   ExecutionSession and ActionExecutor directly.
 
 - Session creation currently clones the compiled core graph once, O(V + E), and

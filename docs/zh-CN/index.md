@@ -41,6 +41,7 @@
 - [实验性 Node.js API](./node-api.md)
 - [Rust 类型化结果值](./rust-results.md)
 - [结果记录、生命周期与未来保留策略候选](./result_lifetime.md)
+- [三端共享状态与结果、依赖的边界](./shared_state.md)
 - [条件边](./conditional_edges.md)
 - [条件 Node](./conditional_steps.md)
 - [端口依赖与子图端口](./interfaces.md)

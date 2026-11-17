@@ -6,6 +6,10 @@ workspace 的 `execution` crate 提供同步或异步、单次使用的纯 Rust 
 `graph::Compilation`、core 的 `ExecutionSession` 和 `action::ActionExecutor`，
 不依赖 Python，不新增调度器，也不把执行策略放进图声明层。
 
+宿主共享对象通过 `ExecutionOptions::shared(Arc<T>)` 显式注入，动作使用
+`ctx.shared::<T>()`；声明／动态子图继承同一 Arc，不进入编译图或步骤结果。
+同步与生命周期边界见[共享状态](./shared_state.md)。
+
 ## 公共入口
 
 ```rust,ignore
@@ -144,8 +148,8 @@ let outcome = Execution::new(compilation, options).run()?;
 - 支持同步/异步 Rust action、同步/异步谓词、运行时生成子图与显式事件观察；
   不新增 Tokio 硬依赖。异步入口的 Future 执行环境由调用方提供。
   完整规则见[Node/Rust 扩展 API](./node-rust-advanced.md)。
-- ActionContext 使用无日志路径的缺省值，并绑定本次执行的只读取消 Token。需要定制上下文或
-  混合语言分发的宿主，仍可直接组合 ExecutionSession 和 ActionExecutor。
+- ActionContext 默认没有日志路径，绑定本次执行的只读取消 Token，以及显式提供的共享对象。
+  更低阶的上下文或分发策略仍可直接组合 ExecutionSession 和 ActionExecutor。
 
 - 当前创建 session 时会复制一次 core 编译图，O(V + E)，初始化节点状态和结果表为
   O(V)，不会重新编译声明。驱动对每个终态结果/事件处理一次，R 个结果输入绑定为

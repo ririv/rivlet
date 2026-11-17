@@ -179,6 +179,9 @@ control 和 shared(ExpectedType)，没有结果查询、日志路径或 scope �
 宿主可用 Execution.require_result(node)。共享对象显式传入 Execution，调用方负责
 同步与释放，共享本身不产生依赖。
 
+Rust 与 Node.js 对应入口及动态子图继承规则见[共享状态](./shared_state.md)，
+共享对象不经 core 序列化，也不替代显式结果边。
+
 Python 结果记录按需启用，不是每次执行都无条件启用；开启后也会记录没有结果消费者的
 Python 成功返回值，消费者结束不会删除记录。自动启用的准确条件、无结果边时显式请求
 查询，以及现状与未来保留策略候选的区别，见[结果记录与生命周期](./result_lifetime.md)。

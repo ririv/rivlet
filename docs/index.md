@@ -43,6 +43,7 @@ domain workflows are connected explicitly, not read from implicit global facilit
 - [Experimental Node.js API](./node-api.md)
 - [Typed Rust result values](./rust-results.md)
 - [Result recording, lifetime and future retention candidates](./result_lifetime.md)
+- [Explicit shared state across Python, Rust and Node.js (中文)](./zh-CN/shared_state.md)
 - [Conditional edges](./conditional_edges.md)
 - [Conditional steps](./conditional_steps.md)
 - [port dependencies and subgraph ports](./interfaces.md)

@@ -244,7 +244,9 @@ anonymous/named ports, result passing, node/edge runtime conditions, subtree lim
 skips, compilation reuse, failure isolation, static selection, runtime-generated graphs
 and event observation. See the [Node/Rust advanced API guide (Chinese)](./zh-CN/node-rust-advanced.md)
 for examples and boundaries. It does **not** yet expose Python's wire/DSL helpers,
-shared state, live execution rendering, symbolic provider selection, or Rust-native action registration.
+live execution rendering, symbolic provider selection, or Rust-native action registration.
+`run(node, { shared })` injects one host object; actions access it through
+`ctx.shared(ExpectedClass)`, including generated children. See [shared state (中文)](./zh-CN/shared_state.md).
 Structural export and Tree/Mermaid rendering use the shared Rust inspection layer;
 see the [complete inspection examples](./zh-CN/graph_export.md#三端共用的结构渲染).
 
