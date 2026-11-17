@@ -101,29 +101,34 @@ infer a callback's parameter schema from its runtime producer list.
 
 ## Subgraphs and public ports
 
-Both `Step` and `Graph` are nodes. `Graph` holds reusable topology;
-`Graph` supplies a distinct identity, label, condition and interface view.
+Both `Step` and `Graph` are nodes. `Graph` directly holds reusable node, edge and
+interface declarations, with a distinct identity, label, condition and interface view.
 Only a Graph has public input and output ports.
 
 ```js
+import { Edge, Graph, GraphInterface, Step, run } from './lib/index.js';
+
 const source = new Step(() => 21);
-const provider = new Graph(new Graph({
+const provider = new Graph({
   nodes: [source],
   interface: new GraphInterface({ outputs: source }),
-}));
+});
 const apply = new Step((_context, value) => value.unwrap() * 2);
-const consumer = new Graph(new Graph({
+const consumer = new Graph({
   nodes: [apply],
   interface: new GraphInterface({ inputs: apply, outputs: apply }),
-}));
-const workflow = new Graph(new Graph({
+});
+const workflow = new Graph({
   nodes: [provider, consumer],
   edges: [Edge.results([provider.interface.output()], consumer.interface.input())],
-}));
+});
+
+const outcome = await run(workflow);
+console.log(outcome.result(consumer.interface.output()).unwrap()); // 42
 ```
 
-This snippet also imports `GraphInterface` from the package. The shorthand declares
-anonymous ports. For anonymous and named ports together, use maps, with `null` as
+The shorthand declares anonymous ports. For anonymous and named ports together,
+use maps, with `null` as
 the anonymous key:
 
 ```js

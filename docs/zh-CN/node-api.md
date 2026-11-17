@@ -93,27 +93,32 @@ Edge 不根据运行时生产者列表自动推导回调参数 schema。
 
 ## 子图与公开端口
 
-Step 和 Graph 都是节点。Graph 保存可复用拓扑，Graph 提供独立身份、
-标签、条件和接口视图。只有 Graph 提供公开输入、输出端口。
+Step 和 Graph 都是节点。Graph 直接保存可复用的节点、边和接口声明，并拥有独立
+身份、标签、条件和接口视图。只有 Graph 提供公开输入、输出端口。
 
 ```js
+import { Edge, Graph, GraphInterface, Step, run } from './lib/index.js';
+
 const source = new Step(() => 21);
-const provider = new Graph(new Graph({
+const provider = new Graph({
   nodes: [source],
   interface: new GraphInterface({ outputs: source }),
-}));
+});
 const apply = new Step((_context, value) => value.unwrap() * 2);
-const consumer = new Graph(new Graph({
+const consumer = new Graph({
   nodes: [apply],
   interface: new GraphInterface({ inputs: apply, outputs: apply }),
-}));
-const workflow = new Graph(new Graph({
+});
+const workflow = new Graph({
   nodes: [provider, consumer],
   edges: [Edge.results([provider.interface.output()], consumer.interface.input())],
-}));
+});
+
+const outcome = await run(workflow);
+console.log(outcome.result(consumer.interface.output()).unwrap()); // 42
 ```
 
-此片段还需从包导入 `GraphInterface`。简写声明匿名端口；匿名与具名并存时使用 Map，
+简写声明匿名端口；匿名与具名并存时使用 Map，
 以 `null` 为匿名键：
 
 ```js
