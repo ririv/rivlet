@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Condition, Edge, Graph, GraphError, GraphInterface, GraphStructure, PortName, Step};
+use graph::{Condition, Edge, Graph, GraphError, GraphInterface, PortName, Step};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use rivlet_python::export_node;
@@ -51,13 +51,23 @@ fn make_graph(py: Python<'_>) -> PyResult<Py<PyAny>> {
         .map_err(invalid)?
         .output("read", &read)
         .map_err(invalid)?;
-    let body = GraphStructure::with_interface(
+    let body = Graph::with_interface(
+        "scope",
         [read.clone().into(), apply.clone().into()],
         [Edge::results([&read], &apply).map_err(invalid)?],
         interface,
     )
     .map_err(invalid)?;
-    export_node(py, Graph::new("rust", Arc::new(body)).map_err(invalid)?)
+    export_node(
+        py,
+        Graph::with_interface(
+            "rust",
+            body.nodes().iter().cloned(),
+            body.edges().iter().cloned(),
+            body.interface().declaration().clone(),
+        )
+        .map_err(invalid)?,
+    )
 }
 
 struct Payload(Vec<u8>);
@@ -87,7 +97,8 @@ impl Action for SharedLength {
 fn make_payload_pair(py: Python<'_>) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
     let produce = Step::new("produce", ActionHandle::new(Produce)).map_err(invalid)?;
     let length = Step::new("shared-length", ActionHandle::new(SharedLength)).map_err(invalid)?;
-    let source = GraphStructure::with_interface(
+    let source = Graph::with_interface(
+        "scope",
         [produce.clone().into()],
         [],
         GraphInterface::default()
@@ -95,7 +106,8 @@ fn make_payload_pair(py: Python<'_>) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
             .map_err(invalid)?,
     )
     .map_err(invalid)?;
-    let target = GraphStructure::with_interface(
+    let target = Graph::with_interface(
+        "scope",
         [length.clone().into()],
         [],
         GraphInterface::default()
@@ -108,11 +120,23 @@ fn make_payload_pair(py: Python<'_>) -> PyResult<(Py<PyAny>, Py<PyAny>)> {
     Ok((
         export_node(
             py,
-            Graph::new("producer", Arc::new(source)).map_err(invalid)?,
+            Graph::with_interface(
+                "producer",
+                source.nodes().iter().cloned(),
+                source.edges().iter().cloned(),
+                source.interface().declaration().clone(),
+            )
+            .map_err(invalid)?,
         )?,
         export_node(
             py,
-            Graph::new("consumer", Arc::new(target)).map_err(invalid)?,
+            Graph::with_interface(
+                "consumer",
+                target.nodes().iter().cloned(),
+                target.edges().iter().cloned(),
+                target.interface().declaration().clone(),
+            )
+            .map_err(invalid)?,
         )?,
     ))
 }
@@ -146,11 +170,7 @@ fn make_failures(py: Python<'_>) -> PyResult<Py<PyAny>> {
     .map_err(invalid)?;
     export_node(
         py,
-        Graph::new(
-            "native",
-            Arc::new(GraphStructure::new([action.into(), predicate.into()], []).map_err(invalid)?),
-        )
-        .map_err(invalid)?,
+        Graph::new("native", [action.into(), predicate.into()], []).map_err(invalid)?,
     )
 }
 
@@ -158,7 +178,8 @@ fn make_failures(py: Python<'_>) -> PyResult<Py<PyAny>> {
 fn make_nested(py: Python<'_>) -> PyResult<Py<PyAny>> {
     let task = Step::new("task", ActionHandle::new(Noop)).map_err(invalid)?;
     let body = Arc::new(
-        GraphStructure::with_interface(
+        Graph::with_interface(
+            "scope",
             [task.clone().into()],
             [],
             GraphInterface::default()
@@ -167,8 +188,20 @@ fn make_nested(py: Python<'_>) -> PyResult<Py<PyAny>> {
         )
         .map_err(invalid)?,
     );
-    let left = Graph::new("left", Arc::clone(&body)).map_err(invalid)?;
-    let right = Graph::new("right", body).map_err(invalid)?;
+    let left = Graph::with_interface(
+        "left",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+    )
+    .map_err(invalid)?;
+    let right = Graph::with_interface(
+        "right",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+    )
+    .map_err(invalid)?;
     let interface = GraphInterface::default()
         .output(
             PortName::Anonymous,
@@ -180,16 +213,11 @@ fn make_nested(py: Python<'_>) -> PyResult<Py<PyAny>> {
         .map_err(invalid)?;
     export_node(
         py,
-        Graph::new(
+        Graph::with_interface(
             "nested",
-            Arc::new(
-                GraphStructure::with_interface(
-                    [left.clone().into(), right.clone().into()],
-                    [Edge::new(&left, &right)],
-                    interface,
-                )
-                .map_err(invalid)?,
-            ),
+            [left.clone().into(), right.clone().into()],
+            [Edge::new(&left, &right)],
+            interface,
         )
         .map_err(invalid)?,
     )
@@ -202,6 +230,7 @@ fn demo_native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_function(wrap_pyfunction!(make_failures, module)?)?;
     module.add_function(wrap_pyfunction!(make_nested, module)?)?;
     module.add_function(wrap_pyfunction!(make_conditions, module)?)?;
+    module.add_function(wrap_pyfunction!(make_port_conditions, module)?)?;
     module.add_function(wrap_pyfunction!(make_conditional_step, module)?)?;
     module.add_function(wrap_pyfunction!(make_conditional_graph, module)?)?;
     module.add(
@@ -238,7 +267,8 @@ fn make_conditions(py: Python<'_>) -> PyResult<Py<PyAny>> {
     .map_err(invalid)?;
     let task = Step::new("task", ActionHandle::new(Noop)).map_err(invalid)?;
     let body = Arc::new(
-        GraphStructure::with_interface(
+        Graph::with_interface(
+            "scope",
             [task.clone().into()],
             [],
             GraphInterface::default()
@@ -249,9 +279,21 @@ fn make_conditions(py: Python<'_>) -> PyResult<Py<PyAny>> {
         )
         .map_err(invalid)?,
     );
-    let gated =
-        Graph::with_condition("gated", Arc::clone(&body), condition.clone()).map_err(invalid)?;
-    let target = Graph::new("target", body).map_err(invalid)?;
+    let gated = Graph::with_condition(
+        "gated",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+        condition.clone(),
+    )
+    .map_err(invalid)?;
+    let target = Graph::with_interface(
+        "target",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+    )
+    .map_err(invalid)?;
     let edges = [
         Edge::results([&read], &double).map_err(invalid)?,
         Edge::results([&read, &double], &add).map_err(invalid)?,
@@ -276,23 +318,18 @@ fn make_conditions(py: Python<'_>) -> PyResult<Py<PyAny>> {
         .map_err(invalid)?;
     export_node(
         py,
-        Graph::new(
+        Graph::with_interface(
             "conditions",
-            Arc::new(
-                GraphStructure::with_interface(
-                    [
-                        read.into(),
-                        double.into(),
-                        add.into(),
-                        wait.into(),
-                        gated.into(),
-                        target.into(),
-                    ],
-                    edges,
-                    interface,
-                )
-                .map_err(invalid)?,
-            ),
+            [
+                read.into(),
+                double.into(),
+                add.into(),
+                wait.into(),
+                gated.into(),
+                target.into(),
+            ],
+            edges,
+            interface,
         )
         .map_err(invalid)?,
     )
@@ -308,6 +345,61 @@ impl Action for Seed {
 }
 
 #[pyfunction]
+fn make_port_conditions(py: Python<'_>) -> PyResult<Py<PyAny>> {
+    let seed = Step::new("seed", ActionHandle::new(Seed)).map_err(invalid)?;
+    let source = Graph::with_interface(
+        "source",
+        [seed.clone().into()],
+        [],
+        GraphInterface::default()
+            .output(PortName::Anonymous, &seed)
+            .map_err(invalid)?,
+    )
+    .map_err(invalid)?;
+    let forwarded = Graph::with_interface(
+        "forwarded",
+        [source.clone().into()],
+        [],
+        GraphInterface::default()
+            .output(
+                PortName::Anonymous,
+                source
+                    .interface()
+                    .output(PortName::Anonymous)
+                    .map_err(invalid)?,
+            )
+            .map_err(invalid)?,
+    )
+    .map_err(invalid)?;
+    let output = forwarded
+        .interface()
+        .output(PortName::Anonymous)
+        .map_err(invalid)?;
+    let condition = Condition::new(
+        |(value,): (Option<Arc<i64>>,)| Ok(value.is_some_and(|value| *value == 21)),
+        [output.clone().into()],
+    )
+    .map_err(invalid)?;
+    let target =
+        Step::with_condition("double", ActionHandle::new(Double), condition).map_err(invalid)?;
+    let edges = [Edge::results([output], &target).map_err(invalid)?];
+    let interface = GraphInterface::default()
+        .output(PortName::Anonymous, &target)
+        .map_err(invalid)?;
+    // 特意让消费者先声明，验证引用恢复不依赖节点声明顺序。
+    export_node(
+        py,
+        Graph::with_interface(
+            "port conditions",
+            [target.into(), forwarded.into()],
+            edges,
+            interface,
+        )
+        .map_err(invalid)?,
+    )
+}
+
+#[pyfunction]
 fn make_conditional_step(py: Python<'_>, allowed: bool) -> PyResult<Py<PyAny>> {
     let predicate = Condition::new(move |()| Ok(allowed), []).map_err(invalid)?;
     export_node(
@@ -320,7 +412,8 @@ fn make_conditional_step(py: Python<'_>, allowed: bool) -> PyResult<Py<PyAny>> {
 fn make_conditional_graph(py: Python<'_>, allowed: bool) -> PyResult<Py<PyAny>> {
     let predicate = Condition::new(move |()| Ok(allowed), []).map_err(invalid)?;
     let seed = Step::new("seed", ActionHandle::new(Seed)).map_err(invalid)?;
-    let body = GraphStructure::with_interface(
+    let body = Graph::with_interface(
+        "scope",
         [seed.clone().into()],
         [],
         GraphInterface::default()
@@ -330,6 +423,13 @@ fn make_conditional_graph(py: Python<'_>, allowed: bool) -> PyResult<Py<PyAny>> 
     .map_err(invalid)?;
     export_node(
         py,
-        Graph::with_condition("gated", Arc::new(body), predicate).map_err(invalid)?,
+        Graph::with_condition(
+            "gated",
+            body.nodes().iter().cloned(),
+            body.edges().iter().cloned(),
+            body.interface().declaration().clone(),
+            predicate,
+        )
+        .map_err(invalid)?,
     )
 }

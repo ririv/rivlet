@@ -18,14 +18,31 @@ spelling but do not resolve that ownership gap.
 
 Step and Graph are actual nodes, each composing common metadata. Only Graph exposes
 an interface. Node is their shared protocol; NodeKind is their closed union.
-GraphStructure holds the reusable body. Edges reference actual nodes, and result
+Graph directly holds the complete declaration. Edges reference actual nodes, and result
 edges can reference typed ports obtained from that actual graph:
 
 ```python
-left = Graph(shared_structure, label="left")
-right = Graph(shared_structure, label="right")
+left = Graph(
+    nodes=(shared_structure.nodes),
+    edges=(shared_structure.edges),
+    observation=(shared_structure.observation),
+    static=(shared_structure.static),
+    static_selections=(shared_structure.static_selections),
+    interface=shared_structure.interface.declaration,
+    label=("left"),
+)
+right = Graph(
+    nodes=(shared_structure.nodes),
+    edges=(shared_structure.edges),
+    observation=(shared_structure.observation),
+    static=(shared_structure.static),
+    static_selections=(shared_structure.static_selections),
+    interface=shared_structure.interface.declaration,
+    label=("right"),
+)
 edges = Edge.results(
-    (left.interface.outputs["plan"],), consumer.interface.inputs["apply"],
+    (left.interface.outputs["plan"],),
+    consumer.interface.inputs["apply"],
 )
 ```
 
@@ -37,12 +54,11 @@ interface through wrapping. Forwarded port references retain their owning graph.
 | Former form | Current form |
 | --- | --- |
 | Step(action, label=...) as a generic wrapper | Step(action, label=...) as an action node |
-| Step(graph, label=...) | Graph(structure, label=...) |
-| Graph(steps=..., edges=...) | Graph(GraphStructure(nodes=..., edges=...)) |
+| Step(graph, label=...) | Graph(nodes=..., edges=..., label=...) |
+| Graph(steps=..., edges=...): identity-free body | Graph(nodes=..., edges=...): actual node |
 | wiring.step(label=...) | wiring.graph(label=...) |
 | StepWiring | NodeWiring |
 | StepRunContext / step_id / step_path | NodeRunContext / node_id / node_path |
-| NativeGraph (opaque body) | GraphStructure |
 
 Execution receives an actual Step or Graph directly; application factory return
 contracts are not part of this node model.
@@ -58,6 +74,15 @@ supplies no mutable base implementation and does not register arbitrary node kin
 
 The former wrapper was not universally inferior: it centralized lifecycle metadata
 and provided one endpoint type. This decision favors concrete capabilities and
-port ownership instead. Costs include two constructors, explicit reusable structure
+port ownership instead. Costs include two constructors
 and a breaking migration. Neither approach is inherently faster merely because it
 uses a protocol or composition; performance needs measurement.
+
+## Removing the separate structure declaration
+
+GraphStructure originally separated reusable contents from Graph node identity.
+That distinction does not require another public type: Graph directly holds the
+immutable nodes, edges, interface and static rules. Reuse the desired fields
+explicitly when creating another Graph; other metadata is not inherited.
+Compilation retains the source declaration and hierarchical mapping rather than
+trying to reconstruct discarded branches from the selected execution graph.

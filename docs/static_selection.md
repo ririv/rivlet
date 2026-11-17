@@ -33,7 +33,17 @@ graph = (
     >> finish
 ).graph()
 
-run(Graph(structure=(graph).structure, label=("platform workflow")))
+run(
+    Graph(
+        nodes=(graph.nodes),
+        edges=(graph.edges),
+        observation=(graph.observation),
+        static=(graph.static),
+        static_selections=(graph.static_selections),
+        interface=graph.interface.declaration,
+        label=("platform workflow"),
+    )
+)
 ```
 
 This runs `prepare → modern → finish`. Each `Case(condition, component)` has two arguments:
@@ -79,7 +89,7 @@ from rivlet import (
     Edge,
     Execution,
     Graph,
-    GraphStructure,
+    Graph,
     StaticSelection,
     Step,
     run,
@@ -91,13 +101,11 @@ finish = Step(lambda: print("finish"), label=("finish"))
 cases = (Case(False, first), Case(True, second))
 
 graph = Graph(
-    structure=GraphStructure(
-        nodes=(tuple(case.node for case in cases) + (finish,)),
-        edges=(tuple(Edge(case.node, finish) for case in cases)),
-        static_selections=((StaticSelection(cases=cases),)),
-    )
+    nodes=tuple(case.node for case in cases) + (finish,),
+    edges=tuple(Edge(case.node, finish) for case in cases),
+    static_selections=(StaticSelection(cases=cases),),
 )
-run(Graph(structure=(graph).structure))
+run(graph)
 ```
 
 `Graph.from_wiring()` and `.graph()` also accept `static_selections=`.
@@ -110,7 +118,7 @@ its normal composite lifecycle, not a no-op action.
 Rules and nested selections in unselected subgraphs are not evaluated. Neither
 are selections under a statically pruned parent. Constructed candidates still
 follow normal declaration validation. A scope cannot declare the same Node twice;
-create distinct Graph nodes from one GraphStructure for independent mounts;
+create distinct Graph nodes from one Graph for independent mounts;
 repeating the same Graph object is not implicit mounting. Each compilation and mount selects independently, without caching a
 chosen branch in the declaration.
 

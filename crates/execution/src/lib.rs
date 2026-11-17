@@ -6,9 +6,9 @@
 //!
 //! ```
 //! use execution::{Execution, ExecutionOptions, ExecutionStatus};
-//! use graph::GraphStructure;
+//! use graph::Graph;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let compilation = GraphStructure::new([], [])?.compile_structure()?;
+//! let compilation = Graph::new("scope", [], [])?.compile()?;
 //! let outcome = Execution::new(compilation, ExecutionOptions::new(4)?).run()?;
 //! assert_eq!(outcome.status(), ExecutionStatus::Succeeded);
 //! # Ok(())

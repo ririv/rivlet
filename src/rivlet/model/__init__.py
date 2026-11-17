@@ -1,9 +1,9 @@
 """Public graph-model declarations, assembled from their owning modules."""
 
-from .._native import _NativeCondition
 from .condition import (
     ConditionalEdgePredicate,
 )
+from .condition import _BoundNativeCondition as _BoundNativeCondition
 from .condition import _RuntimeCondition as _RuntimeCondition
 from .edge import (
     ConditionalPrerequisite,
@@ -16,7 +16,6 @@ from .graph import (
     Graph,
     GraphMode,
     GraphObservationMessages,
-    GraphStructure,
 )
 from .identity import NodeId, NodePath
 from .node import (
@@ -38,7 +37,7 @@ type NodeKind = Step | Graph
 type ConditionInput = (
     ConditionalEdgePredicate
     | tuple[ConditionalEdgePredicate, Node, *tuple[Node, ...]]
-    | _NativeCondition
+    | _BoundNativeCondition
 )
 type NodePrerequisite = Node | ConditionalPrerequisite
 type GraphWiringOperand = NodeKind | GraphWiring
@@ -70,5 +69,4 @@ __all__ = [
     "GraphWiringOperand",
     "GraphWiringInput",
     "Graph",
-    "GraphStructure",
 ]

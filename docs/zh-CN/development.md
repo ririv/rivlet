@@ -61,9 +61,6 @@ cargo fmt --check
 
 日常修改运行直接相关的测试；修改公共编译或执行逻辑时，应扩大到完整图测试。
 
-独立扩展 ABI 还需运行 `just test-native-bridge`。它在临时目录中构建另一份 wheel，
-验证真实的 [SDK 边界](./python-native.md)，不只测试库内原生 fixture。
-
 ## 延伸阅读
 
 - [架构及 Python／Rust 边界](./rust-architecture.md)

@@ -77,11 +77,9 @@ def test_actions_receive_bound_results_and_observers_receive_read_only_view() ->
             assert result.value == "output"
 
     execution = Execution(
-        root=Graph(
-            structure=Graph.from_wiring(
-                (prepare.wire(), finish.wire(after=(Results(prepare),))),
-                observation=GraphObservationMessages(after_success="done"),
-            ).structure
+        root=Graph.from_wiring(
+            (prepare.wire(), finish.wire(after=(Results(prepare),))),
+            observation=(GraphObservationMessages(after_success="done")),
         ),
         execution_state=state,
     )

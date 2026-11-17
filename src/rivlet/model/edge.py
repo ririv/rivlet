@@ -13,13 +13,12 @@ from ..interface import (
     PortName,
     _validate_port_name,
 )
-from .condition import _normalize_condition, _RuntimeCondition
+from .condition import _BoundNativeCondition, _normalize_condition, _RuntimeCondition
 from .step import Step
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from .._native import _NativeCondition
     from . import ConditionInput, NodePrerequisite
     from .graph import Graph
     from .node import Node
@@ -28,7 +27,7 @@ if TYPE_CHECKING:
 @dataclass(frozen=True, slots=True, init=False)
 class ConditionalPrerequisite:
     node: Node
-    condition: _RuntimeCondition | _NativeCondition
+    condition: _RuntimeCondition | _BoundNativeCondition
 
     def __init__(self, node: Node, *, condition: ConditionInput) -> None:
         object.__setattr__(self, "node", node)
@@ -43,7 +42,7 @@ def prerequisite_node(dep: NodePrerequisite) -> Node:
 
 def _condition_uses(
     steps: tuple[Node, ...], edges: tuple[GraphEdge, ...]
-) -> Iterator[tuple[Node, _RuntimeCondition | _NativeCondition]]:
+) -> Iterator[tuple[Node, _RuntimeCondition | _BoundNativeCondition]]:
     for step in steps:
         if step.condition is not None:
             yield step, step.condition
@@ -164,7 +163,7 @@ class Edge:
                 return None
 
     @property
-    def condition(self) -> _RuntimeCondition | _NativeCondition | None:
+    def condition(self) -> _RuntimeCondition | _BoundNativeCondition | None:
         match self._connection:
             case _ExecutionConnection(condition=condition):
                 return condition
@@ -183,7 +182,7 @@ class Edge:
 @dataclass(frozen=True, slots=True)
 class _ExecutionConnection:
     ports: tuple[PortName, PortName] | None
-    condition: _RuntimeCondition | _NativeCondition | None
+    condition: _RuntimeCondition | _BoundNativeCondition | None
 
 
 @dataclass(eq=False, frozen=True, slots=True)

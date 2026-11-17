@@ -37,8 +37,13 @@ def _recipe_graph(*, steps: int) -> Graph:
 def _root_graph(*, recipes: int, steps: int, lanes: int) -> Graph:
     components = tuple(
         Graph(
-            structure=_recipe_graph(steps=steps).structure,
-            label=f"recipe-{recipe_index}",
+            nodes=_recipe_graph(steps=steps).nodes,
+            edges=_recipe_graph(steps=steps).edges,
+            observation=_recipe_graph(steps=steps).observation,
+            static=_recipe_graph(steps=steps).static,
+            static_selections=_recipe_graph(steps=steps).static_selections,
+            interface=_recipe_graph(steps=steps).interface.declaration,
+            label=(f"recipe-{recipe_index}"),
         )
         for recipe_index in range(recipes)
     )
@@ -72,7 +77,7 @@ def _compile_samples(
 
     def _compile() -> None:
         nonlocal compilation
-        compilation = compile_graph(graph.structure, root_label="all-recipes")
+        compilation = compile_graph(graph, root_label="all-recipes")
 
     samples = _measure(_compile, repeats=repeats)
     if compilation is None:

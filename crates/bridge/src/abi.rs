@@ -8,8 +8,8 @@ mod values;
 
 pub use export::ExportedGraph;
 pub use import::ImportedGraph;
-pub const ABI_VERSION: u32 = 2;
-pub const ABI_NAME: &CStr = c"rivlet.node.v2";
+pub const ABI_VERSION: u32 = 3;
+pub const ABI_NAME: &CStr = c"rivlet.node.v3";
 
 #[repr(C)]
 #[derive(Clone, Copy)]

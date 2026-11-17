@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from .._native import _NativeStructure
 from ..compile import GraphCompilation, compiled_prerequisite_node
 from ..errors import GraphError
+from ..interface import OutputPort
 from ..model import (
     Edge,
+    Graph,
     GraphMode,
-    GraphStructure,
     Node,
     NodeKind,
     NodePath,
@@ -15,10 +15,6 @@ from ..model import (
     node_paths_for_mount,
     resolve_node_label,
 )
-from ..model import (
-    Graph as GraphNode,
-)
-from ..model.python_structure import _PythonStructure
 from .formatting import (
     ensure_compilation,
     escape_label,
@@ -31,17 +27,16 @@ from .formatting import (
     render_step_path,
     result_edge_label,
 )
-from .rust_graph import append_rust_mermaid
 
 
 def render_graph_mermaid(
-    subject: GraphStructure | NodeKind | GraphCompilation,
+    subject: NodeKind | GraphCompilation,
     *,
     root_label: str,
     mode: GraphMode = "dynamic",
 ) -> str:
-    if isinstance(subject, (Step, GraphNode)):
-        subject = GraphStructure(nodes=(subject,))
+    if isinstance(subject, (Step, Graph)):
+        subject = Graph(nodes=(subject,))
     match mode:
         case "compiled":
             return render_graph_compilation_mermaid(
@@ -59,7 +54,7 @@ def render_graph_mermaid(
             raise GraphError(f"unsupported graph render mode: {mode}")
 
 
-def render_graph_structure_mermaid(graph: GraphStructure, *, root_label: str) -> str:
+def render_graph_structure_mermaid(graph: Graph, *, root_label: str) -> str:
     lines = ["flowchart TD"]
     append_graph_mermaid(
         lines,
@@ -112,23 +107,13 @@ def render_graph_compilation_mermaid(
 
 def append_graph_mermaid(
     lines: list[str],
-    graph: GraphStructure | _PythonStructure | _NativeStructure,
+    graph: Graph,
     *,
     graph_label: str,
     graph_path: tuple[str, ...],
     parent_node_path: NodePath | None,
     indent: str,
 ) -> None:
-    graph = graph._declaration if isinstance(graph, GraphStructure) else graph
-    if isinstance(graph, _NativeStructure):
-        append_rust_mermaid(
-            lines,
-            graph,
-            owner=parent_node_path or NodePath(()),
-            label=graph_label,
-            indent=indent,
-        )
-        return
     lines.append(
         f'{indent}subgraph {mermaid_graph_node_id(graph_path)}["{escape_label(graph_label)}"]'
     )
@@ -140,28 +125,19 @@ def append_graph_mermaid(
         selection_suffix = render_selection_suffix(graph, step)
         node_id = mermaid_step_node_id(graph_path, step_label, index)
         node_ids[step] = node_id
-        action = step.structure._declaration if isinstance(step, GraphNode) else step
-        if isinstance(action, (_PythonStructure, _NativeStructure)):
+        action = step
+        if isinstance(action, Graph):
             lines.append(
                 f'{indent}    {node_id}["{escape_label(step_label + selection_suffix)}"]'
             )
-            if isinstance(action, _NativeStructure):
-                append_rust_mermaid(
-                    lines,
-                    action,
-                    label=step_label,
-                    owner=node_path,
-                    indent=indent + "    ",
-                )
-            else:
-                append_graph_mermaid(
-                    lines,
-                    action,
-                    graph_label=step_label,
-                    graph_path=(*graph_path, step_label),
-                    parent_node_path=node_path,
-                    indent=indent + "    ",
-                )
+            append_graph_mermaid(
+                lines,
+                action,
+                graph_label=step_label,
+                graph_path=(*graph_path, step_label),
+                parent_node_path=node_path,
+                indent=indent + "    ",
+            )
         else:
             lines.append(
                 f'{indent}    {node_id}["{escape_label(render_step_label(step, node_path=node_path) + selection_suffix)}"]'
@@ -190,7 +166,8 @@ def append_graph_mermaid(
     for target, condition in _condition_uses(graph.nodes, graph.edges):
         receiver = "condition" if condition is target.condition else "edge condition"
         for index, source in enumerate(condition.inputs):
+            source_node = source.graph if isinstance(source, OutputPort) else source
             lines.append(
-                f'{indent}    {node_ids[source]} -.->|"{receiver} input {index}"| {node_ids[target]}'
+                f'{indent}    {node_ids[source_node]} -.->|"{receiver} input {index}"| {node_ids[target]}'
             )
     lines.append(f"{indent}end")

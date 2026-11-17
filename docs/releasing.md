@@ -33,6 +33,12 @@ use a new patch or minor version instead of a post-release. Run
 `--tag v0.4.0` to check the proposed current tag. The script supports final releases
 and their canonical `.postN` forms; it rejects unsupported version forms.
 
+### Unreleased API migration
+
+Graph directly accepts nodes, edges, interface definitions and static declarations.
+The separate GraphStructure declaration is removed without a compatibility alias.
+This breaking change requires a new minor release; existing published files stay unchanged.
+
 ### Version 0.4.0
 
 This release changes public APIs; it is not a drop-in replacement for 0.3.0.

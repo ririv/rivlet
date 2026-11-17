@@ -5,7 +5,7 @@ English | [简体中文](./zh-CN/core_model.md)
 ```text
 Node (shared protocol)
 ├── Step: identity + label + condition + callable
-└── Graph: identity + label + condition + GraphStructure
+└── Graph: identity + label + condition + complete declaration
                                          ├── nodes: Step | Graph
                                          ├── edges
                                          └── interface declarations / static rules
@@ -26,28 +26,41 @@ in the [node modeling discussion](./design/node-modeling.md).
 ## Nodes and reusable structure
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphStructure, Step, run
+from rivlet import Edge, Graph, Step, run
 
 prepare = Step(lambda: print("prepare"), label="prepare")
 finish = Step(lambda: print("finish"), label="finish")
-body = GraphStructure(nodes=(prepare, finish), edges=(Edge(prepare, finish),))
-workflow = Graph(body, label="workflow", condition=lambda: True)
+workflow = Graph(
+    nodes=(prepare, finish),
+    edges=(Edge(prepare, finish),),
+    label="workflow",
+    condition=lambda: True,
+)
 run(workflow)
 
-left = Graph(body, label="left")
-right = Graph(body, label="right")
+left = Graph(nodes=workflow.nodes, edges=workflow.edges, label="left")
+right = Graph(nodes=workflow.nodes, edges=workflow.edges, label="right")
 two_runs = (left | right).graph(label="two runs")
 ```
 
-GraphStructure contains nodes, edges, GraphInterface declarations, observation
-messages, StaticConditions and StaticSelection. It has no identity, label, runtime
-condition or run state. Graph composes a structure and exposes `graph.interface`;
-Step has no interface attribute. The same public GraphStructure can hold a
-Rust-owned body, composed with `Graph(native_structure, label="native")`.
-Its `nodes` / `edges` properties are detached structural-export snapshots, not
-language-specific executable objects. `describe()` returns one complete snapshot
-without compiling or evaluating static rules. Declare ports through the constructor's
-`interface=` and access mounted references through `Graph.interface`.
+Graph directly contains nodes, edges, interface declarations, observation messages,
+StaticConditions and StaticSelection, together with its identity, label and runtime
+condition. Run state is separate. `graph.interface` exposes ports owned by that
+Graph; Step has no interface attribute.
+
+Reuse topology through explicit `nodes=graph.nodes, edges=graph.edges`. Other fields
+are not inherited. Pass `static=graph.static` and
+`static_selections=graph.static_selections` to reuse static rules. Reuse the port
+definition through `interface=graph.interface.declaration`; unlike `interface=graph`,
+this does not forward ports owned by the old outer Graph. Observation messages and
+runtime conditions are also explicit.
+
+Compilation never mutates the original Graph. `GraphCompilation.source_graph`
+retains its input declaration. Recompile the complete declaration to select again;
+the selected execution graph cannot reconstruct discarded branches.
+Root compilation exposes an internal source scope containing `(root,)`; it does
+not clone the root declaration. Retain the Graph or use Execution.root to reuse
+the original node directly.
 
 Two Graph instances can share one structure. Their identities differ; shared inner
 declarations retain theirs, but each mount has independent paths, results and
@@ -69,17 +82,12 @@ composition preserves actual nodes, never silently allocates replacement wrapper
 ## Edges, wire and DSL
 
 ```python
-direct = Graph(
-    GraphStructure(
-        nodes=(prepare, finish),
-        edges=(Edge(prepare, finish),),
-    )
-)
+direct = Graph(nodes=(prepare, finish), edges=(Edge(prepare, finish),))
 with_wire = Graph.from_wiring((prepare.wire(), finish.wire(after=(prepare,))))
 with_dsl = (prepare >> (left | right) >> finish).graph(label="pipeline")
 ```
 
-NodeWiring is construction input, not an executable wrapper. GraphStructure keeps
+NodeWiring is construction input, not an executable wrapper. Graph keeps
 normalized Edges. `>>` connects structural exits to entries; `|` adds no dependency.
 Both produce GraphWiring, materialized by `.graph(...)`. Operands are Step, Graph
 or existing GraphWiring, not raw functions. There is no `.step()` materializer.
@@ -164,20 +172,13 @@ from rivlet import GraphInterface
 producer = (plan | review).graph(
     interface=GraphInterface(outputs={"plan": plan, "review": review}),
 )
-consumer = Graph(
-    GraphStructure(
-        nodes=(work,),
-        interface=GraphInterface(inputs={"apply": work}),
-    )
-)
+consumer = Graph(nodes=(work,), interface=GraphInterface(inputs={"apply": work}))
 root = Graph(
-    GraphStructure(
-        nodes=(producer, consumer),
-        edges=Edge.results(
-            (producer.interface.outputs["plan"], producer.interface.outputs["review"]),
-            consumer.interface.inputs["apply"],
-        ),
-    )
+    nodes=(producer, consumer),
+    edges=Edge.results(
+        (producer.interface.outputs["plan"], producer.interface.outputs["review"]),
+        consumer.interface.inputs["apply"],
+    ),
 )
 ```
 
@@ -233,12 +234,14 @@ compile/run/arun; create another execution to evaluate static rules again. State
 is single-use. Execution paths share Rust compilation/scheduling. Python nested
 sessions share the execution's Python pool and event loop; explicitly configured
 concurrency scopes apply across sessions, with no implicit action quota.
-GraphCompilation contains Python leaves,
-native leaves and composite lifecycle boundaries, not no-op composite actions.
-Low-level compile_graph accepts GraphStructure for inspection/expansion.
+GraphCompilation contains Python leaves and composite lifecycle boundaries,
+not no-op composite actions.
+Public `compile_graph` accepts an actual Step/Graph root and preserves its identity,
+condition and lifecycle. Execution.compile uses the same compiler implementation;
+internal scope projection is not another public construction API.
 
-An action returning GraphStructure expands a body under its current node. Returning
-Graph attaches that actual node, preserving identity, label, condition and boundary.
+An action returning Graph attaches that actual graph node under the action,
+preserving its identity, label, condition and boundary.
 Neither permits arbitrary mutation of a running declaration. Result lookup remains
 mount-local. See [execution](./execution.md) and [typed events](./failure_events.md).
 
@@ -254,6 +257,4 @@ relabeling completed work. Events are not persistence, messaging or recovery.
 
 DirectedTopology permits cycles; DAGTopology validates acyclicity. They know nothing
 about actions, ports or state. See [topology complexity](./topology_complexity.md).
-Rust adapters expose the same public GraphStructure through the
-[experimental binding SDK](./python-native.md); actions remain Rust-owned while sharing one
-compiled execution graph. See [native graphs](./rust-graphs.md).
+See [Rust graph declarations](./rust-graphs.md) for the independent Rust API.

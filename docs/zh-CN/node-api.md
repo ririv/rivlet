@@ -32,7 +32,7 @@ Python wheel 的跨平台验收不能代替 Node 的 Windows/Linux 验收。
 ## 动作、条件与结果边
 
 ```js
-import { Edge, Graph, GraphStructure, Step, run } from './lib/index.js';
+import { Edge, Graph, Step, run } from './lib/index.js';
 
 const enabled = new Step(() => true, { label: 'enabled' });
 const plan = new Step(async () => ({ count: 21 }), { label: 'plan' });
@@ -40,10 +40,11 @@ const apply = new Step((_context, proposal) => proposal.unwrap().count * 2, {
   label: 'apply',
   condition: [value => value.unwrap(), enabled],
 });
-const workflow = new Graph(new GraphStructure({
+const workflow = new Graph({
   nodes: [enabled, plan, apply],
   edges: [Edge.results([plan], apply)],
-}), { label: 'workflow' });
+  label: 'workflow',
+});
 
 const outcome = await run(workflow);
 console.log(outcome.result(apply).unwrap()); // 42
@@ -92,21 +93,21 @@ Edge 不根据运行时生产者列表自动推导回调参数 schema。
 
 ## 子图与公开端口
 
-Step 和 Graph 都是节点。GraphStructure 保存可复用拓扑，Graph 提供独立身份、
+Step 和 Graph 都是节点。Graph 保存可复用拓扑，Graph 提供独立身份、
 标签、条件和接口视图。只有 Graph 提供公开输入、输出端口。
 
 ```js
 const source = new Step(() => 21);
-const provider = new Graph(new GraphStructure({
+const provider = new Graph(new Graph({
   nodes: [source],
   interface: new GraphInterface({ outputs: source }),
 }));
 const apply = new Step((_context, value) => value.unwrap() * 2);
-const consumer = new Graph(new GraphStructure({
+const consumer = new Graph(new Graph({
   nodes: [apply],
   interface: new GraphInterface({ inputs: apply, outputs: apply }),
 }));
-const workflow = new Graph(new GraphStructure({
+const workflow = new Graph(new Graph({
   nodes: [provider, consumer],
   edges: [Edge.results([provider.interface.output()], consumer.interface.input())],
 }));

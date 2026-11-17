@@ -17,7 +17,7 @@ from ._native import (
     compile_declaration,
 )
 from .errors import GraphError
-from .model import GraphObservationMessages, GraphStructure, NodeId, NodePath
+from .model import Graph, GraphObservationMessages, NodeId, NodeKind, NodePath
 from .results import GraphScope
 
 if TYPE_CHECKING:
@@ -153,7 +153,7 @@ class CompiledComposite:
     """
 
     ref: CompiledCompositeRef
-    source_graph: GraphStructure
+    source_graph: Graph
     graph_label: str
     children: tuple[CompiledNodeRef, ...]
     after: tuple[CompiledPrerequisite, ...]
@@ -204,7 +204,7 @@ class GraphCompilation:
     只描述原始子图边界；`roots` 则明确给出根图直接拥有的节点。
     """
 
-    source_graph: GraphStructure
+    source_graph: Graph
     label: str
     steps: tuple[CompiledStep, ...]
     composites: tuple[CompiledComposite, ...]
@@ -611,8 +611,13 @@ def _materialize_execution_graph(
     )
 
 
-def compile_graph(
-    source_graph: GraphStructure,
+def compile_graph(root: NodeKind, *, root_label: str) -> GraphCompilation:
+    """Compile one concrete root, retaining its own condition and boundary."""
+    return _compile_graph_scope(Graph(nodes=(root,)), root_label=root_label)
+
+
+def _compile_graph_scope(
+    source_graph: Graph,
     *,
     root_label: str,
     parent_node_path: NodePath | None = None,
@@ -640,7 +645,7 @@ def compile_graph(
 
 
 def _bind_declaration_compilation(
-    source_graph: GraphStructure,
+    source_graph: Graph,
     native: DeclarationCompilation,
     *,
     external_ancestor_graph_scopes: tuple[GraphScope, ...] = (),
@@ -793,7 +798,7 @@ def _bind_declaration_compilation(
             ordered_nodes.append(compiled_step)
             continue
         component_source_graph = cast(
-            "GraphStructure",
+            "Graph",
             source_graphs[child_graph],
         )
         composite = CompiledComposite(

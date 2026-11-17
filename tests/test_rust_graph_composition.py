@@ -21,7 +21,6 @@ from rivlet import (
     GraphError,
     GraphInterface,
     GraphNodeFailure,
-    GraphStructure,
     NodeExecutionEvent,
     NodeExecutionState,
     NodePath,
@@ -44,14 +43,46 @@ from rivlet.compile import CompiledRustStep
 type Backend = Literal["serial", "thread", "async"]
 
 
+def test_native_compilation_does_not_materialize_declaration_views(
+    tmp_path: Path,
+) -> None:
+    from rivlet.model.native_graph import _NativeContents
+
+    native = processes(tmp_path, [("noop", "pass")], arcs=[], inputs=[], outputs=[])
+    contents = native._contents
+    assert isinstance(contents, _NativeContents)
+    assert (
+        contents._nodes is None
+        and contents._edges is None
+        and contents._interface is None
+    )
+    execution = Execution(native, node_log_paths={native: tmp_path / "native.log"})
+    compilation = execution.compile()
+    assert isinstance(compilation.steps[0], CompiledRustStep)
+    assert (
+        contents._nodes is None
+        and contents._edges is None
+        and contents._interface is None
+    )
+    run_execution(execution, max_concurrency={native: 1})
+    assert (
+        contents._nodes is None
+        and contents._edges is None
+        and contents._interface is None
+    )
+    nodes = native.nodes
+    assert nodes is native.nodes
+    assert isinstance(nodes[0], Step)
+
+
 @pytest.mark.parametrize("backend", ("serial", "thread", "async"))
 def test_native_predicates_execute_in_the_mixed_session(backend: Backend) -> None:
     from rivlet._native import _rust_condition_fixture
 
     structure = _rust_condition_fixture()
-    assert isinstance(structure, GraphStructure)
-    assert structure.describe()["conditions"]
-    execution = Execution(Graph(structure))
+    assert isinstance(structure, Graph)
+    assert export_graph(structure)["conditions"]
+    execution = Execution(structure)
     execute(execution, backend)
 
 
@@ -73,7 +104,7 @@ def processes(
     arcs: list[tuple[int, int]],
     inputs: list[tuple[str, list[int]]],
     outputs: list[tuple[str, int]],
-) -> GraphStructure:
+) -> Graph:
     return _rust_process_graph(
         [
             (name, sys.executable, ["-c", script], str(directory), dict(os.environ))
@@ -108,19 +139,23 @@ def test_nested_shared_rust_graph_has_ports_paths_logs_and_no_python_actions(
         [("start", [(0, "start")])],
         [("done", 1, "done")],
     )
-    inner = Graph(composed, label="rust")
+    inner = Graph(
+        nodes=(composed.nodes),
+        edges=(composed.edges),
+        observation=(composed.observation),
+        static=(composed.static),
+        static_selections=(composed.static_selections),
+        interface=composed.interface.declaration,
+        label=("rust"),
+    )
     forwarded = Graph(
-        GraphStructure(
-            nodes=(inner,),
-            interface=GraphInterface(inputs=inner, outputs=inner),
-        ),
-        label="forwarded",
+        nodes=(inner,),
+        interface=GraphInterface(inputs=inner, outputs=inner),
+        label=("forwarded"),
     )
     prepare = Step(lambda: (tmp_path / "gate").touch(), label="prepare")
     provider = Graph(
-        GraphStructure(
-            nodes=(prepare,), interface=GraphInterface(outputs={"go": prepare})
-        )
+        nodes=(prepare,), interface=GraphInterface(outputs={"go": prepare})
     )
     observed: list[str] = []
     verify = Step(
@@ -128,19 +163,15 @@ def test_nested_shared_rust_graph_has_ports_paths_logs_and_no_python_actions(
         label="verify",
     )
     consumer = Graph(
-        GraphStructure(
-            nodes=(verify,), interface=GraphInterface(inputs={"apply": verify})
-        )
+        nodes=(verify,), interface=GraphInterface(inputs={"apply": verify})
     )
     root = Graph(
-        GraphStructure(
-            nodes=(provider, forwarded, consumer),
-            edges=(
-                Edge(provider, forwarded, ports=("go", "start")),
-                Edge(forwarded, consumer, ports=("done", "apply")),
-            ),
+        nodes=(provider, forwarded, consumer),
+        edges=(
+            Edge(provider, forwarded, ports=("go", "start")),
+            Edge(forwarded, consumer, ports=("done", "apply")),
         ),
-        label="mixed",
+        label=("mixed"),
     )
     events: list[NodeExecutionEvent] = []
 
@@ -203,7 +234,7 @@ def test_native_output_can_feed_python_result_without_inventing_native_values(
         tmp_path, [("done", "pass")], arcs=[], inputs=[], outputs=[("done", 0)]
     )
     inner = _compose_rust_graph([("child", body)], [], [], [("result", 0, "done")])
-    producer = Graph(inner)
+    producer = inner
     seen: list[object] = []
 
     def consume(_ctx, value: Option[object]) -> None:
@@ -212,26 +243,22 @@ def test_native_output_can_feed_python_result_without_inventing_native_values(
     target = Step(consume)
     execution = Execution(
         Graph(
-            GraphStructure(
-                nodes=(producer, target),
-                edges=Edge.results((producer.interface.outputs["result"],), target),
-            )
+            nodes=(producer, target),
+            edges=Edge.results((producer.interface.outputs["result"],), target),
         ),
         execution_state=ExecutionState(results=ResultStore()),
     )
     execute(execution, backend)
     assert seen == [None]
     with pytest.raises(GraphError, match="native action expects 0 result inputs"):
-        receiver = Graph(
-            processes(
-                tmp_path,
-                [("receiver", "pass")],
-                arcs=[],
-                inputs=[("apply", [0])],
-                outputs=[],
-            )
+        receiver = processes(
+            tmp_path,
+            [("receiver", "pass")],
+            arcs=[],
+            inputs=[("apply", [0])],
+            outputs=[],
         )
-        GraphStructure(
+        Graph(
             nodes=(target, receiver),
             edges=Edge.results((target,), receiver.interface.inputs["apply"]),
         )
@@ -262,10 +289,18 @@ def test_native_failure_is_scoped_and_blocks_only_port_dependents(
         [],
         [],
     )
-    native = Graph(body, label="native")
+    native = Graph(
+        nodes=(body.nodes),
+        edges=(body.edges),
+        observation=(body.observation),
+        static=(body.static),
+        static_selections=(body.static_selections),
+        interface=body.interface.declaration,
+        label=("native"),
+    )
     seen: list[str] = []
     independent = Step(lambda: seen.append("independent"))
-    execution = Execution(Graph(GraphStructure(nodes=(native, independent))))
+    execution = Execution(Graph(nodes=(native, independent)))
     with pytest.raises(RuntimeError, match=r"exited with status .*7"):
         execute(execution, backend)
     assert seen == ["independent"]
@@ -288,7 +323,15 @@ def test_outer_python_condition_skips_whole_native_hierarchy(
         outputs=[],
     )
     nested = _compose_rust_graph([("inner", body)], [], [], [])
-    root = Graph(nested, condition=lambda: False)
+    root = Graph(
+        nodes=(nested.nodes),
+        edges=(nested.edges),
+        observation=(nested.observation),
+        static=(nested.static),
+        static_selections=(nested.static_selections),
+        interface=nested.interface.declaration,
+        condition=(lambda: False),
+    )
     execution = Execution(root)
     execute(execution, backend)
     assert not execution.execution_state.node_failures
@@ -313,12 +356,12 @@ def test_native_ports_reject_real_expanded_cycle_and_retain_scope_local_view(
         [("a", body), ("b", body)], [(0, 1, "out", "in"), (1, 0, "out", "in")], [], []
     )
     with pytest.raises(GraphError, match="cycle"):
-        Execution(Graph(cyclic)).compile()
+        Execution(cyclic).compile()
     nested = _compose_rust_graph([("inner", body)], [], [], [])
-    _, _, child_view = nested._declaration.nodes()[0]
-    assert child_view is not None
-    assert child_view.output_path("out") == [0]
-    execution = Execution(Graph(GraphStructure._from_declaration(child_view)))
+    child_view = nested.nodes[0]
+    assert isinstance(child_view, Graph)
+    assert child_view.interface.outputs["out"].graph is child_view
+    execution = Execution(child_view)
     run_execution(execution)
     assert len(execution.compile().steps) == 1
 
@@ -332,18 +375,35 @@ def test_two_python_mounts_share_nested_rust_body_without_sharing_scopes(
         tmp_path, [("task", "pass")], arcs=[], inputs=[], outputs=[("done", 0)]
     )
     shared = _compose_rust_graph([("child", body)], [], [], [("done", 0, "done")])
-    left, right = Graph(shared, label="left"), Graph(shared, label="right")
+    left, right = (
+        Graph(
+            nodes=(shared.nodes),
+            edges=(shared.edges),
+            observation=(shared.observation),
+            static=(shared.static),
+            static_selections=(shared.static_selections),
+            interface=shared.interface.declaration,
+            label=("left"),
+        ),
+        Graph(
+            nodes=(shared.nodes),
+            edges=(shared.edges),
+            observation=(shared.observation),
+            static=(shared.static),
+            static_selections=(shared.static_selections),
+            interface=shared.interface.declaration,
+            label=("right"),
+        ),
+    )
     seen: list[tuple[object, object]] = []
     consume = Step(lambda ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
     execution = Execution(
         Graph(
-            GraphStructure(
-                nodes=(left, right, consume),
-                edges=Edge.results(
-                    (right.interface.outputs["done"], left.interface.outputs["done"]),
-                    consume,
-                ),
-            )
+            nodes=(left, right, consume),
+            edges=Edge.results(
+                (right.interface.outputs["done"], left.interface.outputs["done"]),
+                consume,
+            ),
         ),
         execution_state=ExecutionState(results=ResultStore()),
     )
@@ -372,27 +432,31 @@ def test_native_partial_output_and_later_failure_allow_interleaved_python_work(
         inputs=[("late", [1])],
         outputs=[("ready", 0)],
     )
-    provider = Graph(body, label="provider")
+    provider = Graph(
+        nodes=(body.nodes),
+        edges=(body.edges),
+        observation=(body.observation),
+        static=(body.static),
+        static_selections=(body.static_selections),
+        interface=body.interface.declaration,
+        label=("provider"),
+    )
     seen: list[str] = []
     work = Step(lambda: seen.append("ran-before-late-failure"))
     consumer = Graph(
-        GraphStructure(
-            nodes=(work,),
-            interface=GraphInterface(
-                inputs={"apply": work},
-                outputs={"done": work},
-            ),
-        )
+        nodes=(work,),
+        interface=GraphInterface(
+            inputs={"apply": work},
+            outputs={"done": work},
+        ),
     )
     execution = Execution(
         Graph(
-            GraphStructure(
-                nodes=(provider, consumer),
-                edges=(
-                    Edge(provider, consumer, ports=("ready", "apply")),
-                    Edge(consumer, provider, ports=("done", "late")),
-                ),
-            )
+            nodes=(provider, consumer),
+            edges=(
+                Edge(provider, consumer, ports=("ready", "apply")),
+                Edge(consumer, provider, ports=("done", "late")),
+            ),
         )
     )
     with pytest.raises(RuntimeError, match=r"exited with status .*9"):
@@ -410,32 +474,26 @@ def test_python_conditional_port_can_control_native_consumer(
 ) -> None:
     provider = Step(lambda: None)
     source = Graph(
-        GraphStructure(
-            nodes=(provider,), interface=GraphInterface(outputs={"ready": provider})
-        )
+        nodes=(provider,), interface=GraphInterface(outputs={"ready": provider})
     )
-    native = Graph(
-        processes(
-            tmp_path,
-            [("run", "from pathlib import Path; Path('ran').touch()")],
-            arcs=[],
-            inputs=[("apply", [0])],
-            outputs=[],
-        )
+    native = processes(
+        tmp_path,
+        [("run", "from pathlib import Path; Path('ran').touch()")],
+        arcs=[],
+        inputs=[("apply", [0])],
+        outputs=[],
     )
     execution = Execution(
         Graph(
-            GraphStructure(
-                nodes=(source, native),
-                edges=(
-                    Edge(
-                        source,
-                        native,
-                        ports=("ready", "apply"),
-                        condition=lambda: False,
-                    ),
+            nodes=(source, native),
+            edges=(
+                Edge(
+                    source,
+                    native,
+                    ports=("ready", "apply"),
+                    condition=lambda: False,
                 ),
-            )
+            ),
         )
     )
     execute(execution, backend)

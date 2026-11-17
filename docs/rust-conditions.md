@@ -128,9 +128,5 @@ This change does not add Rust async predicates, static selection, runtime-create
 Rust graphs, cancellation, or observation subscriptions. Pure Rust conditions can
 be consumed by the Rust high-level driver or a custom low-level host.
 
-**The experimental Python mixed adapter dispatches Rust synchronous predicates natively.**
-Node, Graph, completion-edge and port-edge conditions share the core session;
-Python results are converted only when a native reader needs them. Independent
-extensions use the [binding SDK](./python-native.md), with no Python callable per
-native predicate. A predicate error remains a failed condition, not a false decision.
-The Node.js frontend does not yet register Rust-native actions/predicates.
+The Python and Node.js frontends execute their own language predicates; they do
+not register Rust-native actions or predicates.

@@ -6,7 +6,6 @@ import {
   ExecutionError,
   Graph,
   GraphInterface,
-  GraphStructure,
   Nothing,
   Some,
   Step,
@@ -14,7 +13,7 @@ import {
 } from "../lib/index.js";
 
 function graph(nodes, edges = [], options = {}) {
-  return new Graph(new GraphStructure({ nodes, edges }), options);
+  return new Graph({nodes, edges, label: options.label, condition: options.condition});
 }
 
 test("native session preserves arbitrary JS results and awaits promises", async () => {
@@ -106,16 +105,12 @@ test(
     const finish = new Step(() => {
       order.push("finish");
     });
-    const provider = new Graph(
-      new GraphStructure({
-        nodes: [sdk, finish],
+    const provider = new Graph({nodes: [sdk, finish],
         edges: [new Edge(sdk, finish)],
         interface: new GraphInterface({
           outputs: new Map([["sdk", sdk]]),
           inputs: new Map([["finish", finish]]),
-        }),
-      }),
-    );
+        })});
     const prepare = new Step(() => {
       order.push("prepare");
     });
@@ -123,16 +118,12 @@ test(
       order.push("apply");
       return value.unwrap().version * 2;
     });
-    const consumer = new Graph(
-      new GraphStructure({
-        nodes: [prepare, apply],
+    const consumer = new Graph({nodes: [prepare, apply],
         edges: [new Edge(prepare, apply)],
         interface: new GraphInterface({
           inputs: new Map([["sdk", apply]]),
           outputs: new Map([["done", apply]]),
-        }),
-      }),
-    );
+        })});
     const root = graph(
       [provider, consumer],
       [
@@ -159,12 +150,12 @@ test(
 
 test("shared graph structure retains distinct mounted result namespaces", async () => {
   const source = new Step((context) => context.nodePath.join("/"));
-  const structure = new GraphStructure({
+  const structure = new Graph({
     nodes: [source],
     interface: new GraphInterface({ outputs: source }),
   });
-  const left = new Graph(structure);
-  const right = new Graph(structure);
+  const left = new Graph({nodes: structure.nodes, edges: structure.edges, interface: structure.interface.declaration});
+  const right = new Graph({nodes: structure.nodes, edges: structure.edges, interface: structure.interface.declaration});
   const outcome = await run(graph([left, right]));
   assert.equal(outcome.result(left.interface.output()).unwrap(), "0/0");
   assert.equal(outcome.result(right.interface.output()).unwrap(), "1/0");
@@ -173,23 +164,15 @@ test("shared graph structure retains distinct mounted result namespaces", async 
 
 test("forwarded anonymous and named outputs preserve actual endpoint ownership", async () => {
   const source = new Step(() => 42);
-  const inner = new Graph(
-    new GraphStructure({
-      nodes: [source],
-      interface: new GraphInterface({ outputs: source }),
-    }),
-  );
-  const outer = new Graph(
-    new GraphStructure({
-      nodes: [inner],
+  const inner = new Graph({nodes: [source],
+      interface: new GraphInterface({ outputs: source })});
+  const outer = new Graph({nodes: [inner],
       interface: new GraphInterface({
         outputs: new Map([
           [null, inner.interface.output()],
           ["named", inner.interface.output()],
         ]),
-      }),
-    }),
-  );
+      })});
   const outcome = await run(outer);
   assert.equal(outcome.result(outer.interface.output()).unwrap(), 42);
   assert.equal(outcome.result(outer.interface.output("named")).unwrap(), 42);
@@ -199,18 +182,14 @@ test("one public result input can constrain multiple internal steps", async () =
   const source = new Step(() => 21);
   const a = new Step((_context, value) => value.unwrap() * 2);
   const b = new Step((_context, value) => value.unwrap() + 1);
-  const consumer = new Graph(
-    new GraphStructure({
-      nodes: [a, b],
+  const consumer = new Graph({nodes: [a, b],
       interface: new GraphInterface({
         inputs: [a, b],
         outputs: new Map([
           ["a", a],
           ["b", b],
         ]),
-      }),
-    }),
-  );
+      })});
   const outcome = await run(
     graph(
       [source, consumer],
@@ -374,20 +353,12 @@ test("a later subgraph failure does not retract a successful public output", asy
   const broken = new Step(() => {
     throw new Error("tail failed");
   });
-  const provider = new Graph(
-    new GraphStructure({
-      nodes: [source, broken],
+  const provider = new Graph({nodes: [source, broken],
       edges: [new Edge(source, broken)],
-      interface: new GraphInterface({ outputs: source }),
-    }),
-  );
+      interface: new GraphInterface({ outputs: source })});
   const apply = new Step((_context, value) => value.unwrap() * 2);
-  const consumer = new Graph(
-    new GraphStructure({
-      nodes: [apply],
-      interface: new GraphInterface({ inputs: apply, outputs: apply }),
-    }),
-  );
+  const consumer = new Graph({nodes: [apply],
+      interface: new GraphInterface({ inputs: apply, outputs: apply })});
   await assert.rejects(
     run(
       graph(
@@ -447,19 +418,11 @@ test(
     const output = new Step(async () => {
       await release.promise;
     });
-    const provider = new Graph(
-      new GraphStructure({
-        nodes: [output],
-        interface: new GraphInterface({ outputs: output }),
-      }),
-    );
+    const provider = new Graph({nodes: [output],
+        interface: new GraphInterface({ outputs: output })});
     const apply = new Step(() => release.resolve());
-    const consumer = new Graph(
-      new GraphStructure({
-        nodes: [apply],
-        interface: new GraphInterface({ inputs: apply }),
-      }),
-    );
+    const consumer = new Graph({nodes: [apply],
+        interface: new GraphInterface({ inputs: apply })});
     const decision = new Step(() => false);
     await run(
       graph(

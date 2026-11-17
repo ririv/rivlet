@@ -13,8 +13,6 @@
 | 只有普通执行边或就绪端口，没有结果输入，也没有显式结果表 | 默认不启用 |
 | Python action 的结果输入 | 在 session 执行前自动启用 |
 | 节点条件或条件边 predicate 的结果输入 | 在 session 执行前自动启用 |
-| Rust action 需要的 Python 来源值 | 在 session 执行前自动启用 |
-| 只有 Rust → Rust 结果输入 | 原生传递本身不启用 Python ResultStore |
 | 显式传入 `ExecutionState(results=ResultStore())` | 显式启用 |
 
 记录属于执行状态，不属于某个来源或消费者。一旦启用，之后成功返回的 Python
@@ -25,16 +23,13 @@ action 返回子图时，子图会被执行，而不是作为普通载荷保存�
 例如，一条结果边也会使 `unrelated` 的结果被记录：
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphStructure, Step, run
+from rivlet import Edge, Execution, Graph, Step, run
 
 source = Step(lambda: "plan", label="source")
 consumer = Step(lambda _ctx, result: print(result.unwrap()), label="consumer")
 unrelated = Step(lambda: "not consumed", label="unrelated")
 workflow = Graph(
-    GraphStructure(
-        nodes=(source, consumer, unrelated),
-        edges=Edge.results((source,), consumer),
-    )
+    nodes=(source, consumer, unrelated), edges=Edge.results((source,), consumer)
 )
 execution = Execution(workflow)
 run(execution, max_workers=2)
@@ -76,13 +71,11 @@ ResultView 只提供 get/require/has，不提供写入或手工删除。结果�
 
 ## Rust 所有权
 
-Python/Rust 混合 driver 将原生值保存在对应执行 session 中。Python 结果记录启用时，
-保留的 Rust 结果是原生引用，真正被 Python 读取时才转换成 Python 值；纯原生传递
-不要求创建 Python 结果包装。见 [Rust 结果值](./rust-results.md)。
+
 
 纯 Rust 的 `execution::Execution::run()` 使用另一种查询所有者：返回的
 ExecutionOutcome 持有成功的原生值，直到该 outcome 被释放。action 或调用方克隆的
-Arc 引用可能继续延长载荷的生命。两条路径都没有“最后一个消费者完成后立即回收”
+Arc 引用可能继续延长载荷的生命。两种执行方式都没有“最后一个消费者完成后立即回收”
 的机制。见 [Rust 执行](./rust-execution.md)。
 
 ## 后续候选，尚未实现

@@ -23,7 +23,7 @@ from ..events import (
     NodeConditionSite,
     SubgraphFailed,
 )
-from ..model import GraphStructure
+from ..model import Graph
 from ..observe import GraphObservationEvent, GraphObservationPhase
 from ..option import Nothing
 from .control import ExecutionStopped
@@ -127,8 +127,8 @@ class CompiledExecutionHost:
 
     def record_failure(self, node: int, error: Exception) -> None:
         path = "/".join(self.compilation._execution_node(node).path.labels)
-        error.add_note(f"GraphStructure node: {path}")
-        logger.error("GraphStructure node failed: %s: %s", path, error)
+        error.add_note(f"Graph node: {path}")
+        logger.error("Graph node failed: %s: %s", path, error)
         self._failures.append(error)
 
     def failure_step_path(self) -> NodePath:
@@ -149,7 +149,7 @@ class CompiledExecutionHost:
         if len(self._failures) == 1:
             raise self._failures[0]
         if self._failures:
-            raise ExceptionGroup("GraphStructure execution failed", self._failures)
+            raise ExceptionGroup("Graph execution failed", self._failures)
 
     def rust_input_values(
         self, completed: list[tuple[int, bool]]
@@ -399,7 +399,7 @@ def _emit_composite_observation(
     )
     if message is None:
         return
-    if not isinstance(composite.source_graph, GraphStructure):
+    if not isinstance(composite.source_graph, Graph):
         raise GraphError("native graph must not declare Python observation messages")
     observer.emit(
         GraphObservationEvent(

@@ -1,6 +1,6 @@
 """Ordinary Python execution must not depend on the experimental mixed coordinator."""
 
-from rivlet import Execution, Graph, GraphStructure, Step, run
+from rivlet import Execution, Graph, Step, run
 from rivlet._native import (
     HostExecutionSession,
     MixedExecutionSession,
@@ -33,7 +33,7 @@ def test_python_only_session_uses_core_without_mixed_coordination() -> None:
 
 def test_python_dynamic_graph_stays_on_the_core_only_path() -> None:
     seen: list[str] = []
-    child = Graph(GraphStructure(nodes=(Step(lambda: seen.append("child")),)))
+    child = Graph(nodes=(Step(lambda: seen.append("child")),))
     execution = Execution(Step(lambda: child))
     assert isinstance(engine(execution), HostExecutionSession)
     run(execution)
@@ -41,6 +41,6 @@ def test_python_dynamic_graph_stays_on_the_core_only_path() -> None:
 
 
 def test_native_declarations_explicitly_select_experimental_mixed_path() -> None:
-    execution = Execution(Graph(_rust_condition_fixture()))
+    execution = Execution(_rust_condition_fixture())
     assert isinstance(engine(execution), MixedExecutionSession)
     run(execution)

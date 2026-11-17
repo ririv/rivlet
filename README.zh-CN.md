@@ -59,14 +59,13 @@ Step 是执行函数的节点，Graph 是包含子结构的节点。二者都持
 condition，并支持相同的 wire/DSL 操作。Node 只是共同协议，不需要手动包装；
 只有 Graph 有 interface。
 
-GraphStructure 保存可复用结构，不持有节点身份。复用时显式创建两个 Graph：
+Graph 直接承载完整声明。复用内部节点和边时，显式创建两个独立 Graph：
 
 ```python
 from rivlet import run
 
-body = checks.structure
-left = Graph(body, label="left")
-right = Graph(body, label="right")
+left = Graph(nodes=checks.nodes, edges=checks.edges, label="left")
+right = Graph(nodes=checks.nodes, edges=checks.edges, label="right")
 both = (left | right).graph(label="both")
 run(both, max_workers=2)
 ```
@@ -98,9 +97,8 @@ with ThreadPoolExecutor(max_workers=4) as pool:
 
 在 async 函数中使用 `await execution.arun(pool=pool)`。Rivlet 等待本次工作退出，
 但从不关闭借入的池。不隐式设置全图协程额度。需要限制子图在途动作时，可向高阶或
-低阶入口传 `max_concurrency={workflow: 4, checks: 2}`，不需要另建池；Python、协程与
-Rust action 根据真实图的嵌套关系共同计数。进程池和独立
-解释器池不能直接替换这里的共享内存执行模型。详见
+低阶入口传 `max_concurrency={workflow: 4, checks: 2}`，不需要另建池；Python 同步动作和协程
+根据真实图的嵌套关系共同计数。进程池和独立解释器池不能直接替换这里的共享内存执行模型。详见
 [执行资源](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/execution.md#托管与借用执行资源)
 及[子图并发上限](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/execution.md#可选的子图并发上限)。
 
@@ -116,7 +114,7 @@ Graph A、B 还可以双向协作：A 先公开计划，B 准备 SDK，再让 A 
 ![三个子图共九个步骤：A1 向 B1 提供计划，B2 向 A2 提供 SDK，A3 就绪后 C2 执行；C1 可独立准备，A2 不等 B3，C2 不等 A4](https://raw.githubusercontent.com/ririv/rivlet/main/docs/assets/subgraph-ports.svg)
 
 ```python
-from rivlet import Edge, Graph, GraphInterface, GraphStructure, Step, run
+from rivlet import Edge, Graph, GraphInterface, Step, run
 
 plan_ready = "plan-ready"
 sdk_ready = "sdk-ready"
@@ -153,15 +151,13 @@ consumer = (prepare_environment >> consume).graph(
 )
 
 pipeline = Graph(
-    GraphStructure(
-        nodes=(sdk, app, consumer),
-        edges=(
-            Edge(app, sdk, ports=plan_ready),
-            Edge(sdk, app, ports=sdk_ready),
-            Edge(app, consumer, ports=install_ready),
-        ),
+    nodes=(sdk, app, consumer),
+    edges=(
+        Edge(app, sdk, ports=plan_ready),
+        Edge(sdk, app, ports=sdk_ready),
+        Edge(app, consumer, ports=install_ready),
     ),
-    label="pipeline",
+    label=("pipeline"),
 )
 run(pipeline, max_workers=3)
 ```
@@ -351,7 +347,7 @@ run(graph)
 action 则得到 `Some(None)`。来源可能被跳过时，先用 `is_some()` 或 `is_none()` 判断，
 再解包。条件函数抛错会阻断相关任务，不会被当成条件为假。
 
-对子图，将同样的条件传入 `Graph(structure, condition=...)`。
+对子图，将同样的条件传入 `Graph(nodes=..., edges=..., condition=...)`。
 
 运行时谓词也可以返回 `Awaitable[bool]`，声明方式不变，与协程动作共用本次执行的
 事件循环；同步判断不创建循环。详见[可等待谓词](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/conditional_steps.md#可等待谓词)。
@@ -415,17 +411,12 @@ schema、历史冻结及静态／动态范围见[结构导出](https://github.co
 让 JS 动作直接接入同一 Rust 编译器与调度器，不经过 Python；尚未发布 npm，
 支持范围见独立文档。
 
-Python/Rust 混合执行、独立扩展 SDK 与 ABI 桥接
-[整体作为实验性功能](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/mixed-execution.md)，
-可能调整或移除；普通 Python 工作流不依赖它们。
-
 ## 更多用法
 
 - [结果输入与动作上下文](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/core_model.md#结果与运行上下文)
 - [条件步骤](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/conditional_steps.md)与[条件边](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/conditional_edges.md)
 - [异步执行、取消与失败传播](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/execution.md)
 - [强类型失败事件](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/failure_events.md)
-- [在 Python 工作流中组合独立 Rust 扩展（实验性 SDK）](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/python-native.md)
 - [完整文档](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/index.md)
 
 参与开发请参阅[本地开发与检查](https://github.com/ririv/rivlet/blob/main/docs/zh-CN/development.md)、

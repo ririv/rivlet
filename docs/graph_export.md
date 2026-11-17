@@ -22,7 +22,15 @@ graph = static.select(
     )
 ).graph()
 
-root = Graph(structure=(graph).structure, label=("choose"))
+root = Graph(
+    nodes=(graph.nodes),
+    edges=(graph.edges),
+    observation=(graph.observation),
+    static=(graph.static),
+    static_selections=(graph.static_selections),
+    interface=graph.interface.declaration,
+    label=("choose"),
+)
 declared = export_graph(root)  # no selection or static evaluator is run
 execution = Execution(root)
 prepared = execution.compile()  # static evaluation happens here, once
@@ -152,7 +160,6 @@ rather than interpreting the old document as the new format.
 Events and execution snapshots remain separate. Join them with the exact frozen
 node ID; do not import arbitrary return values, shared objects, exception messages,
 log paths, command lines, environments, or function objects into this document.
-Rust-native subgraphs expose declaration identities, labels and topology, never their process details.
 
 Each Execution binds its declaration and host references immutably. Its first
 successful `compile()`/`run()`/`arun()` fixes the root compilation; subsequent calls

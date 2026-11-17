@@ -2,8 +2,7 @@ use std::sync::{Arc, Mutex};
 
 use action::{Action, ActionContext, ActionError, ActionHandle};
 use graph::{
-    Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, PortName, ProjectedKind,
-    Step,
+    Compilation, Edge, Graph, GraphError, GraphInterface, Node, PortName, ProjectedKind, Step,
 };
 use rivlet::{ExecutionSession, ExecutionUpdate, NodeState, SessionStatus};
 
@@ -76,17 +75,36 @@ fn run(compilation: &Compilation) -> (SessionStatus, ExecutionSession) {
 fn nested_shared_structure_preserves_identity_paths_and_real_composites() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let task = step("task", &events);
-    let body = Arc::new(GraphStructure::new([task.clone().into()], []).unwrap());
-    let left = Graph::new("left", Arc::clone(&body)).unwrap();
-    let right = Graph::new("right", Arc::clone(&body)).unwrap();
+    let body = Arc::new(Graph::new("scope", [task.clone().into()], []).unwrap());
+    let left = Graph::with_interface(
+        "left",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+    )
+    .unwrap();
+    let right = Graph::with_interface(
+        "right",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+    )
+    .unwrap();
     assert_ne!(left.id(), right.id());
-    assert!(Arc::ptr_eq(left.structure(), right.structure()));
-    let structure = GraphStructure::new(
+    assert_eq!(left.nodes()[0].id(), right.nodes()[0].id());
+    let structure = Graph::new(
+        "scope",
         [left.clone().into(), right.clone().into()],
         [Edge::new(&left, &right)],
     )
     .unwrap();
-    let root = Graph::new("root", Arc::new(structure)).unwrap();
+    let root = Graph::with_interface(
+        "root",
+        structure.nodes().iter().cloned(),
+        structure.edges().iter().cloned(),
+        structure.interface().declaration().clone(),
+    )
+    .unwrap();
     let compilation = root.compile().unwrap();
     let nodes = compilation.projection().nodes();
     assert_eq!(nodes.len(), 5);
@@ -105,44 +123,35 @@ fn anonymous_and_named_ports_coexist_without_name_inference() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let ready = step("ready", &events);
     let report = step("report", &events);
-    let producer = Graph::new(
+    let producer = Graph::with_interface(
         "producer",
-        Arc::new(
-            GraphStructure::with_interface(
-                [ready.clone().into(), report.clone().into()],
-                [Edge::new(&ready, &report)],
-                GraphInterface::default()
-                    .output(PortName::Anonymous, &ready)
-                    .unwrap()
-                    .output("default", &report)
-                    .unwrap(),
-            )
+        [ready.clone().into(), report.clone().into()],
+        [Edge::new(&ready, &report)],
+        GraphInterface::default()
+            .output(PortName::Anonymous, &ready)
+            .unwrap()
+            .output("default", &report)
             .unwrap(),
-        ),
     )
     .unwrap();
     let first = step("first", &events);
     let second = step("second", &events);
-    let consumer = Graph::new(
+    let consumer = Graph::with_interface(
         "consumer",
-        Arc::new(
-            GraphStructure::with_interface(
-                [first.clone().into(), second.clone().into()],
-                [],
-                GraphInterface::default()
-                    .input(PortName::Anonymous, [&first, &second])
-                    .unwrap()
-                    .input("named", [&first])
-                    .unwrap(),
-            )
+        [first.clone().into(), second.clone().into()],
+        [],
+        GraphInterface::default()
+            .input(PortName::Anonymous, [&first, &second])
+            .unwrap()
+            .input("named", [&first])
             .unwrap(),
-        ),
     )
     .unwrap();
     let anonymous = producer.interface().output(PortName::Anonymous).unwrap();
     assert_eq!(anonymous.name(), &PortName::Anonymous);
     assert_ne!(anonymous, producer.interface().output("default").unwrap());
-    let root = GraphStructure::new(
+    let root = Graph::new(
+        "scope",
         [producer.into(), consumer.clone().into()],
         [Edge::ports(
             anonymous,
@@ -150,7 +159,7 @@ fn anonymous_and_named_ports_coexist_without_name_inference() {
         )],
     )
     .unwrap()
-    .compile_structure()
+    .compile()
     .unwrap();
     assert_eq!(root.projection().port_connections().len(), 2);
     assert_eq!(run(&root).0, SessionStatus::Finished);
@@ -158,16 +167,11 @@ fn anonymous_and_named_ports_coexist_without_name_inference() {
     assert_eq!(events.len(), 4);
     assert_eq!(events[0], "ready");
 
-    let named_only = Graph::new(
+    let named_only = Graph::with_interface(
         "named-only",
-        Arc::new(
-            GraphStructure::with_interface(
-                [first.clone().into()],
-                [],
-                GraphInterface::default().output("default", &first).unwrap(),
-            )
-            .unwrap(),
-        ),
+        [first.clone().into()],
+        [],
+        GraphInterface::default().output("default", &first).unwrap(),
     )
     .unwrap();
     assert!(matches!(
@@ -189,7 +193,8 @@ fn forwarded_ports_allow_interleaving_without_false_component_cycle() {
     let start = step("start", &events);
     let finish = step("finish", &events);
     let first_body = Arc::new(
-        GraphStructure::with_interface(
+        Graph::with_interface(
+            "scope",
             [start.clone().into(), finish.clone().into()],
             [],
             GraphInterface::default()
@@ -200,9 +205,16 @@ fn forwarded_ports_allow_interleaving_without_false_component_cycle() {
         )
         .unwrap(),
     );
-    let first = Graph::new("first", first_body).unwrap();
+    let first = Graph::with_interface(
+        "first",
+        first_body.nodes().iter().cloned(),
+        first_body.edges().iter().cloned(),
+        first_body.interface().declaration().clone(),
+    )
+    .unwrap();
     let wrapper_body = Arc::new(
-        GraphStructure::with_interface(
+        Graph::with_interface(
+            "scope",
             [first.clone().into()],
             [],
             GraphInterface::default()
@@ -213,25 +225,27 @@ fn forwarded_ports_allow_interleaving_without_false_component_cycle() {
         )
         .unwrap(),
     );
-    let wrapper = Graph::new("wrapper", wrapper_body).unwrap();
-    let middle = step("middle", &events);
-    let second = Graph::new(
-        "second",
-        Arc::new(
-            GraphStructure::with_interface(
-                [middle.clone().into()],
-                [],
-                GraphInterface::default()
-                    .input("start", [&middle])
-                    .unwrap()
-                    .output("done", &middle)
-                    .unwrap(),
-            )
-            .unwrap(),
-        ),
+    let wrapper = Graph::with_interface(
+        "wrapper",
+        wrapper_body.nodes().iter().cloned(),
+        wrapper_body.edges().iter().cloned(),
+        wrapper_body.interface().declaration().clone(),
     )
     .unwrap();
-    let structure = GraphStructure::new(
+    let middle = step("middle", &events);
+    let second = Graph::with_interface(
+        "second",
+        [middle.clone().into()],
+        [],
+        GraphInterface::default()
+            .input("start", [&middle])
+            .unwrap()
+            .output("done", &middle)
+            .unwrap(),
+    )
+    .unwrap();
+    let structure = Graph::new(
+        "scope",
         [wrapper.clone().into(), second.clone().into()],
         [
             Edge::ports(
@@ -246,7 +260,7 @@ fn forwarded_ports_allow_interleaving_without_false_component_cycle() {
     )
     .unwrap();
     assert_eq!(
-        run(&structure.compile_structure().unwrap()).0,
+        run(&structure.compile().unwrap()).0,
         SessionStatus::Finished
     );
     assert_eq!(*events.lock().unwrap(), ["start", "middle", "finish"]);
@@ -256,35 +270,26 @@ fn forwarded_ports_allow_interleaving_without_false_component_cycle() {
 fn failed_output_blocks_only_its_consumers_and_not_independent_work() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let fail = step_with_outcome("failed", &events, Err(ActionError::new("failure")));
-    let provider = Graph::new(
+    let provider = Graph::with_interface(
         "provider",
-        Arc::new(
-            GraphStructure::with_interface(
-                [fail.clone().into()],
-                [],
-                GraphInterface::default().output("ready", &fail).unwrap(),
-            )
-            .unwrap(),
-        ),
+        [fail.clone().into()],
+        [],
+        GraphInterface::default().output("ready", &fail).unwrap(),
     )
     .unwrap();
     let blocked = step("blocked", &events);
-    let consumer = Graph::new(
+    let consumer = Graph::with_interface(
         "consumer",
-        Arc::new(
-            GraphStructure::with_interface(
-                [blocked.clone().into()],
-                [],
-                GraphInterface::default()
-                    .input("apply", [&blocked])
-                    .unwrap(),
-            )
+        [blocked.clone().into()],
+        [],
+        GraphInterface::default()
+            .input("apply", [&blocked])
             .unwrap(),
-        ),
     )
     .unwrap();
     let independent = step("independent", &events);
-    let structure = GraphStructure::new(
+    let structure = Graph::new(
+        "scope",
         [
             provider.clone().into(),
             consumer.clone().into(),
@@ -296,7 +301,7 @@ fn failed_output_blocks_only_its_consumers_and_not_independent_work() {
         )],
     )
     .unwrap();
-    let compilation = structure.compile_structure().unwrap();
+    let compilation = structure.compile().unwrap();
     let (status, session) = run(&compilation);
     assert_eq!(status, SessionStatus::Failed);
     let mut actual = events.lock().unwrap().clone();
@@ -322,39 +327,30 @@ fn port_fanout_does_not_wait_for_unrelated_provider_completion() {
     let later_fail = step_with_outcome("later-fail", &events, Err(ActionError::new("late")));
     let first = step("first", &events);
     let second = step("second", &events);
-    let consumer = Graph::new(
+    let consumer = Graph::with_interface(
         "consumer",
-        Arc::new(
-            GraphStructure::with_interface(
-                [first.clone().into(), second.clone().into()],
-                [],
-                GraphInterface::default()
-                    .input("apply", [&first, &second])
-                    .unwrap()
-                    .output("done", &second)
-                    .unwrap(),
-            )
+        [first.clone().into(), second.clone().into()],
+        [],
+        GraphInterface::default()
+            .input("apply", [&first, &second])
+            .unwrap()
+            .output("done", &second)
             .unwrap(),
-        ),
     )
     .unwrap();
-    let provider = Graph::new(
+    let provider = Graph::with_interface(
         "provider",
-        Arc::new(
-            GraphStructure::with_interface(
-                [ready.clone().into(), later_fail.clone().into()],
-                [],
-                GraphInterface::default()
-                    .input("late", [&later_fail])
-                    .unwrap()
-                    .output("ready", &ready)
-                    .unwrap(),
-            )
+        [ready.clone().into(), later_fail.clone().into()],
+        [],
+        GraphInterface::default()
+            .input("late", [&later_fail])
+            .unwrap()
+            .output("ready", &ready)
             .unwrap(),
-        ),
     )
     .unwrap();
-    let structure = GraphStructure::new(
+    let structure = Graph::new(
+        "scope",
         [provider.clone().into(), consumer.clone().into()],
         [
             Edge::ports(
@@ -368,10 +364,7 @@ fn port_fanout_does_not_wait_for_unrelated_provider_completion() {
         ],
     )
     .unwrap();
-    assert_eq!(
-        run(&structure.compile_structure().unwrap()).0,
-        SessionStatus::Failed
-    );
+    assert_eq!(run(&structure.compile().unwrap()).0, SessionStatus::Failed);
     assert_eq!(
         *events.lock().unwrap(),
         ["ready", "first", "second", "later-fail"]
@@ -383,7 +376,8 @@ fn resolved_port_cycle_is_rejected_by_the_common_compiler() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let task = step("task", &events);
     let body = Arc::new(
-        GraphStructure::with_interface(
+        Graph::with_interface(
+            "scope",
             [task.clone().into()],
             [],
             GraphInterface::default()
@@ -394,9 +388,22 @@ fn resolved_port_cycle_is_rejected_by_the_common_compiler() {
         )
         .unwrap(),
     );
-    let a = Graph::new("a", Arc::clone(&body)).unwrap();
-    let b = Graph::new("b", body).unwrap();
-    let structure = GraphStructure::new(
+    let a = Graph::with_interface(
+        "a",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+    )
+    .unwrap();
+    let b = Graph::with_interface(
+        "b",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+    )
+    .unwrap();
+    let structure = Graph::new(
+        "scope",
         [a.clone().into(), b.clone().into()],
         [
             Edge::ports(
@@ -411,7 +418,7 @@ fn resolved_port_cycle_is_rejected_by_the_common_compiler() {
     )
     .unwrap();
     assert!(matches!(
-        structure.compile_structure(),
+        structure.compile(),
         Err(GraphError::Declaration(_))
     ));
     assert!(events.lock().unwrap().is_empty());
@@ -419,10 +426,10 @@ fn resolved_port_cycle_is_rejected_by_the_common_compiler() {
 
 #[test]
 fn empty_graph_and_clone_membership_have_explicit_semantics() {
-    let graph = Graph::new("empty", Arc::new(GraphStructure::new([], []).unwrap())).unwrap();
+    let graph = Graph::new("empty", [], []).unwrap();
     assert_eq!(run(&graph.compile().unwrap()).0, SessionStatus::Finished);
     assert!(matches!(
-        GraphStructure::new([graph.clone().into(), graph.clone().into()], []),
+        Graph::new("scope", [graph.clone().into(), graph.clone().into()], []),
         Err(GraphError::DuplicateNode(_))
     ));
     assert!(matches!(

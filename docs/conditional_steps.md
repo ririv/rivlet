@@ -6,7 +6,7 @@ English | [简体中文](./zh-CN/conditional_steps.md)
 
 Conditional edges control whether a dependency applies. `Node.condition` controls
 whether the Node itself participates. It works for Python leaves, Python Graph
-composites, including Graph nodes containing native bodies.
+composites, and Graph nodes.
 
 ## Declaration
 
@@ -48,7 +48,7 @@ coroutine, or a custom awaitable. No async-only condition wrapper is needed:
 ```python
 import asyncio
 
-from rivlet import Graph, GraphStructure, Option, Step, arun
+from rivlet import Graph, Option, Step, arun
 
 
 async def approved(result: Option[object]) -> bool:
@@ -59,7 +59,7 @@ async def approved(result: Option[object]) -> bool:
 async def main() -> None:
     probe = Step(lambda: True)
     publish = Step(lambda: print("publish"), condition=(approved, probe))
-    await arun(Graph(GraphStructure(nodes=(probe, publish))), max_workers=1)
+    await arun(Graph(nodes=(probe, publish)), max_workers=1)
 
 
 asyncio.run(main())
@@ -100,7 +100,16 @@ Static rules belong to StaticConditions, not Node.condition:
 static = StaticConditions(evaluator=evaluate_target_condition)
 graph = (prepare >> static.when(is_android, android) >> build).graph()
 child_graph = static.when(
-    is_android, Graph(structure=(android_graph).structure, label=("android"))
+    is_android,
+    Graph(
+        nodes=(android_graph.nodes),
+        edges=(android_graph.edges),
+        observation=(android_graph.observation),
+        static=(android_graph.static),
+        static_selections=(android_graph.static_selections),
+        interface=android_graph.interface.declaration,
+        label=("android"),
+    ),
 ).graph()
 ```
 
@@ -113,24 +122,18 @@ Without the DSL:
 
 ```python
 graph = Graph(
-    structure=GraphStructure(
-        nodes=((android, checks, build)),
-        edges=(
-            (
-                Edge(source=android, target=build),
-                Edge(source=checks, target=build),
-            )
-        ),
-        static=(
-            StaticConditions(
-                evaluator=evaluate_target_condition,
-                conditions={
-                    android: is_android,
-                    (checks, build): wait_for_checks,
-                },
-            )
-        ),
-    )
+    nodes=(android, checks, build),
+    edges=(
+        Edge(source=android, target=build),
+        Edge(source=checks, target=build),
+    ),
+    static=StaticConditions(
+        evaluator=evaluate_target_condition,
+        conditions={
+            android: is_android,
+            (checks, build): wait_for_checks,
+        },
+    ),
 )
 ```
 

@@ -10,6 +10,7 @@ mod types;
 
 pub use abi::{ABI_NAME, ABI_VERSION, ExportedGraph, ImportedGraph};
 pub use snapshot::{
-    ConditionInfo, EdgeInfo, NodeInfo, NodeKind, PrerequisiteInfo, ScopeInfo, Site, Snapshot,
+    ConditionInfo, EdgeInfo, EndpointInfo, InterfaceInfo, NodeInfo, NodeKind, PrerequisiteInfo,
+    ScopeInfo, Site, Snapshot,
 };
 pub use types::{Type, value_type};

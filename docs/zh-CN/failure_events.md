@@ -3,7 +3,7 @@
 [English](../failure_events.md) | 简体中文
 
 Rivlet 记录让节点实际失败或被阻断的直接原因，不在运行结束后遍历声明图猜原因。
-Python 动作、原生动作、端口边、静态子图和动作返回的动态子图使用同一套模型。
+Python 动作、端口边、静态子图和动作返回的动态子图使用同一套模型。
 
 ## 事件模型
 
@@ -18,7 +18,7 @@ Python 动作、原生动作、端口边、静态子图和动作返回的动态�
 | `NodeExecutionState.STARTED` | STARTED | 节点已开始 |
 | `NodeExecutionState.COMPLETED` | COMPLETED | 节点已完成 |
 | `NodeExecutionState.SKIPPED` | SKIPPED | 节点被跳过 |
-| `ActionFailed()` | FAILED | 当前节点的 Python 或原生动作失败 |
+| `ActionFailed()` | FAILED | 当前节点的 Python 动作失败 |
 | `SubgraphFailed(source)` | FAILED | 一个实际子节点失败或被阻断 |
 | `BlockedByDependency(source)` | BLOCKED | 实际需要的前置节点失败或被阻断 |
 | `BlockedByCondition(condition)` | BLOCKED | 运行时条件求值抛错 |
@@ -64,7 +64,7 @@ class Events:
                 print(event.node_path, event.state)
 
 
-run(Execution(Graph(structure=(graph).structure), events=Events()))
+run(Execution(graph, events=Events()))
 ```
 
 ## 直接原因

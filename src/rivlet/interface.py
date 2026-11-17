@@ -126,28 +126,16 @@ class _Inputs(Mapping[PortName, InputPort]):
         self._graph = graph
 
     def __getitem__(self, key: PortName) -> InputPort:
-        from ._native import _NativeStructure
-
-        body = self._graph.structure._declaration
-        exists = (
-            body.has_input_port(key)
-            if isinstance(body, _NativeStructure)
-            else key in body.interface.inputs
-        )
+        body = self._graph
+        exists = key in body._interface.inputs
         if not exists:
             raise KeyError(key)
         return InputPort(self._graph, key)
 
     @property
-    def _names(self) -> Mapping[PortName, tuple[InputEndpoint, ...]] | list[PortName]:
-        from ._native import _NativeStructure
-
-        body = self._graph.structure._declaration
-        return (
-            body.input_ports()
-            if isinstance(body, _NativeStructure)
-            else body.interface.inputs
-        )
+    def _names(self) -> Mapping[PortName, tuple[InputEndpoint, ...]]:
+        body = self._graph
+        return body._interface.inputs
 
     def __len__(self) -> int:
         return len(self._names)
@@ -161,28 +149,16 @@ class _Outputs(Mapping[PortName, OutputPort]):
         self._graph = graph
 
     def __getitem__(self, key: PortName) -> OutputPort:
-        from ._native import _NativeStructure
-
-        body = self._graph.structure._declaration
-        exists = (
-            body.has_output_port(key)
-            if isinstance(body, _NativeStructure)
-            else key in body.interface.outputs
-        )
+        body = self._graph
+        exists = key in body._interface.outputs
         if not exists:
             raise KeyError(key)
         return OutputPort(self._graph, key)
 
     @property
-    def _names(self) -> Mapping[PortName, OutputEndpoint] | list[PortName]:
-        from ._native import _NativeStructure
-
-        body = self._graph.structure._declaration
-        return (
-            body.output_ports()
-            if isinstance(body, _NativeStructure)
-            else body.interface.outputs
-        )
+    def _names(self) -> Mapping[PortName, OutputEndpoint]:
+        body = self._graph
+        return body._interface.outputs
 
     def __len__(self) -> int:
         return len(self._names)
@@ -196,6 +172,11 @@ class GraphInterfaceView:
     """Expose ports with their owning graph identity, without a separate bind API."""
 
     graph: Graph
+
+    @property
+    def declaration(self) -> GraphInterface:
+        """Return the reusable interface definition, without binding new ports."""
+        return self.graph._interface
 
     @property
     def inputs(self) -> Mapping[PortName, InputPort]:
@@ -217,11 +198,7 @@ class GraphInterfaceView:
 
 
 def _declared_interface(graph: Graph) -> GraphInterface:
-    from .model.python_structure import _PythonStructure
-
-    if not isinstance(graph.structure._declaration, _PythonStructure):
-        raise GraphError("opaque Rust interfaces do not expose Python node objects")
-    return graph.structure._declaration.interface
+    return graph._interface
 
 
 @dataclass(frozen=True, slots=True)

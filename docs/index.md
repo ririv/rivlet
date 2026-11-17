@@ -21,7 +21,7 @@ and Rust declaration APIs.
 
 ## Design goals
 
-Step and Graph are actual nodes; GraphStructure holds reusable structure.
+Step and Graph are actual nodes; Graph holds reusable structure.
 Execution owns one run. Declarations reference actual nodes. Internal `NodePath` values are assigned to mounted
 nodes, while labels serve presentation only.
 
@@ -32,19 +32,16 @@ domain workflows are connected explicitly, not read from implicit global facilit
 
 ## Documentation
 
-- [Experimental mixed execution, SDK and removal boundaries](./mixed-execution.md)
-
 - [Core model](./core_model.md)
 - [Versioned structural graph export](./graph_export.md)
 - [Static selection during compilation](./static_selection.md)
 - [Topology complexity and implementation costs](./topology_complexity.md)
 - [Execution semantics](./execution.md)
-- [Python graphs and Rust-native graphs](./rust-graphs.md)
-- [Independent Rust extensions in Python workflows](./python-native.md)
+- [Rust graph declarations](./rust-graphs.md)
 - [Running Rust graphs](./rust-execution.md)
 - [Rust runtime predicates](./rust-conditions.md)
 - [Experimental Node.js API](./node-api.md)
-- [Typed native result values and language conversions](./rust-results.md)
+- [Typed Rust result values](./rust-results.md)
 - [Result recording, lifetime and future retention candidates](./result_lifetime.md)
 - [Conditional edges](./conditional_edges.md)
 - [Conditional steps](./conditional_steps.md)
@@ -68,7 +65,7 @@ performance guarantee for the latest release.
 | `Graph` | Composite node with identity, lifecycle, and a reusable body |
 | `Execution` | A declaration and one execution scope |
 | `Node` / `NodeKind` | Shared Step/Graph protocol / closed executable union |
-| `GraphStructure.edges` | Explicit wiring within a reusable structure |
+| `Graph.edges` | Explicit wiring within a reusable structure |
 | `Node.wire(after=(Results(...),))` / `Edge.results(...)` | Ordered action results; conditions declare their own sources |
 | `NodeWiring` / `GraphWiring` | Declaration-time composition |
 | `GraphCompilation` | Runtime execution structure and composite boundaries |
@@ -102,3 +99,9 @@ English is the default. Chinese pages live in [zh-CN/](./zh-CN/index.md), with t
 same filenames and a language link on each page. Update both versions when
 changing API semantics, examples, or limitations. Historical benchmark samples
 remain tied to their recorded dates and workloads.
+
+## Experimental branch
+
+Python/Rust mixed execution is isolated on `codex/experimental-mixed-execution`, not main.
+See [status and removal boundaries](./mixed-execution.md), [the extension SDK](./python-native.md),
+and [driver boundaries](./design/mixed-driver-boundary.md).

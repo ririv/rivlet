@@ -16,7 +16,7 @@ The SDK has one export entry: `rivlet_python::export_node(py, node)`. It accepts
 Rust Step or Graph and returns the corresponding ordinary Python `rivlet.Step` or
 `rivlet.Graph`, with root label, condition and declaration identity retained in
 the host's identity space. Actions and predicates remain Rust-owned. There is no
-public RustNode, RustGraphStructure, NativeAction wrapper or separate structure
+public RustNode or NativeAction wrapper or separate structure
 export entry. Imported steps join the native driver, not Python callable execution.
 
 An extension may register the resulting object as a module attribute:
@@ -30,30 +30,54 @@ Python directly uses `demo_native.double` or `demo_native.pipeline`. A factory i
 only needed when the extension wants fresh declarations or constructor arguments;
 it is not required by the SDK. A Step has no graph interface or structure.
 
-To reuse a Graph body, use its existing `.structure`:
+To reuse the declaration, explicitly take the Graph's own members:
 
 ```python
-left = Graph(pipeline.structure, label="left")
-right = Graph(pipeline.structure, label="right")
+left = Graph(
+    nodes=pipeline.nodes,
+    edges=pipeline.edges,
+    interface=pipeline.interface.declaration,
+    label="left",
+)
+right = Graph(
+    nodes=pipeline.nodes,
+    edges=pipeline.edges,
+    interface=pipeline.interface.declaration,
+    label="right",
+)
 ```
 
-These are distinct declarations sharing one body, not copies of the exported root
-identity, label or condition. Declare any new root condition explicitly.
-To deliberately retain an imported root predicate on a new node, use the existing
-`condition=native.condition.as_input()` when the condition is present. Its predicate
-stays Rust-owned; it is not wrapped in a Python callable. Exported node declarations
-must not reference undeclared sibling nodes; export their enclosing Graph instead.
+These are distinct Graph declarations sharing internal node references. Root identity,
+label and condition are not inherited. An ordinary Python declaration with static
+rules must also explicitly reuse its `static` and `static_selections` when wanted.
 
-`pipeline.structure.describe()` returns a detached declaration document using the existing
-[structural export schema](./graph_export.md). `structure.nodes` and
-`structure.edges` return tuples of node/edge descriptions, including nested
-declarations, not language-specific executable objects. Inspection neither compiles
-nor evaluates static rules; modifying a returned dictionary does not modify the
-declaration. Use one `describe()` call when inspecting multiple fields.
+`pipeline.nodes` is a tuple of actual direct-child Step/Graph objects;
+`pipeline.edges` is a tuple of actual local Edge objects. Edge endpoints, condition
+sources and interface declarations reference the same cached objects. They are not
+description dictionaries and can be wired or recomposed normally. Accessing a child
+Graph's members inspects that child scope, not a flattened execution graph.
 
-Pass `interface=` when declaring a Python body; obtain mounted endpoint references
-from `graph.interface`. An opaque native body exposes only its declared interface
-for external wiring. Python cannot extract its Rust callable objects.
+Native views are created lazily. Compiling or running an uninspected native Graph
+uses the batch-import path without materializing its Python nodes/edges. Explicit
+inspection and copying materialize the requested declarations; it is not free.
+Neither path calls actions or evaluates runtime predicates while inspecting.
+
+Use `export_graph(pipeline)` for a detached document in the existing
+[structural export schema](./graph_export.md). There is no separate `describe()`
+entry and no public GraphStructure layer. Modifying the exported document does not
+change the executable declaration.
+
+To deliberately retain an imported root predicate on a new node, use
+`condition=native.condition.as_input()` when present. Rust predicates remain
+Rust-owned, and their declared sources remain explicit references. A copied internal
+node still requires its referenced peers to be declared in the new scope. Exported
+roots may not reference undeclared siblings: export their enclosing Graph instead.
+
+Python Graph constructors accept `interface=`; `graph.interface` returns bound
+ports, while `graph.interface.declaration` supplies the reusable definition.
+An inspected native Step carries a private native action handle, not a Python
+callable. It can be wired and executed through the mixed session, not invoked as
+a Python function.
 
 ## Run the real example
 
@@ -80,7 +104,7 @@ The complete Python composition is:
 
 ```python
 from demo_native import pipeline
-from rivlet import Edge, Graph, GraphStructure, NodeRunContext, Option, Step, run
+from rivlet import Edge, Graph, NodeRunContext, Option, Step, run
 
 def show(_ctx: NodeRunContext, value: Option[int]) -> None:
     print("Python received:", value.unwrap())
@@ -89,12 +113,10 @@ prepare = Step(lambda: 21, label="prepare")
 native = pipeline
 display = Step(show, label="display")
 workflow = Graph(
-    GraphStructure(
-        nodes=(prepare, native, display),
-        edges=(
-            *Edge.results((prepare,), native.interface.input),
-            *Edge.results((native.interface.output,), display),
-        ),
+    nodes=(prepare, native, display),
+    edges=(
+        *Edge.results((prepare,), native.interface.input),
+        *Edge.results((native.interface.output,), display),
     ),
     label="mixed",
 )
@@ -109,7 +131,7 @@ thread pools, conditional completion/port edges and repeated mounts.
 The extension's [type stub](../examples/python-native/demo_native.pyi) declares
 `pipeline: Graph`, `double: Step`, and `def make_graph() -> Graph`.
 PyO3 returns a Python object handle,
-not a Rust GraphStructure layout shared with the host binary.
+not a Rust Graph memory layout shared with the host binary.
 
 ## Ownership and ABI
 
@@ -130,6 +152,11 @@ Each origin library owns its graph/value allocation and its release callback.
 Graph handles and retained results keep an origin lease until their last reader
 finishes. The bridge assumes the same process/architecture and a live Python
 extension library; it is neither an IPC protocol nor an explicit library-unload API.
+
+
+The current experimental descriptor uses ABI v3: original declaration endpoints and
+lowered scheduling indexes are separate fields. ABI v2 extensions must be rebuilt
+against the matching SDK; mismatches are rejected, never inferred or downgraded.
 
 ## Values and conditions
 

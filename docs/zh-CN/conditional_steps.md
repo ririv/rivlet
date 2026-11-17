@@ -5,7 +5,7 @@
 ## 用途
 
 条件边决定依赖是否成立；Node.condition 决定节点自身是否参与执行。
-它适用于 Python 动作节点和 Graph 子图，也包括持有原生结构的 Graph。
+它适用于 Python 动作节点和 Graph 子图。
 
 ## 声明
 
@@ -46,7 +46,7 @@ graph = Graph.from_wiring(
 ```python
 import asyncio
 
-from rivlet import Graph, GraphStructure, Option, Step, arun
+from rivlet import Graph, Option, Step, arun
 
 
 async def approved(result: Option[object]) -> bool:
@@ -57,7 +57,7 @@ async def approved(result: Option[object]) -> bool:
 async def main() -> None:
     probe = Step(lambda: True)
     publish = Step(lambda: print("publish"), condition=(approved, probe))
-    await arun(Graph(GraphStructure(nodes=(probe, publish))), max_workers=1)
+    await arun(Graph(nodes=(probe, publish)), max_workers=1)
 
 
 asyncio.run(main())
@@ -100,35 +100,38 @@ asyncio.run(main())
 static = StaticConditions(evaluator=evaluate_target_condition)
 graph = (prepare >> static.when(is_android, android) >> build).graph()
 child_graph = static.when(
-    is_android, Graph(structure=(android_graph).structure, label=("android"))
+    is_android,
+    Graph(
+        nodes=(android_graph.nodes),
+        edges=(android_graph.edges),
+        observation=(android_graph.observation),
+        static=(android_graph.static),
+        static_selections=(android_graph.static_selections),
+        interface=android_graph.interface.declaration,
+        label=("android"),
+    ),
 ).graph()
 ```
 
 条件为假时，编译器移除节点及关联边，不自动把前驱接到后继。声明图保持不变，
 可继续查看原始条件。子图必须先构造，静态规则不会延迟其 Python 构造函数。
 
-不用 DSL 时，同一个 API 通过 GraphStructure 的 `static=` 参数接入：
+不用 DSL 时，同一个 API 通过 Graph.static 接入：
 
 ```python
 graph = Graph(
-    structure=GraphStructure(
-        nodes=((android, checks, build)),
-        edges=(
-            (
-                Edge(source=android, target=build),
-                Edge(source=checks, target=build),
-            )
-        ),
-        static=(
-            StaticConditions(
-                evaluator=evaluate_target_condition,
-                conditions={
-                    android: is_android,
-                    (checks, build): wait_for_checks,
-                },
-            )
-        ),
-    )
+    nodes=(android, checks, build),
+    edges=(
+        Edge(source=android, target=build),
+        Edge(source=checks, target=build),
+    ),
+    static=StaticConditions(
+        evaluator=evaluate_target_condition,
+        conditions={
+            android: is_android,
+            (checks, build): wait_for_checks,
+        },
+    ),
 )
 ```
 

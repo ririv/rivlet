@@ -9,7 +9,6 @@ import rivlet.model as model
 def test_model_and_root_exports_identify_the_same_declarations():
     names = (
         "Graph",
-        "GraphStructure",
         "Node",
         "NodeId",
         "NodePath",

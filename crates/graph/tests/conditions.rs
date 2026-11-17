@@ -2,7 +2,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Condition, Edge, Graph, GraphError, GraphStructure, Step};
+use graph::{Condition, Edge, Graph, GraphError, Step};
 
 struct Number;
 impl Action for Number {
@@ -32,13 +32,21 @@ fn declarations_and_compilation_do_not_call_predicates() {
     let a = step("a");
     let b = Step::with_condition("b", ActionHandle::new(Number), condition.clone()).unwrap();
     let body = Arc::new(
-        GraphStructure::new(
+        Graph::new(
+            "scope",
             [a.clone().into(), b.clone().into()],
             [Edge::with_condition(&a, &b, condition.clone())],
         )
         .unwrap(),
     );
-    let root = Graph::with_condition("root", body, condition).unwrap();
+    let root = Graph::with_condition(
+        "root",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+        condition,
+    )
+    .unwrap();
     let compilation = root.compile().unwrap();
     assert_eq!(compilation.graph().conditions().len(), 3);
     assert_eq!(calls.load(Ordering::SeqCst), 0);
@@ -58,9 +66,9 @@ fn predicate_inputs_are_checked_before_execution() {
         Condition::new(|(_value,): (Option<Arc<String>>,)| Ok(true), [(&a).into()]).unwrap();
     let b = Step::with_condition("b", ActionHandle::new(Number), condition).unwrap();
     assert!(matches!(
-        GraphStructure::new([a.into(), b.into()], [])
+        Graph::new("scope", [a.into(), b.into()], [])
             .unwrap()
-            .compile_structure(),
+            .compile(),
         Err(GraphError::ResultTypeMismatch { .. })
     ));
 }
@@ -75,7 +83,7 @@ fn predicate_sources_must_belong_to_the_actual_local_scope() {
     .unwrap();
     let target = Step::with_condition("target", ActionHandle::new(Number), condition).unwrap();
     assert!(
-        matches!(GraphStructure::new([target.into()], []), Err(GraphError::UnknownNode(id)) if id == outside.id())
+        matches!(Graph::new("scope", [target.into()], []), Err(GraphError::UnknownNode(id)) if id == outside.id())
     );
 }
 
@@ -89,7 +97,8 @@ fn condition_reads_participate_in_cycle_validation() {
     .unwrap();
     let target = Step::with_condition("target", ActionHandle::new(Number), condition).unwrap();
     assert!(matches!(
-        GraphStructure::new(
+        Graph::new(
+            "scope",
             [source.clone().into(), target.clone().into()],
             [Edge::new(&target, &source)]
         ),

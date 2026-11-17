@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING
 
-from .._native import _NativeCondition
+from .._native import _NativeStep
 from ..compile import (
     CompiledComposite,
     CompiledCompositeRef,
@@ -15,17 +15,18 @@ from ..compile import (
     CompiledStep,
     CompiledStepRef,
     GraphCompilation,
-    compile_graph,
+    _compile_graph_scope,
 )
 from ..interface import InputPort, OutputPort
 from ..model import (
     ConditionalPrerequisite,
     Edge,
+    Graph,
     GraphEdge,
-    GraphStructure,
     Node,
     NodePath,
     NodePrerequisite,
+    _BoundNativeCondition,
     _condition_uses,
     _RuntimeCondition,
     resolve_node_label,
@@ -35,18 +36,17 @@ from ..static_condition import StaticCondition
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from ..model.python_structure import _PythonStructure
     from ..results import ResultView
 
 
 def ensure_compilation(
-    subject: GraphStructure | GraphCompilation,
+    subject: Graph | GraphCompilation,
     *,
     root_label: str,
 ) -> GraphCompilation:
     if isinstance(subject, GraphCompilation):
         return subject
-    return compile_graph(subject, root_label=root_label)
+    return _compile_graph_scope(subject, root_label=root_label)
 
 
 def render_step_label(
@@ -54,11 +54,20 @@ def render_step_label(
     *,
     node_path: NodePath | None = None,
 ) -> str:
-    if isinstance(step, (CompiledPythonStep, CompiledRustStep)):
+    if isinstance(step, CompiledRustStep):
+        return f"{step.path.labels[-1]} [native]"
+    if isinstance(step, CompiledPythonStep):
         return step.path.labels[-1]
     if node_path is None:
         raise ValueError("declaration node label requires its mounted path")
-    return resolve_node_label(step, node_path)
+    label = resolve_node_label(step, node_path)
+    from ..model import Step
+
+    return (
+        f"{label} [native]"
+        if isinstance(step, Step) and isinstance(step.action, _NativeStep)
+        else label
+    )
 
 
 def render_compiled_step_label(step: CompiledStep, path: tuple[str, ...]) -> str:
@@ -89,7 +98,7 @@ def render_after_suffix(
 
 
 def render_graph_after_suffix(
-    graph: _PythonStructure,
+    graph: Graph,
     step: Node,
     *,
     step_paths: Mapping[Node, NodePath],
@@ -111,13 +120,13 @@ def render_graph_after_suffix(
             else f"edge condition {condition_name(condition)}"
         )
         deps.extend(
-            f"{resolve_node_label(source, step_paths[source])} ({receiver} input: {index})"
+            f"{resolve_node_label(source.graph if isinstance(source, OutputPort) else source, step_paths[source.graph if isinstance(source, OutputPort) else source])} ({receiver} input: {index})"
             for index, source in enumerate(condition.inputs)
         )
     return "" if not deps else f" [after: {', '.join(deps)}]"
 
 
-def render_static_suffix(graph: _PythonStructure, step: Node) -> str:
+def render_static_suffix(graph: Graph, step: Node) -> str:
     binding = graph._static_bindings.get(step)
     condition = (
         ""
@@ -127,7 +136,7 @@ def render_static_suffix(graph: _PythonStructure, step: Node) -> str:
     return condition + render_selection_suffix(graph, step)
 
 
-def render_selection_suffix(graph: _PythonStructure, step: Node) -> str:
+def render_selection_suffix(graph: Graph, step: Node) -> str:
     binding = graph._selection_bindings.get(step)
     if binding is None:
         return ""
@@ -140,7 +149,7 @@ def port_label(name: str | None) -> str:
     return "(anonymous)" if name is None else name
 
 
-def render_graph_port_suffix(graph: _PythonStructure, step: Node) -> str:
+def render_graph_port_suffix(graph: Graph, step: Node) -> str:
     bindings = tuple(
         edge
         for edge in graph.edges
@@ -165,7 +174,7 @@ def render_graph_port_suffix(graph: _PythonStructure, step: Node) -> str:
 def format_graph_edge(
     edge: GraphEdge,
     *,
-    graph: _PythonStructure,
+    graph: Graph,
     step_paths: Mapping[Node, NodePath],
 ) -> str:
     dep_id = resolve_node_label(edge.source, step_paths[edge.source])
@@ -235,11 +244,11 @@ def prerequisite_step_label(dep: NodePrerequisite) -> str | None:
 def condition_name(
     condition: StaticCondition
     | _RuntimeCondition
-    | _NativeCondition
+    | _BoundNativeCondition
     | CompiledRuntimeCondition,
 ) -> str:
-    if isinstance(condition, _NativeCondition):
-        return "runtime:native"
+    if isinstance(condition, _BoundNativeCondition):
+        return "runtime:rust"
     if isinstance(
         condition,
         (_RuntimeCondition, CompiledRuntimeCondition),

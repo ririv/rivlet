@@ -118,7 +118,7 @@ time is O(G + V), auxiliary space O(G + C). The previous per-graph scan of every
 was O(G × V) in the worst case.
 
 After validation and reachability, compilation chooses its path from the complete
-declaration, not from the root Python GraphStructure.static field:
+declaration, not from the root Python Graph.static field:
 
 - If all scopes are reachable, all nodes are active, and all runtime conditions are
   used, IDs stay unchanged. Conditions and port connections move directly into

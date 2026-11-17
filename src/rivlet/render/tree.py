@@ -1,14 +1,10 @@
 from __future__ import annotations
 
-from .._native import _NativeStructure
 from ..compile import GraphCompilation
 from ..errors import GraphError
 from ..model import (
-    Graph as GraphNode,
-)
-from ..model import (
+    Graph,
     GraphMode,
-    GraphStructure,
     Node,
     NodeKind,
     NodePath,
@@ -16,7 +12,6 @@ from ..model import (
     node_paths_for_mount,
     resolve_node_label,
 )
-from ..model.python_structure import _PythonStructure
 from .formatting import (
     ensure_compilation,
     render_after_suffix,
@@ -28,17 +23,16 @@ from .formatting import (
     render_step_label,
     render_step_path,
 )
-from .rust_graph import append_rust_tree
 
 
 def render_graph(
-    subject: GraphStructure | NodeKind | GraphCompilation,
+    subject: NodeKind | GraphCompilation,
     *,
     root_label: str,
     mode: GraphMode = "dynamic",
 ) -> str:
-    if isinstance(subject, (Step, GraphNode)):
-        subject = GraphStructure(nodes=(subject,))
+    if isinstance(subject, (Step, Graph)):
+        subject = Graph(nodes=(subject,))
     match mode:
         case "compiled":
             return render_graph_compilation(
@@ -55,15 +49,8 @@ def render_graph(
             raise GraphError(f"unsupported graph render mode: {mode}")
 
 
-def render_graph_structure(
-    graph: GraphStructure | _PythonStructure, *, root_label: str
-) -> str:
+def render_graph_structure(graph: Graph, *, root_label: str) -> str:
     lines = [root_label]
-    declaration = graph._declaration if isinstance(graph, GraphStructure) else graph
-    if isinstance(declaration, _NativeStructure):
-        append_rust_tree(lines, declaration, prefix="")
-        return "\n".join(lines)
-    graph = declaration
     step_paths = node_paths_for_mount(graph)
     for index, step in enumerate(graph.nodes):
         append_tree_step(
@@ -118,7 +105,7 @@ def render_graph_compilation(
 
 def append_tree_step(
     lines: list[str],
-    graph: _PythonStructure,
+    graph: Graph,
     step: Node,
     *,
     node_path: NodePath,
@@ -128,17 +115,14 @@ def append_tree_step(
 ) -> None:
     branch = "└─ " if is_last else "├─ "
     child_prefix = prefix + ("   " if is_last else "│  ")
-    action = step.structure._declaration if isinstance(step, GraphNode) else step
+    action = step
     step_label = resolve_node_label(step, node_path)
-    if isinstance(action, (_PythonStructure, _NativeStructure)):
+    if isinstance(action, Graph):
         lines.append(
             f"{prefix}{branch}{step_label} [graph]{render_static_suffix(graph, step)}{render_condition_suffix(step)}"
             f"{render_graph_after_suffix(graph, step, step_paths=step_paths)}"
             f"{render_graph_port_suffix(graph, step)}"
         )
-        if isinstance(action, _NativeStructure):
-            append_rust_tree(lines, action, prefix=child_prefix)
-            return
         child_step_paths = node_paths_for_mount(action, parent_node_path=node_path)
         for index, child_step in enumerate(action.nodes):
             append_tree_step(

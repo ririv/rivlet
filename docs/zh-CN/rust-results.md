@@ -10,7 +10,7 @@
 ```rust
 use std::sync::Arc;
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, GraphStructure, Step};
+use graph::{Edge, Graph, Step};
 
 struct Plan { count: i64 }
 struct Design;
@@ -38,7 +38,7 @@ fn workflow() -> Result<graph::Compilation, graph::GraphError> {
     let design = Step::new("design", ActionHandle::new(Design))?;
     let apply = Step::new("apply", ActionHandle::new(Apply))?;
     let results = Edge::results([&design], &apply)?;
-    GraphStructure::new([design.into(), apply.into()], [results])?.compile_structure()
+    Graph::new("scope", [design.into(), apply.into()], [results])?.compile()
 }
 ```
 
@@ -62,7 +62,7 @@ let edge = Edge::results(
 ```
 
 一个输入可以转发到多个 Step；各自收到完整、有序的参数组，并分别检查类型。
-两个 Graph 共享同一 GraphStructure 时，挂载索引与结果仍然独立，不能只用声明身份
+两个 Graph 共享同一 Graph 时，挂载索引与结果仍然独立，不能只用声明身份
 作为结果表的 key。结果保存在各自执行 session 的编译节点索引空间内。
 
 workspace 的 `execution` crate 为纯 Rust 宿主提供这一结果表和驱动。
@@ -92,48 +92,5 @@ Python 侧记录按需启用，启用后不是只保留确实被消费的 Python
 又有自己的所有权边界。当前启用／保留规则与明确尚未实现的策略候选，见
 [结果生命周期](./result_lifetime.md)。
 
-## Python 边界
-
-跨语言转换连同 SDK、桥接统一属于[实验性混合执行](./mixed-execution.md)；纯 Rust 类型化结果不在此标记范围。
-
-Python 继续使用现有 API：
-
-```python
-edges = Edge.results(
-    (producer.interface.outputs["plan"],),
-    consumer.interface.inputs["apply"],
-)
-```
-
-| 方向 | 处理方式 |
-| --- | --- |
-| Rust → Rust | 原生值直接传递，不转 Python |
-| Python → Python | 保持任意 Python 对象 |
-| Rust → Python | 在适配层惰性转换，同一结果缓存一次 |
-| Python → Rust | 按接收方类型显式转换，再提交原生 worker |
-
-标准转换覆盖 unit/None、bool、Rust 各有符号/无符号整数宽度、f32/f64、String/str、
-Vec<u8>/bytes。整数检查范围，bool 不当整数，字符串不解析成数值，也不在其它数值
-类别之间偷偷转换。bytes 转换可能复制载荷；Rust 内部 Arc 的零复制共享不等于 FFI
-在任何类型上都零复制。
-
-只导入原生结果边确实引用的 Python 值，无关的任意对象不序列化。纯原生图在没有
-Python 结果保留需求时，不创建 Python 结果包装。需要保留时先记录原生引用，实际
-读取时才创建 Python 值。Python action 仍接收既有 Option 并解包，不需要引入公开
-RustResult API。
-
-自定义类型的转换明确属于 PyO3 adapter。内部 `ValueCodecs` 为确定类型组合成对的
-Rust 导出/导入函数，不能覆盖已有或标准转换。组合图可以复用同一个转换器对象，
-冲突注册会报错。没有全局可变注册表，也没有公开的 Python 动态注册插件 API；独立
-扩展使用显式的 [C ABI/SDK 边界](./python-native.md)，不在动态库之间交换 Rust trait object。
-内置类型有明确的二进制转换；同一 provider 内自定义载荷可保持不透明。SDK 当前尚未
-开放跨 provider 或 Python 的自定义转换器注册 API。
-
-未提供转换器的自定义结构仍可在 Rust 内部传递；Python 读取时报明确的缺少转换器
-错误，归属读取节点。无效 Python 输入归属原生接收叶子失败。修改 Python 表示不会
-自动反映到原始 Rust 值：转换器表达值视图，不是自动同步的共享可变状态。
-
-树图、Mermaid 和结构导出会显示原生结果边与参数位置，不包含值、命令、环境或
-转换器内部信息。这套结果桥接不负责运行时原生图展开。
-[原生 Rust 同步谓词](./rust-conditions.md) 可由 Rust Execution 宿主或 Python 混合
-驱动执行，原生值保持原生。
+原生结果查询见 [Rust 执行](./rust-execution.md)，Python 对象使用独立的
+[结果记录与生命周期](./result_lifetime.md)。主线不提供跨语言结果转换。

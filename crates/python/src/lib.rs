@@ -446,7 +446,7 @@ fn _native(module: &Bound<'_, PyModule>) -> PyResult<()> {
     module.add_class::<host_execution::HostExecutionSession>()?;
     module.add_class::<host_execution::HostExecutionBatch>()?;
     module.add_class::<host_execution::ConcurrencyLimits>()?;
-    module.add_class::<native_structure::_NativeStructure>()?;
+    module.add_class::<native_structure::_NativeGraph>()?;
     module.add_class::<native_structure::_NativeStep>()?;
     module.add_class::<native_structure::_NativeCondition>()?;
     rivlet_python::register_importer(module, native_structure::import_node)?;

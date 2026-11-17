@@ -2,7 +2,7 @@
 
 from demo_native import pipeline
 
-from rivlet import Edge, Graph, GraphStructure, NodeRunContext, Option, Step, run
+from rivlet import Edge, Graph, NodeRunContext, Option, Step, run
 
 
 def show(_ctx: NodeRunContext, value: Option[int]) -> None:
@@ -13,14 +13,12 @@ prepare = Step(lambda: 21, label="prepare")
 native = pipeline
 display = Step(show, label="display")
 workflow = Graph(
-    GraphStructure(
-        nodes=(prepare, native, display),
-        edges=(
-            *Edge.results((prepare,), native.interface.input),
-            *Edge.results((native.interface.output,), display),
-        ),
+    nodes=(prepare, native, display),
+    edges=(
+        *Edge.results((prepare,), native.interface.input),
+        *Edge.results((native.interface.output,), display),
     ),
-    label="mixed",
+    label=("mixed"),
 )
 
 if __name__ == "__main__":

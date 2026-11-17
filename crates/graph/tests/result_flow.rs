@@ -2,10 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use action::{Action, ActionContext, ActionError, ActionExecutor, ActionHandle, Value};
-use graph::{
-    Compilation, Edge, Graph, GraphError, GraphInterface, GraphStructure, PortName, ProjectedKind,
-    Step,
-};
+use graph::{Compilation, Edge, Graph, GraphError, GraphInterface, PortName, ProjectedKind, Step};
 use rivlet::{ExecutionEvent, ExecutionSession, ExecutionUpdate, NodeId, NodeState, SessionStatus};
 
 // 测试宿主只管理值与 worker，依赖状态完全由正式 ExecutionSession 推进。
@@ -102,53 +99,39 @@ impl Action for Consume {
 fn anonymous_results_cross_forwarded_graph_interfaces() {
     let pointers = Arc::new(Mutex::new(Vec::new()));
     let produce = Step::new("produce", ActionHandle::new(Produce)).unwrap();
-    let inner = Graph::new(
+    let inner = Graph::with_interface(
         "inner",
-        Arc::new(
-            GraphStructure::with_interface(
-                [produce.clone().into()],
-                [],
-                GraphInterface::default()
-                    .output(PortName::Anonymous, &produce)
-                    .unwrap(),
-            )
+        [produce.clone().into()],
+        [],
+        GraphInterface::default()
+            .output(PortName::Anonymous, &produce)
             .unwrap(),
-        ),
     )
     .unwrap();
-    let source = Graph::new(
+    let source = Graph::with_interface(
         "source",
-        Arc::new(
-            GraphStructure::with_interface(
-                [inner.clone().into()],
-                [],
-                GraphInterface::default()
-                    .output(
-                        PortName::Anonymous,
-                        inner.interface().output(PortName::Anonymous).unwrap(),
-                    )
-                    .unwrap(),
+        [inner.clone().into()],
+        [],
+        GraphInterface::default()
+            .output(
+                PortName::Anonymous,
+                inner.interface().output(PortName::Anonymous).unwrap(),
             )
             .unwrap(),
-        ),
     )
     .unwrap();
     let consume = Step::new("consume", ActionHandle::new(Consume(Arc::clone(&pointers)))).unwrap();
-    let target = Graph::new(
+    let target = Graph::with_interface(
         "target",
-        Arc::new(
-            GraphStructure::with_interface(
-                [consume.clone().into()],
-                [],
-                GraphInterface::default()
-                    .input(PortName::Anonymous, [&consume])
-                    .unwrap(),
-            )
+        [consume.clone().into()],
+        [],
+        GraphInterface::default()
+            .input(PortName::Anonymous, [&consume])
             .unwrap(),
-        ),
     )
     .unwrap();
-    let compilation = GraphStructure::new(
+    let compilation = Graph::new(
+        "scope",
         [source.clone().into(), target.clone().into()],
         [Edge::results(
             [source.interface().output(PortName::Anonymous).unwrap()],
@@ -157,7 +140,7 @@ fn anonymous_results_cross_forwarded_graph_interfaces() {
         .unwrap()],
     )
     .unwrap()
-    .compile_structure()
+    .compile()
     .unwrap();
     let (status, _) = run(&compilation, vec![]);
     assert_eq!(status, SessionStatus::Finished);
@@ -169,31 +152,34 @@ fn arbitrary_nonclone_payload_crosses_forwarded_shared_graphs_without_copying() 
     let pointers = Arc::new(Mutex::new(Vec::new()));
     let producer = Step::new("produce", ActionHandle::new(Produce)).unwrap();
     let body = Arc::new(
-        GraphStructure::with_interface(
+        Graph::with_interface(
+            "scope",
             [producer.clone().into()],
             [],
             GraphInterface::default().output("plan", &producer).unwrap(),
         )
         .unwrap(),
     );
-    let inner = Graph::new("inner", body).unwrap();
-    let forwarded = Graph::new(
+    let inner = Graph::with_interface(
+        "inner",
+        body.nodes().iter().cloned(),
+        body.edges().iter().cloned(),
+        body.interface().declaration().clone(),
+    )
+    .unwrap();
+    let forwarded = Graph::with_interface(
         "producer",
-        Arc::new(
-            GraphStructure::with_interface(
-                [inner.clone().into()],
-                [],
-                GraphInterface::default()
-                    .output("value", inner.interface().output("plan").unwrap())
-                    .unwrap(),
-            )
+        [inner.clone().into()],
+        [],
+        GraphInterface::default()
+            .output("value", inner.interface().output("plan").unwrap())
             .unwrap(),
-        ),
     )
     .unwrap();
     let consume = Step::new("consume", ActionHandle::new(Consume(Arc::clone(&pointers)))).unwrap();
     let shared = Arc::new(
-        GraphStructure::with_interface(
+        Graph::with_interface(
+            "scope",
             [consume.clone().into()],
             [],
             GraphInterface::default()
@@ -202,9 +188,22 @@ fn arbitrary_nonclone_payload_crosses_forwarded_shared_graphs_without_copying() 
         )
         .unwrap(),
     );
-    let left = Graph::new("left", Arc::clone(&shared)).unwrap();
-    let right = Graph::new("right", shared).unwrap();
-    let root = GraphStructure::new(
+    let left = Graph::with_interface(
+        "left",
+        shared.nodes().iter().cloned(),
+        shared.edges().iter().cloned(),
+        shared.interface().declaration().clone(),
+    )
+    .unwrap();
+    let right = Graph::with_interface(
+        "right",
+        shared.nodes().iter().cloned(),
+        shared.edges().iter().cloned(),
+        shared.interface().declaration().clone(),
+    )
+    .unwrap();
+    let root = Graph::new(
+        "scope",
         [
             forwarded.clone().into(),
             left.clone().into(),
@@ -224,7 +223,7 @@ fn arbitrary_nonclone_payload_crosses_forwarded_shared_graphs_without_copying() 
         ],
     )
     .unwrap();
-    let compilation = root.compile_structure().unwrap();
+    let compilation = root.compile().unwrap();
     let (status, results) = run(&compilation, Vec::new());
     assert_eq!(status, SessionStatus::Finished);
     let pointers = pointers.lock().unwrap();
@@ -244,12 +243,13 @@ fn arbitrary_nonclone_payload_crosses_forwarded_shared_graphs_without_copying() 
 fn skipped_result_is_none_not_an_invented_unit_value() {
     let producer = Step::new("produce", ActionHandle::new(Produce)).unwrap();
     let consume = Step::new("consume", ActionHandle::new(Consume(Arc::default()))).unwrap();
-    let compilation = GraphStructure::new(
+    let compilation = Graph::new(
+        "scope",
         [producer.clone().into(), consume.clone().into()],
         [Edge::results([&producer], &consume).unwrap()],
     )
     .unwrap()
-    .compile_structure()
+    .compile()
     .unwrap();
     let source = compilation
         .graph()
@@ -284,18 +284,19 @@ impl Action for Text {
 fn compiler_checks_concrete_types_and_complete_input_groups() {
     let wrong = Step::new("text", ActionHandle::new(Text)).unwrap();
     let consume = Step::new("consume", ActionHandle::new(Consume(Arc::default()))).unwrap();
-    let graph = GraphStructure::new(
+    let graph = Graph::new(
+        "scope",
         [wrong.clone().into(), consume.clone().into()],
         [Edge::results([&wrong], &consume).unwrap()],
     )
     .unwrap();
     assert!(matches!(
-        graph.compile_structure(),
+        graph.compile(),
         Err(GraphError::ResultTypeMismatch { .. })
     ));
-    let unbound = GraphStructure::new([consume.into()], []).unwrap();
+    let unbound = Graph::new("scope", [consume.into()], []).unwrap();
     assert!(matches!(
-        unbound.compile_structure(),
+        unbound.compile(),
         Err(GraphError::ResultInputCount { .. })
     ));
 }
@@ -313,7 +314,8 @@ fn result_cycle_is_checked_after_resolving_actual_endpoints() {
     }
     let a = Step::new("a", ActionHandle::new(Size)).unwrap();
     let b = Step::new("b", ActionHandle::new(Size)).unwrap();
-    let graph = GraphStructure::new(
+    let graph = Graph::new(
+        "scope",
         [a.clone().into(), b.clone().into()],
         [
             Edge::results([&a], &b).unwrap(),
@@ -321,10 +323,7 @@ fn result_cycle_is_checked_after_resolving_actual_endpoints() {
         ],
     )
     .unwrap();
-    assert!(matches!(
-        graph.compile_structure(),
-        Err(GraphError::Declaration(_))
-    ));
+    assert!(matches!(graph.compile(), Err(GraphError::Declaration(_))));
 }
 
 struct Number;
@@ -354,7 +353,8 @@ fn ordered_heterogeneous_tuple_inputs_ignore_declaration_and_completion_order() 
     let number = Step::new("number", ActionHandle::new(Number)).unwrap();
     let text = Step::new("text", ActionHandle::new(Text)).unwrap();
     let pair = Step::new("pair", ActionHandle::new(Pair)).unwrap();
-    let compilation = GraphStructure::new(
+    let compilation = Graph::new(
+        "scope",
         [
             number.clone().into(),
             text.clone().into(),
@@ -363,7 +363,7 @@ fn ordered_heterogeneous_tuple_inputs_ignore_declaration_and_completion_order() 
         [Edge::results([&text, &number], &pair).unwrap()],
     )
     .unwrap()
-    .compile_structure()
+    .compile()
     .unwrap();
     let (status, values) = run(&compilation, Vec::new());
     assert_eq!(status, SessionStatus::Finished);
@@ -381,7 +381,8 @@ fn ordered_heterogeneous_tuple_inputs_ignore_declaration_and_completion_order() 
         values[&result].downcast::<String>().unwrap().as_str(),
         "wrong:21"
     );
-    let wrong = GraphStructure::new(
+    let wrong = Graph::new(
+        "scope",
         [
             number.clone().into(),
             text.clone().into(),
@@ -391,7 +392,7 @@ fn ordered_heterogeneous_tuple_inputs_ignore_declaration_and_completion_order() 
     )
     .unwrap();
     assert!(matches!(
-        wrong.compile_structure(),
+        wrong.compile(),
         Err(GraphError::ResultTypeMismatch { .. })
     ));
 }

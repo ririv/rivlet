@@ -58,7 +58,7 @@ export class OutputPort<T = unknown> {
   }
 }
 
-/** Pure interface declarations, reusable together with a GraphStructure. */
+/** Pure interface declarations reusable between distinct Graph nodes. */
 export class GraphInterface {
   readonly #inputs: ReadonlyMap<PortName, readonly InputEndpoint[]>;
   readonly #outputs: ReadonlyMap<PortName, OutputEndpoint>;
@@ -103,15 +103,18 @@ export class GraphInterface {
 }
 
 export class GraphInterfaceView {
-  constructor(readonly owner: Graph) {
+  constructor(
+    readonly owner: Graph,
+    readonly declaration: GraphInterface,
+  ) {
     Object.freeze(this);
   }
   input(name: PortName = null): InputPort {
-    this.owner.structure.interface.input(name);
+    this.declaration.input(name);
     return new InputPort(this.owner, name);
   }
   output<T = unknown>(name: PortName = null): OutputPort<T> {
-    this.owner.structure.interface.output(name);
+    this.declaration.output(name);
     return new OutputPort<T>(this.owner, name);
   }
 }

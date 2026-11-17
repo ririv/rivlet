@@ -10,7 +10,7 @@ Node.js 前端是另外两项能力，不随混合执行移走。
 
 SDK 只通过 `export_node` 导出具体 Step 或 Graph。当前 Rust SDK 导出的 Graph 内部
 动作和条件全部属于 Rust，没有往内部注入 Python action 的入口；Python 在外层组合
-这个节点。复用 `.structure` 会创建新 Graph 声明，不自动复制根身份和条件。
+这个节点。显式复用 `.nodes/.edges` 会创建新 Graph 声明，不自动复制根身份和条件。
 扩展可以直接注册节点为模块属性，工厂函数只用于参数化或创建新声明，不是 SDK 要求。
 
 动作由 Rust 执行，Rust 到 Rust 的中间值保持原生；但 Python 宿主驱动仍负责调用

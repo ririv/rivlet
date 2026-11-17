@@ -35,7 +35,7 @@ private protocol, even if their package versions are equal.
 ## Actions, conditions and result edges
 
 ```js
-import { Edge, Graph, GraphStructure, Step, run } from './lib/index.js';
+import { Edge, Graph, Step, run } from './lib/index.js';
 
 const enabled = new Step(() => true, { label: 'enabled' });
 const plan = new Step(async () => ({ count: 21 }), { label: 'plan' });
@@ -43,10 +43,11 @@ const apply = new Step((_context, proposal) => proposal.unwrap().count * 2, {
   label: 'apply',
   condition: [value => value.unwrap(), enabled],
 });
-const workflow = new Graph(new GraphStructure({
+const workflow = new Graph({
   nodes: [enabled, plan, apply],
   edges: [Edge.results([plan], apply)],
-}), { label: 'workflow' });
+  label: 'workflow',
+});
 
 const outcome = await run(workflow);
 console.log(outcome.result(apply).unwrap()); // 42
@@ -100,22 +101,22 @@ infer a callback's parameter schema from its runtime producer list.
 
 ## Subgraphs and public ports
 
-Both `Step` and `Graph` are nodes. `GraphStructure` holds reusable topology;
+Both `Step` and `Graph` are nodes. `Graph` holds reusable topology;
 `Graph` supplies a distinct identity, label, condition and interface view.
 Only a Graph has public input and output ports.
 
 ```js
 const source = new Step(() => 21);
-const provider = new Graph(new GraphStructure({
+const provider = new Graph(new Graph({
   nodes: [source],
   interface: new GraphInterface({ outputs: source }),
 }));
 const apply = new Step((_context, value) => value.unwrap() * 2);
-const consumer = new Graph(new GraphStructure({
+const consumer = new Graph(new Graph({
   nodes: [apply],
   interface: new GraphInterface({ inputs: apply, outputs: apply }),
 }));
-const workflow = new Graph(new GraphStructure({
+const workflow = new Graph(new Graph({
   nodes: [provider, consumer],
   edges: [Edge.results([provider.interface.output()], consumer.interface.input())],
 }));

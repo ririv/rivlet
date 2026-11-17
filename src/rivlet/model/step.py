@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from ..option import Option
     from ..results import NodeRunContext
     from . import ConditionInput, GraphWiringOperand, NodePrerequisite
-    from .condition import _RuntimeCondition
+    from .condition import _BoundNativeCondition, _RuntimeCondition
     from .identity import NodeId
     from .wiring import GraphWiring, NodeWiring, Results
 
@@ -113,7 +113,7 @@ class Step:
         return self._meta.label
 
     @property
-    def condition(self) -> _RuntimeCondition | _NativeCondition | None:
+    def condition(self) -> _RuntimeCondition | _BoundNativeCondition | None:
         return self._meta.condition
 
     @property
@@ -128,11 +128,16 @@ class Step:
         label: str,
         condition: _NativeCondition | None,
     ) -> Step:
+        from .condition import _bind_native_condition
         from .identity import NodeId
 
         node = object.__new__(cls)
         object.__setattr__(node, "_call", action)
-        object.__setattr__(node, "_meta", _NodeMeta(NodeId(identity), label, condition))
+        object.__setattr__(
+            node,
+            "_meta",
+            _NodeMeta(NodeId(identity), label, _bind_native_condition(condition)),
+        )
         return node
 
     def wire(self, after: tuple[NodePrerequisite | Results, ...] = ()) -> NodeWiring:

@@ -3,20 +3,15 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import TYPE_CHECKING
 
-from .._native import _NativeStructure
 from ..model import (
-    Graph as GraphNode,
-)
-from ..model import (
+    Graph,
     GraphMode,
-    GraphStructure,
     Node,
     NodeKind,
     NodePath,
     node_paths_for_mount,
     resolve_node_label,
 )
-from ..model.python_structure import _PythonStructure
 from .formatting import (
     render_execution_result_suffix,
     render_graph_after_suffix,
@@ -50,7 +45,7 @@ def render_execution(
     *,
     mode: GraphMode = "dynamic",
 ) -> str:
-    graph = GraphStructure(nodes=(root,))
+    graph = Graph(nodes=(root,))
     return _render_execution_impl(
         graph,
         state,
@@ -67,7 +62,7 @@ def render_live_execution(
     *,
     mode: GraphMode = "dynamic",
 ) -> str:
-    graph = GraphStructure(nodes=(root,))
+    graph = Graph(nodes=(root,))
     root_label = resolve_node_label(root, NodePath((0,)))
     snapshot = state.snapshot()
     steps = collect_steps(graph)
@@ -98,7 +93,7 @@ def render_live_execution(
 
 
 def _render_execution_impl(
-    graph: GraphStructure | _PythonStructure,
+    graph: Graph,
     state: ExecutionState,
     *,
     root_label: str,
@@ -127,7 +122,7 @@ def _render_execution_impl(
 
 def append_execution_graph(
     lines: list[str],
-    graph: GraphStructure | _PythonStructure | _NativeStructure,
+    graph: Graph,
     *,
     snapshot: ExecutionSnapshot,
     active_step_paths: set[NodePath],
@@ -137,9 +132,6 @@ def append_execution_graph(
     include_not_reached: bool,
     prefix: str,
 ) -> None:
-    graph = graph._declaration if isinstance(graph, GraphStructure) else graph
-    if isinstance(graph, _NativeStructure):
-        return
     graph_node_paths = node_paths_for_mount(graph, parent_node_path=parent_node_path)
     for index, step in enumerate(graph.nodes):
         append_execution_step(
@@ -159,7 +151,7 @@ def append_execution_graph(
 
 def append_execution_step(
     lines: list[str],
-    graph: _PythonStructure,
+    graph: Graph,
     step: Node,
     *,
     snapshot: ExecutionSnapshot,
@@ -185,10 +177,10 @@ def append_execution_step(
         return
     branch = "└─ " if is_last else "├─ "
     child_prefix = prefix + ("   " if is_last else "│  ")
-    action = step.structure._declaration if isinstance(step, GraphNode) else step
+    action = step
     base = (
         f"{step_label} [graph]"
-        if isinstance(action, (_PythonStructure, _NativeStructure))
+        if isinstance(action, Graph)
         else render_step_label(step, node_path=node_path)
     )
     lines.append(
@@ -199,7 +191,7 @@ def append_execution_step(
         f"{render_execution_result_suffix(node_path, snapshot.results)}"
         f"{render_graph_after_suffix(graph, step, step_paths=graph_node_paths)}"
     )
-    if not isinstance(action, (_PythonStructure, _NativeStructure)):
+    if not isinstance(action, Graph):
         return
     append_execution_graph(
         lines,
@@ -228,7 +220,7 @@ def resolve_execution_status(
         return ExecutionRenderStatus.SKIPPED_BY_ANCESTOR
     if node_path in snapshot.skipped_steps:
         return ExecutionRenderStatus.SKIPPED
-    if isinstance(step, GraphNode) and isinstance(step.structure, GraphStructure):
+    if isinstance(step, Graph):
         if (
             node_path in snapshot.completed_composites
             or node_path in snapshot.completed_steps
@@ -305,23 +297,11 @@ def deepest_running_step_paths(
 
 
 def collect_step_labels(
-    graph: GraphStructure | _PythonStructure | _NativeStructure,
+    graph: Graph,
     *,
     label_path: tuple[str, ...] = (),
     parent_node_path: NodePath | None = None,
 ) -> tuple[tuple[NodePath, tuple[str, ...]], ...]:
-    graph = graph._declaration if isinstance(graph, GraphStructure) else graph
-    if isinstance(graph, _NativeStructure):
-        native: list[tuple[NodePath, tuple[str, ...]]] = []
-        for index, (_, label, child) in enumerate(graph.nodes()):
-            path = (parent_node_path or NodePath(())).child(index)
-            labels = (*label_path, label)
-            native.append((path, labels))
-            if child is not None:
-                native.extend(
-                    collect_step_labels(child, label_path=labels, parent_node_path=path)
-                )
-        return tuple(native)
     out: list[tuple[NodePath, tuple[str, ...]]] = []
     for step, node_path in node_paths_for_mount(
         graph,
@@ -329,10 +309,10 @@ def collect_step_labels(
     ).items():
         step_label_path = (*label_path, resolve_node_label(step, node_path))
         out.append((node_path, step_label_path))
-        if isinstance(step, GraphNode) and isinstance(step.structure, GraphStructure):
+        if isinstance(step, Graph):
             out.extend(
                 collect_step_labels(
-                    step.structure,
+                    step,
                     label_path=step_label_path,
                     parent_node_path=node_path,
                 )
@@ -341,34 +321,21 @@ def collect_step_labels(
 
 
 def collect_steps(
-    graph: GraphStructure | _PythonStructure | _NativeStructure,
+    graph: Graph,
     *,
     label_path: tuple[str, ...] = (),
     parent_node_path: NodePath | None = None,
 ) -> tuple[tuple[NodePath, tuple[str, ...]], ...]:
-    graph = graph._declaration if isinstance(graph, GraphStructure) else graph
-    if isinstance(graph, _NativeStructure):
-        native: list[tuple[NodePath, tuple[str, ...]]] = []
-        for index, (_, label, child) in enumerate(graph.nodes()):
-            path = (parent_node_path or NodePath(())).child(index)
-            labels = (*label_path, label)
-            if child is None:
-                native.append((path, labels))
-            else:
-                native.extend(
-                    collect_steps(child, label_path=labels, parent_node_path=path)
-                )
-        return tuple(native)
     out: list[tuple[NodePath, tuple[str, ...]]] = []
     for step, node_path in node_paths_for_mount(
         graph,
         parent_node_path=parent_node_path,
     ).items():
         step_label_path = (*label_path, resolve_node_label(step, node_path))
-        if isinstance(step, GraphNode) and isinstance(step.structure, GraphStructure):
+        if isinstance(step, Graph):
             out.extend(
                 collect_steps(
-                    step.structure,
+                    step,
                     label_path=step_label_path,
                     parent_node_path=node_path,
                 )

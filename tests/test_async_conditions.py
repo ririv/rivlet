@@ -16,7 +16,6 @@ from rivlet import (
     Graph,
     GraphError,
     GraphInterface,
-    GraphStructure,
     Option,
     ResultStore,
     SerialGraphExecutor,
@@ -70,7 +69,7 @@ def test_node_predicates_await_the_actual_return_value(backend, selected, kind):
         "custom-awaitable": Decision,
     }[kind]
     consumer = Step(lambda: calls.append("action"), condition=(callback, source))
-    execution = execute(Graph(GraphStructure(nodes=(source, consumer))), backend)
+    execution = execute(Graph(nodes=(source, consumer)), backend)
     assert calls == (["predicate", "action"] if selected else ["predicate"])
     assert (
         execution.execution_state.results.get(execution.compile().steps[-1].path)
@@ -101,9 +100,7 @@ def test_predicates_share_the_loop_without_using_action_slots(backend, monkeypat
     async def action() -> None:
         loops.append(asyncio.get_running_loop())
 
-    root = Graph(
-        GraphStructure(nodes=tuple(Step(action, condition=predicate) for _ in range(8)))
-    )
+    root = Graph(nodes=tuple(Step(action, condition=predicate) for _ in range(8)))
     if backend == "run":
         run(root, max_workers=1, max_concurrency={root: 1})
     else:
@@ -129,7 +126,7 @@ def test_pending_condition_survives_the_last_unrelated_action(backend):
         release.set()
 
     guarded = Step(lambda: calls.append("guarded"), condition=predicate)
-    execute(Graph(GraphStructure(nodes=(guarded, Step(independent)))), backend)
+    execute(Graph(nodes=(guarded, Step(independent))), backend)
     assert calls == ["independent", "guarded"]
 
 
@@ -154,9 +151,7 @@ def test_false_async_edge_condition_removes_waiting_not_actions(backend):
 
     a, b = Step(source), Step(publish)
     root = Graph(
-        GraphStructure(
-            nodes=(decision, a, b), edges=(Edge(a, b, condition=(predicate, decision)),)
-        )
+        nodes=(decision, a, b), edges=(Edge(a, b, condition=(predicate, decision)),)
     )
     execute(root, backend)
     assert calls == ["publish", "source"]
@@ -176,9 +171,7 @@ def test_async_predicate_failure_only_blocks_its_dependents(backend):
     downstream = Step(lambda: pytest.fail("dependent action must not run"))
     independent = Step(lambda: calls.append("independent"))
     root = Graph(
-        GraphStructure(
-            nodes=(guarded, downstream, independent), edges=(Edge(guarded, downstream),)
-        )
+        nodes=(guarded, downstream, independent), edges=(Edge(guarded, downstream),)
     )
     with pytest.raises(ValueError, match="predicate failed"):
         execute(root, backend)
@@ -204,19 +197,32 @@ def test_async_conditions_keep_repeated_subgraph_inputs_separate(backend):
         return value.unwrap() == "left"
 
     child = Step(lambda: 42, condition=(predicate, source))
-    body = GraphStructure(
-        nodes=(source, child), interface=GraphInterface(outputs=child)
+    body = Graph(nodes=(source, child), interface=GraphInterface(outputs=child))
+    left, right = (
+        Graph(
+            nodes=body.nodes,
+            edges=body.edges,
+            observation=body.observation,
+            static=body.static,
+            static_selections=body.static_selections,
+            interface=body.interface.declaration,
+            label=("left"),
+        ),
+        Graph(
+            nodes=body.nodes,
+            edges=body.edges,
+            observation=body.observation,
+            static=body.static,
+            static_selections=body.static_selections,
+            interface=body.interface.declaration,
+            label=("right"),
+        ),
     )
-    left, right = Graph(body, label="left"), Graph(body, label="right")
     seen = []
     inspect = Step(lambda ctx, a, b: seen.append((a.unwrap(), b.unwrap_or(None))))
     root = Graph(
-        GraphStructure(
-            nodes=(left, right, inspect),
-            edges=Edge.results(
-                (left.interface.output, right.interface.output), inspect
-            ),
-        )
+        nodes=(left, right, inspect),
+        edges=Edge.results((left.interface.output, right.interface.output), inspect),
     )
     execute(root, backend)
     assert seen == [(42, None)]
@@ -231,10 +237,7 @@ def test_runtime_returned_subgraph_can_have_async_graph_conditions(backend):
         calls.append("predicate")
         return True
 
-    child = Graph(
-        GraphStructure(nodes=(Step(lambda: calls.append("child")),)),
-        condition=predicate,
-    )
+    child = Graph(nodes=(Step(lambda: calls.append("child")),), condition=(predicate))
     execute(Step(lambda: child), backend)
     assert calls == ["predicate", "child"]
 
@@ -266,11 +269,7 @@ def test_explicit_serial_executor_reuses_its_predicate_runner(monkeypatch):
         loops.append(asyncio.get_running_loop())
         return True
 
-    root = Graph(
-        GraphStructure(
-            nodes=tuple(Step(lambda: None, condition=predicate) for _ in range(3))
-        )
-    )
+    root = Graph(nodes=tuple(Step(lambda: None, condition=predicate) for _ in range(3)))
     execute(root, "serial")
     assert len(runners) == 1
     assert len(loops) == 3
@@ -293,11 +292,9 @@ def test_cancelled_condition_requests_global_stop_and_drains_started_work(backen
             calls.append("settled")
 
     root = Graph(
-        GraphStructure(
-            nodes=(
-                Step(lambda: None, condition=cancelled),
-                Step(lambda: None, condition=settling),
-            )
+        nodes=(
+            Step(lambda: None, condition=cancelled),
+            Step(lambda: None, condition=settling),
         )
     )
     execution = Execution(root)

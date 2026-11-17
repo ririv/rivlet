@@ -11,7 +11,7 @@ There is no implicit JSON conversion and no result lookup added to action contex
 ```rust
 use std::sync::Arc;
 use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, GraphStructure, Step};
+use graph::{Edge, Graph, Step};
 
 struct Plan { count: i64 }
 struct Design;
@@ -39,7 +39,7 @@ fn workflow() -> Result<graph::Compilation, graph::GraphError> {
     let design = Step::new("design", ActionHandle::new(Design))?;
     let apply = Step::new("apply", ActionHandle::new(Apply))?;
     let results = Edge::results([&design], &apply)?;
-    GraphStructure::new([design.into(), apply.into()], [results])?.compile_structure()
+    Graph::new("scope", [design.into(), apply.into()], [results])?.compile()
 }
 ```
 
@@ -67,7 +67,7 @@ let edge = Edge::results(
 ```
 
 Input forwarding may reach several leaves. Each receives the entire ordered group
-and is checked independently. Two graph nodes sharing a GraphStructure retain
+and is checked independently. Two graph nodes sharing a Graph retain
 separate mounted indexes and results; declaration identity alone is never a store key.
 The executor must retain results within their execution session/index namespace.
 
@@ -101,57 +101,6 @@ retain only consumed Python results. Standalone Rust outcomes have their own
 ownership boundary. Current activation/retention rules and explicitly unimplemented
 policy candidates are documented in [result lifetime](./result_lifetime.md).
 
-## Python boundary
-
-Cross-language conversions belong to the [experimental mixed-execution feature](./mixed-execution.md),
-including the SDK and bridge. Pure Rust typed results are outside that designation.
-
-Python declarations keep the existing API:
-
-```python
-edges = Edge.results(
-    (producer.interface.outputs["plan"],),
-    consumer.interface.inputs["apply"],
-)
-```
-
-| Direction | Transport |
-| --- | --- |
-| Rust → Rust | Original native value, no Python conversion |
-| Python → Python | Existing arbitrary Python objects |
-| Rust → Python | Lazy adapter conversion, cached once per result |
-| Python → Rust | Explicit receiver-type conversion before native dispatch |
-
-Standard conversions cover unit/None, bool, signed/unsigned Rust integer widths,
-f32/f64, String/str and Vec<u8>/bytes. Integer bounds are checked. Bool is not
-accepted as an integer; strings are not parsed as numbers; other numeric categories
-are not silently interchanged. Bytes conversion may copy the payload. Arc sharing
-is zero-copy ownership inside Rust, not a claim of universal zero-copy FFI.
-
-Only Python results referenced by native input edges are imported. Arbitrary
-unrelated Python objects remain Python objects and are not serialized. Native-only
-graphs with no Python result retention do not create Python result wrappers.
-Retaining Python results stores an opaque native reference; the concrete Python
-value is constructed only when read. Python result inputs use the existing Option
-and unwrap API, not a new public RustResult API.
-
-Custom conversion is an explicit PyO3 adapter responsibility. Internally, `ValueCodecs`
-composes paired Rust export/import functions for a concrete type. A type's converter
-cannot overwrite an existing or standard converter. Combining graphs can reuse the
-same converter object; conflicting registrations are rejected. There is no global
-mutable registry or public Python dynamic-registration plugin API. Independent extensions use the explicit [C ABI/SDK boundary](./python-native.md),
-not implicit trait-object exchange between dynamic libraries. Builtins have defined
-binary conversions; custom payloads can remain opaque within one provider. The SDK
-currently has no custom cross-provider/Python converter registration API.
-
-A custom Rust value with no converter is valid on Rust-only edges. Reading it from
-Python fails at that reader with an explicit missing-converter error. An invalid
-Python input fails its native receiving step. Python representation mutation is not
-automatically mirrored into the original Rust value; converters define value views,
-not shared mutable state.
-
-Tree/Mermaid and structural export show native result edges and argument positions
-without including values, commands, environments, or converter internals. These
-result bridges do not expand native graphs at runtime.
-[Native Rust synchronous predicates](./rust-conditions.md) run in both the Rust
-Execution host and the Python mixed driver, keeping native values native.
+See [Rust execution](./rust-execution.md) for native result inspection. Python
+objects use their separate [result lifetime](./result_lifetime.md) contract. Mainline
+does not provide cross-language result conversion.

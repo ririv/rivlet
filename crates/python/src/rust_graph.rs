@@ -5,11 +5,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use action::{ActionHandle, ProcessAction};
-use graph::{Edge, Graph, GraphInterface, GraphStructure, NodeKind, PortName, Step};
+use graph::{Edge, Graph, GraphInterface, NodeKind, PortName, Step};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-use crate::native_structure::_NativeStructure;
+use crate::native_structure::_NativeGraph;
 use crate::result_values::ValueCodecs;
 
 type ProcessDeclaration = (
@@ -78,9 +78,14 @@ pub(crate) fn rust_process_graph(
     for (name, index) in outputs {
         interface = interface.output(name, require(index)?).map_err(invalid)?;
     }
-    _NativeStructure::new(
-        GraphStructure::with_interface(nodes.into_iter().map(NodeKind::from), edges, interface)
-            .map_err(invalid)?,
+    _NativeGraph::new(
+        Graph::with_interface(
+            "scope",
+            nodes.into_iter().map(NodeKind::from),
+            edges,
+            interface,
+        )
+        .map_err(invalid)?,
     )?
     .into_public(py)
 }
@@ -99,8 +104,8 @@ pub(crate) fn compose_rust_graph(
         .map(|(label, body)| {
             Ok((
                 label,
-                body.getattr("_declaration")?
-                    .extract::<PyRef<'_, _NativeStructure>>()?
+                body.getattr("_native")?
+                    .extract::<PyRef<'_, _NativeGraph>>()?
                     .clone(),
             ))
         })
@@ -111,7 +116,7 @@ pub(crate) fn compose_rust_graph(
     }
     let nodes = components
         .into_iter()
-        .map(|(label, body)| Graph::new(label, body.graph()?).map_err(invalid))
+        .map(copy_component)
         .collect::<PyResult<Vec<_>>>()?;
     let require = |index: usize| {
         nodes
@@ -179,10 +184,26 @@ pub(crate) fn compose_rust_graph(
             )
             .map_err(invalid)?;
     }
-    _NativeStructure::with_codecs(
-        GraphStructure::with_interface(nodes.into_iter().map(NodeKind::from), edges, interface)
-            .map_err(invalid)?,
+    _NativeGraph::with_codecs(
+        Graph::with_interface(
+            "scope",
+            nodes.into_iter().map(NodeKind::from),
+            edges,
+            interface,
+        )
+        .map_err(invalid)?,
         Arc::new(codecs),
     )?
     .into_public(py)
+}
+
+fn copy_component((label, body): (String, _NativeGraph)) -> PyResult<Graph> {
+    let declaration = body.graph()?;
+    Graph::with_interface(
+        label,
+        declaration.nodes().iter().cloned(),
+        declaration.edges().iter().cloned(),
+        declaration.interface().declaration().clone(),
+    )
+    .map_err(invalid)
 }

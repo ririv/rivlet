@@ -118,8 +118,7 @@ let outcome = Execution::new(compilation, options).run()?;
   运行时生成子图或取消 API。
 - ActionContext 使用无日志路径的缺省值。需要定制上下文、实时观察、停止控制或
   混合语言分发的宿主，仍可直接组合 ExecutionSession 和 ActionExecutor。
-- Python/PyO3 混合 driver 是独立入口，负责 Python callable、条件、宿主集成和跨语言转换。
-  它也直接派发原生同步谓词；独立扩展使用[绑定 SDK](./python-native.md)。
+
 - 当前创建 session 时会复制一次 core 编译图，O(V + E)，初始化节点状态和结果表为
   O(V)，不会重新编译声明。驱动对每个终态结果/事件处理一次，R 个结果输入绑定为
   O(R)；这些复杂度不包含已有调度器和 action 自身开销。
@@ -129,6 +128,4 @@ let outcome = Execution::new(compilation, options).run()?;
 与 Python 按需记录的区别，以及尚未实现的保留策略候选，见
 [结果生命周期](./result_lifetime.md)。
 
-graph/action/core 仍可独立使用；execution 是宿主组合层，不是图声明的依赖。其中独立的
-coordinator 模块已供 Python 混合适配器使用，本同步 Execution::run 驱动仍保持独立。
-详见[共用原生执行协调层](./rust-architecture.md#共用原生执行协调层)。
+graph/action/core 仍可独立使用；execution 是宿主组合层，不是图声明或 Python 扩展的依赖。

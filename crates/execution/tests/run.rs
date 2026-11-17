@@ -7,7 +7,7 @@ use execution::{
     Execution, ExecutionError, ExecutionOptions, ExecutionOutcome, ExecutionStatus, NodeFailure,
     NodeOutcome,
 };
-use graph::{Compilation, Edge, Graph, GraphInterface, GraphStructure, Step};
+use graph::{Compilation, Edge, Graph, GraphInterface, Step};
 use rivlet::{BlockCause, NodeId};
 
 fn node_id(compilation: &Compilation, path: &[usize]) -> NodeId {
@@ -49,15 +49,16 @@ fn compilation_is_shared_but_executions_and_results_are_independent() {
     let design = Step::new("design", ActionHandle::new(Design(Arc::clone(&calls)))).unwrap();
     let apply = Step::new("apply", ActionHandle::new(Apply)).unwrap();
     let compilation = Arc::new(
-        GraphStructure::new(
+        Graph::new(
+            "scope",
             [apply.clone().into(), design.clone().into()],
             [Edge::results([&design], &apply).unwrap()],
         )
         .unwrap()
-        .compile_structure()
+        .compile()
         .unwrap(),
     );
-    let applied = node_id(&compilation, &[0]);
+    let applied = node_id(&compilation, &[0, 0]);
     let first = Execution::new(Arc::clone(&compilation), ExecutionOptions::new(2).unwrap())
         .run()
         .unwrap();
@@ -74,33 +75,24 @@ fn compilation_is_shared_but_executions_and_results_are_independent() {
 #[test]
 fn graph_owned_ports_and_repeated_mounts_keep_distinct_results() {
     let design = Step::new("design", ActionHandle::new(Design(Arc::default()))).unwrap();
-    let producer = Graph::new(
+    let producer = Graph::with_interface(
         "producer",
-        Arc::new(
-            GraphStructure::with_interface(
-                [design.clone().into()],
-                [],
-                GraphInterface::default().output("plan", &design).unwrap(),
-            )
-            .unwrap(),
-        ),
+        [design.clone().into()],
+        [],
+        GraphInterface::default().output("plan", &design).unwrap(),
     )
     .unwrap();
     let apply = Step::new("apply", ActionHandle::new(Apply)).unwrap();
-    let consumer = Graph::new(
+    let consumer = Graph::with_interface(
         "consumer",
-        Arc::new(
-            GraphStructure::with_interface(
-                [apply.clone().into()],
-                [],
-                GraphInterface::default().input("use", [&apply]).unwrap(),
-            )
-            .unwrap(),
-        ),
+        [apply.clone().into()],
+        [],
+        GraphInterface::default().input("use", [&apply]).unwrap(),
     )
     .unwrap();
     let shared = Arc::new(
-        GraphStructure::new(
+        Graph::new(
+            "scope",
             [producer.clone().into(), consumer.clone().into()],
             [Edge::results(
                 [producer.interface().output("plan").unwrap()],
@@ -112,16 +104,25 @@ fn graph_owned_ports_and_repeated_mounts_keep_distinct_results() {
     );
     let root = Graph::new(
         "root",
-        Arc::new(
-            GraphStructure::new(
-                [
-                    Graph::new("left", Arc::clone(&shared)).unwrap().into(),
-                    Graph::new("right", shared).unwrap().into(),
-                ],
-                [],
+        [
+            Graph::with_interface(
+                "left",
+                shared.nodes().iter().cloned(),
+                shared.edges().iter().cloned(),
+                shared.interface().declaration().clone(),
             )
-            .unwrap(),
-        ),
+            .unwrap()
+            .into(),
+            Graph::with_interface(
+                "right",
+                shared.nodes().iter().cloned(),
+                shared.edges().iter().cloned(),
+                shared.interface().declaration().clone(),
+            )
+            .unwrap()
+            .into(),
+        ],
+        [],
     )
     .unwrap();
     let compilation = root.compile().unwrap();
@@ -144,16 +145,17 @@ fn explicit_skip_is_missing_input_and_does_not_leak_to_the_next_run() {
     let design = Step::new("design", ActionHandle::new(Design(Arc::default()))).unwrap();
     let apply = Step::new("apply", ActionHandle::new(Apply)).unwrap();
     let compilation = Arc::new(
-        GraphStructure::new(
+        Graph::new(
+            "scope",
             [design.clone().into(), apply.clone().into()],
             [Edge::results([&design], &apply).unwrap()],
         )
         .unwrap()
-        .compile_structure()
+        .compile()
         .unwrap(),
     );
-    let source = node_id(&compilation, &[0]);
-    let target = node_id(&compilation, &[1]);
+    let source = node_id(&compilation, &[0, 0]);
+    let target = node_id(&compilation, &[0, 1]);
     let outcome = Execution::new(
         Arc::clone(&compilation),
         ExecutionOptions::new(2).unwrap().skip([source]),
@@ -192,10 +194,11 @@ impl Action for ReadUnit {
 
 #[test]
 fn empty_composite_unit_is_present_but_skipped_composite_is_absent() {
-    let present = Graph::new("present", Arc::new(GraphStructure::new([], []).unwrap())).unwrap();
-    let absent = Graph::new("absent", Arc::new(GraphStructure::new([], []).unwrap())).unwrap();
+    let present = Graph::new("present", [], []).unwrap();
+    let absent = Graph::new("absent", [], []).unwrap();
     let read = Step::new("read", ActionHandle::new(ReadUnit)).unwrap();
-    let compilation = GraphStructure::new(
+    let compilation = Graph::new(
+        "scope",
         [
             present.clone().into(),
             absent.clone().into(),
@@ -204,10 +207,10 @@ fn empty_composite_unit_is_present_but_skipped_composite_is_absent() {
         [Edge::results([&present, &absent], &read).unwrap()],
     )
     .unwrap()
-    .compile_structure()
+    .compile()
     .unwrap();
-    let skipped = node_id(&compilation, &[1]);
-    let target = node_id(&compilation, &[2]);
+    let skipped = node_id(&compilation, &[0, 1]);
+    let target = node_id(&compilation, &[0, 2]);
     let outcome = Execution::new(
         compilation,
         ExecutionOptions::new(2).unwrap().skip([skipped]),
@@ -233,17 +236,12 @@ fn failure_blocks_dependents_but_not_an_independent_branch() {
     let independent = Step::new("independent", ActionHandle::new(Unit)).unwrap();
     let root = Graph::new(
         "root",
-        Arc::new(
-            GraphStructure::new(
-                [
-                    failed.clone().into(),
-                    blocked.clone().into(),
-                    independent.into(),
-                ],
-                [Edge::new(&failed, &blocked)],
-            )
-            .unwrap(),
-        ),
+        [
+            failed.clone().into(),
+            blocked.clone().into(),
+            independent.into(),
+        ],
+        [Edge::new(&failed, &blocked)],
     )
     .unwrap();
     let compilation = root.compile().unwrap();
@@ -273,27 +271,23 @@ fn failure_blocks_dependents_but_not_an_independent_branch() {
 fn failed_subgraph_does_not_retract_a_successful_exported_result() {
     let design = Step::new("design", ActionHandle::new(Design(Arc::default()))).unwrap();
     let failed = Step::new("failed sibling", ActionHandle::new(Fail)).unwrap();
-    let producer = Graph::new(
+    let producer = Graph::with_interface(
         "producer",
-        Arc::new(
-            GraphStructure::with_interface(
-                [design.clone().into(), failed.into()],
-                [],
-                GraphInterface::default().output("plan", &design).unwrap(),
-            )
-            .unwrap(),
-        ),
+        [design.clone().into(), failed.into()],
+        [],
+        GraphInterface::default().output("plan", &design).unwrap(),
     )
     .unwrap();
     let apply = Step::new("apply", ActionHandle::new(Apply)).unwrap();
-    let compilation = GraphStructure::new(
+    let compilation = Graph::new(
+        "scope",
         [producer.clone().into(), apply.clone().into()],
         [Edge::results([producer.interface().output("plan").unwrap()], &apply).unwrap()],
     )
     .unwrap()
-    .compile_structure()
+    .compile()
     .unwrap();
-    let target = node_id(&compilation, &[1]);
+    let target = node_id(&compilation, &[0, 1]);
     let outcome = Execution::new(compilation, ExecutionOptions::new(1).unwrap())
         .run()
         .unwrap();
@@ -309,9 +303,9 @@ fn invalid_execution_input_is_rejected_before_actions_start() {
     ));
     let calls = Arc::new(AtomicUsize::new(0));
     let step = Step::new("design", ActionHandle::new(Design(Arc::clone(&calls)))).unwrap();
-    let compilation = GraphStructure::new([step.into()], [])
+    let compilation = Graph::new("scope", [step.into()], [])
         .unwrap()
-        .compile_structure()
+        .compile()
         .unwrap();
     let execution = Execution::new(
         compilation,
@@ -323,21 +317,14 @@ fn invalid_execution_input_is_rejected_before_actions_start() {
 
 #[test]
 fn empty_and_fully_skipped_graphs_finish_without_action_dispatch() {
-    let empty = GraphStructure::new([], [])
-        .unwrap()
-        .compile_structure()
-        .unwrap();
+    let empty = Graph::new("scope", [], []).unwrap().compile().unwrap();
     let outcome = Execution::new(empty, ExecutionOptions::new(1).unwrap())
         .run()
         .unwrap();
     assert_eq!(outcome.status(), ExecutionStatus::Succeeded);
-    assert_eq!(outcome.nodes().len(), 0);
+    assert_eq!(outcome.nodes().len(), 1);
     let step = Step::new("must not run", ActionHandle::new(Fail)).unwrap();
-    let root = Graph::new(
-        "root",
-        Arc::new(GraphStructure::new([step.into()], []).unwrap()),
-    )
-    .unwrap();
+    let root = Graph::new("root", [step.into()], []).unwrap();
     let compilation = root.compile().unwrap();
     let root_id = node_id(&compilation, &[0]);
     let outcome = Execution::new(
@@ -398,10 +385,7 @@ fn workers_bound_the_whole_run_across_multiple_completion_batches() {
         .unwrap()
         .into()
     });
-    let compilation = GraphStructure::new(leaves, [])
-        .unwrap()
-        .compile_structure()
-        .unwrap();
+    let compilation = Graph::new("scope", leaves, []).unwrap().compile().unwrap();
     let outcome = Execution::new(compilation, ExecutionOptions::new(2).unwrap())
         .run()
         .unwrap();

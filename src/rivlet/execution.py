@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 from .compile import (
     GraphCompilation,
-    compile_graph,
+    _compile_graph_scope,
 )
 from .errors import GraphError
 from .execution_output import (
@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from .events import NodeEventSink
-    from .model import GraphMode, GraphStructure, Node, NodeKind, NodePath
+    from .model import Graph, GraphMode, Node, NodeKind, NodePath
     from .observe import GraphObserver
     from .option import Some
 
@@ -36,8 +36,8 @@ if TYPE_CHECKING:
 class Execution:
     """Bind one declared root Node to a single execution.
 
-    根与内部 Node 使用相同的身份、条件和生命周期；根可承载 Graph、Step
-    或原生图结构。这里只绑定运行状态，不重命名或替换声明。
+    根与内部 Node 使用相同的身份、条件和生命周期；根可以是 Graph 或 Step。
+    这里只绑定运行状态，不重命名或替换声明。
 
     它持有：
     - 根 Node 声明
@@ -56,7 +56,7 @@ class Execution:
     """
 
     root: NodeKind
-    _declaration_graph: GraphStructure = field(init=False, repr=False, compare=False)
+    _declaration_graph: Graph = field(init=False, repr=False, compare=False)
     shared: object | None = field(default=None, kw_only=True, repr=False)
     execution_state: ExecutionState = field(default_factory=ExecutionState)
     execution_control: ExecutionControl = field(
@@ -89,15 +89,13 @@ class Execution:
         node_log_paths: Mapping[NodeKind, Path] | None,
         events: NodeEventSink | None,
     ) -> None:
-        from .model import Graph, GraphStructure, Step
+        from .model import Graph, Step
 
         if not isinstance(self.root, (Step, Graph)):
             raise TypeError("Execution requires a root Node")
-        # 根 Node 是唯一真实根节点。此 Graph 只是编译输入的结构作用域，
-        # 不分配身份、不生成空 action，也不再次包装已有节点。
-        object.__setattr__(
-            self, "_declaration_graph", GraphStructure(nodes=(self.root,))
-        )
+        # 根 Node 是唯一真实根节点。此 Graph 仅提供编译输入作用域，
+        # 不作为执行节点投影，不生成 action、事件或额外的运行时边界。
+        object.__setattr__(self, "_declaration_graph", Graph(nodes=(self.root,)))
         if not node_log_paths:
             if events is not None:
                 self.execution_state._initialize_execution_inputs({}, events)
@@ -121,7 +119,7 @@ class Execution:
         with self._compilation_lock:
             compilation = self._compilation
             if compilation is None:
-                compilation = compile_graph(
+                compilation = _compile_graph_scope(
                     self._declaration_graph, root_label=self._root_label
                 )
                 object.__setattr__(self, "_compilation", compilation)
@@ -154,20 +152,24 @@ class Execution:
 
     def _index_mounted_step_paths(self) -> dict[Node, tuple[NodePath, ...]]:
         from .model import Graph, node_paths_for_mount
-        from .model.python_structure import _PythonStructure
+        from .model.native_graph import _NativeContents
 
         mounted_step_paths: dict[Node, list[NodePath]] = {}
 
-        def _collect(graph: GraphStructure, parent_node_path: NodePath | None) -> None:
+        def _collect(graph: Graph, parent_node_path: NodePath | None) -> None:
             for candidate, candidate_id in node_paths_for_mount(
                 graph,
                 parent_node_path=parent_node_path,
             ).items():
                 mounted_step_paths.setdefault(candidate, []).append(candidate_id)
-                if isinstance(candidate, Graph) and isinstance(
-                    candidate.structure._declaration, _PythonStructure
-                ):
-                    _collect(candidate.structure, candidate_id)
+                if isinstance(candidate, Graph):
+                    if isinstance(candidate._contents, _NativeContents):
+                        for member, path in candidate._contents.mounted_paths(
+                            candidate_id
+                        ).items():
+                            mounted_step_paths.setdefault(member, []).append(path)
+                    else:
+                        _collect(candidate, candidate_id)
 
         # V 为静态挂载中的 step 出现次数。一次批量绑定以 O(V) 时间和空间建立索引，
         # 随后的 K 次查找均为 O(1)，总复杂度为 O(V + K)，避免退化为 O(K * V)。

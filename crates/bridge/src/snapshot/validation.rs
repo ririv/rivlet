@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use action::ActionError;
 
-use super::{EdgeInfo, NodeKind, PrerequisiteInfo, ScopeInfo, Site, Snapshot};
+use super::{EdgeInfo, EndpointInfo, NodeKind, PrerequisiteInfo, ScopeInfo, Site, Snapshot};
 
 fn invalid() -> ActionError {
     ActionError::new("native graph descriptor contains an invalid reference or ownership")
@@ -41,6 +41,7 @@ impl Snapshot {
                 }
             }
             self.validate_interface(scope, prefix)?;
+            self.validate_declared_interface(index)?;
             self.validate_edges(scope)?;
         }
         if seen.len() != self.nodes.len() {
@@ -85,6 +86,78 @@ impl Snapshot {
                 {
                     return Err(invalid());
                 }
+            }
+        }
+        Ok(())
+    }
+
+    fn declared_endpoint(
+        &self,
+        scope: usize,
+        endpoint: &EndpointInfo,
+        input: bool,
+    ) -> Result<Vec<usize>, ActionError> {
+        let node = match endpoint {
+            EndpointInfo::Node { node } => *node,
+            EndpointInfo::Port { owner, .. } => *owner,
+        };
+        if self.nodes.get(node).is_none_or(|node| node.graph != scope) {
+            return Err(invalid());
+        }
+        match endpoint {
+            EndpointInfo::Node { node } => Ok(vec![*node]),
+            EndpointInfo::Port { owner, name } => {
+                let NodeKind::Graph { scope } = self.nodes[*owner].kind else {
+                    return Err(invalid());
+                };
+                let child = &self.scopes[scope];
+                if input {
+                    child
+                        .inputs
+                        .iter()
+                        .find(|(port, _)| port == name)
+                        .map(|(_, nodes)| nodes.clone())
+                        .ok_or_else(invalid)
+                } else {
+                    child
+                        .outputs
+                        .iter()
+                        .find(|(port, _)| port == name)
+                        .map(|(_, node)| vec![*node])
+                        .ok_or_else(invalid)
+                }
+            }
+        }
+    }
+
+    fn validate_declared_interface(&self, index: usize) -> Result<(), ActionError> {
+        let scope = &self.scopes[index];
+        if scope.interface.inputs.len() != scope.inputs.len()
+            || scope.interface.outputs.len() != scope.outputs.len()
+        {
+            return Err(invalid());
+        }
+        for ((name, endpoints), (resolved_name, resolved)) in
+            scope.interface.inputs.iter().zip(&scope.inputs)
+        {
+            let actual = endpoints
+                .iter()
+                .map(|endpoint| self.declared_endpoint(index, endpoint, true))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            if name != resolved_name || &actual != resolved {
+                return Err(invalid());
+            }
+        }
+        for ((name, endpoint), (resolved_name, resolved)) in
+            scope.interface.outputs.iter().zip(&scope.outputs)
+        {
+            if name != resolved_name
+                || self.declared_endpoint(index, endpoint, false)? != vec![*resolved]
+            {
+                return Err(invalid());
             }
         }
         Ok(())
@@ -175,6 +248,17 @@ impl Snapshot {
                 .nodes
                 .get(condition.site.target())
                 .ok_or_else(invalid)?;
+            let inputs = condition
+                .sources
+                .iter()
+                .map(|source| self.declared_endpoint(target.graph, source, false))
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>();
+            if inputs != condition.inputs {
+                return Err(invalid());
+            }
             match condition.site {
                 Site::Node { .. } if target.condition == Some(id) => {}
                 Site::Edge { index, .. } => {
@@ -231,6 +315,10 @@ mod tests {
                 inputs: vec![(None, vec![0])],
                 outputs: vec![(None, 0)],
                 edges: vec![],
+                interface: crate::InterfaceInfo {
+                    inputs: vec![(None, vec![EndpointInfo::Node { node: 0 }])],
+                    outputs: vec![(None, EndpointInfo::Node { node: 0 })],
+                },
             }],
             conditions: vec![],
             ports: vec![],

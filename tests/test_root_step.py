@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import sys
 from functools import partial
 from pathlib import Path
 from typing import Literal
@@ -18,7 +17,6 @@ from rivlet import (
     Graph,
     GraphError,
     GraphMode,
-    GraphStructure,
     NodeExecutionEvent,
     NodeExecutionState,
     NodePath,
@@ -27,6 +25,7 @@ from rivlet import (
     SerialGraphExecutor,
     Step,
     SubgraphFailed,
+    compile_graph,
     export_graph,
     render_execution,
 )
@@ -34,6 +33,29 @@ from rivlet import arun as arun_execution
 from rivlet import run as run_execution
 
 type Backend = Literal["serial", "thread", "async"]
+
+
+@pytest.mark.parametrize("composite", [False, True])
+def test_public_compiler_preserves_the_actual_root_and_its_condition(
+    composite: bool,
+) -> None:
+    calls: list[str] = []
+    child = Step(lambda: calls.append("child"))
+    root = (
+        Graph(nodes=(child,), label="root", condition=lambda: False)
+        if composite
+        else Step(lambda: calls.append("root"), label="root", condition=lambda: False)
+    )
+    compilation = compile_graph(root, root_label="test")
+    assert compilation.source_graph.nodes == (root,)
+    actual_root = compilation.composites[0] if composite else compilation.steps[0]
+    assert actual_root.id == root.id
+    assert actual_root.path == NodePath((0,))
+    assert actual_root.condition is not None
+    state = ExecutionState()
+    SerialGraphExecutor(state).execute(compilation)
+    assert not calls
+    assert NodePath((0,)) in state.skipped_steps
 
 
 def execute(execution: Execution, backend: Backend, mode: GraphMode) -> None:
@@ -98,11 +120,7 @@ def test_false_root_condition_skips_the_entire_graph(
 ) -> None:
     calls: list[str] = []
     child = Step(lambda: calls.append("child"), label=("child"))
-    root = Graph(
-        structure=GraphStructure(nodes=(child,)),
-        label="pipeline",
-        condition=lambda: False,
-    )
+    root = Graph(nodes=(child,), label=("pipeline"), condition=(lambda: False))
     events = Events()
     execution = Execution(root, events=events)
     compiled = execution.compile()
@@ -129,7 +147,7 @@ def test_root_failure_keeps_its_direct_child_as_the_witness(backend: Backend) ->
         raise ValueError("failure")
 
     child = Step(fail, label=("child"))
-    root = Graph(structure=GraphStructure(nodes=(child,)), label="pipeline")
+    root = Graph(nodes=(child,), label=("pipeline"))
     events = Events()
     execution = Execution(root, events=events)
     with pytest.raises(ValueError, match="failure"):
@@ -147,16 +165,13 @@ def test_root_failure_keeps_its_direct_child_as_the_witness(backend: Backend) ->
 
 def test_root_condition_cannot_wait_for_its_own_descendant() -> None:
     child = Step(lambda: True)
-    root = Graph(
-        structure=GraphStructure(nodes=(child,)),
-        condition=(lambda value: value.unwrap(), child),
-    )
+    root = Graph(nodes=(child,), condition=((lambda value: value.unwrap(), child)))
     with pytest.raises(GraphError, match="outside this graph"):
         Execution(root)
 
 
 def test_root_identity_is_preserved_in_declaration_and_compiled_exports() -> None:
-    root = Graph(structure=GraphStructure(), label="empty")
+    root = Graph(label=("empty"))
     execution = Execution(root)
     declaration = export_graph(root)
     compiled = export_graph(execution.compile())
@@ -190,7 +205,7 @@ def test_runtime_graph_returned_by_step_root_keeps_the_same_root_identity() -> N
     contexts: list[NodeRunContext] = []
     child = Step(lambda ctx: contexts.append(ctx), label=("child"))
     root = Step(
-        lambda: Graph(structure=GraphStructure(nodes=(child,))).structure,
+        lambda: Graph(nodes=(child,)),
         label=("expand"),
     )
     events = Events()
@@ -199,43 +214,12 @@ def test_runtime_graph_returned_by_step_root_keeps_the_same_root_identity() -> N
     assert execution.compile().composites == ()
     run_execution(execution)
     assert contexts[0].node_id == child.id
-    assert contexts[0].node_path == NodePath((0, 0))
-    assert contexts[0].node_path.labels == ("expand", "child")
+    assert contexts[0].node_path == NodePath((0, 0, 0))
+    assert contexts[0].node_path.labels == ("expand", "0.0", "child")
     assert [event.state for event in events.items if event.node_id == root.id] == [
         NodeExecutionState.STARTED,
         NodeExecutionState.COMPLETED,
     ]
-
-
-@pytest.mark.parametrize("enabled", [False, True])
-def test_native_graph_root_uses_the_outer_steps_condition_and_label(
-    tmp_path: Path, enabled: bool
-) -> None:
-    from rivlet._native import _rust_process_graph
-
-    output = tmp_path / "result"
-    native = _rust_process_graph(
-        [
-            (
-                "native leaf",
-                sys.executable,
-                [
-                    "-c",
-                    "from pathlib import Path; import sys; Path(sys.argv[1]).touch()",
-                    str(output),
-                ],
-                str(tmp_path),
-                {},
-            )
-        ],
-        [],
-    )
-    root = Graph(structure=native, label="native root", condition=lambda: enabled)
-    execution = Execution(root)
-    assert execution.compile().composites[0].id == root.id
-    assert execution.compile().composites[0].graph_label == "native root"
-    run_execution(execution)
-    assert output.exists() is enabled
 
 
 def test_log_binding_can_reference_the_root_declaration(tmp_path: Path) -> None:

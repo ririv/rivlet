@@ -16,7 +16,6 @@ from rivlet import (
     ExecutionState,
     Graph,
     GraphInterface,
-    GraphStructure,
     NodeExecutionEvent,
     NodeExecutionState,
     NodeRunContext,
@@ -67,7 +66,7 @@ change(-1)
     def python_action() -> None:
         subprocess.run([*command, "python"], check=True, timeout=30)
 
-    def branch() -> GraphStructure:
+    def branch() -> Graph:
         native = _rust_process_graph(
             [
                 (
@@ -81,16 +80,14 @@ change(-1)
             [],
         )
         return Graph(
-            structure=GraphStructure(
-                nodes=(
-                    Graph(structure=native),
-                    Step(python_action),
-                    Step(python_action),
-                )
+            nodes=(
+                native,
+                Step(python_action),
+                Step(python_action),
             )
-        ).structure
+        )
 
-    graph = Graph(structure=GraphStructure(nodes=tuple(Step(branch) for _ in range(4))))
+    graph = Graph(nodes=tuple(Step(branch) for _ in range(4)))
     events: list[NodeExecutionEvent] = []
 
     class Sink:
@@ -107,7 +104,7 @@ change(-1)
                 partial(run_async_execution, max_workers=2)
                 if asynchronous
                 else partial(run_execution, max_workers=2)
-            )(Execution(Graph(structure=graph.structure), events=Sink()))
+            )(Execution(graph, events=Sink()))
         finally:
             server.shutdown()
             thread.join()
@@ -131,13 +128,11 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
     prepared = Step(lambda: "prepared", label=("prepared"))
     port = "ready"
 
-    def expand(_ctx: NodeRunContext, result: Option[object]) -> GraphStructure:
+    def expand(_ctx: NodeRunContext, result: Option[object]) -> Graph:
         source = result.unwrap()
         ready = Step(lambda: calls.append(source), label=("ready"))
         provider = Graph(
-            structure=GraphStructure(
-                nodes=(ready,), interface=GraphInterface(outputs={port: ready})
-            )
+            nodes=(ready,), interface=GraphInterface(outputs={port: ready})
         )
 
         def consume() -> None:
@@ -145,20 +140,14 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
             calls.append("consumed")
 
         use = Step(consume, label=("consume"))
-        consumer = Graph(
-            structure=GraphStructure(
-                nodes=(use,), interface=GraphInterface(inputs={port: use})
-            )
-        )
+        consumer = Graph(nodes=(use,), interface=GraphInterface(inputs={port: use}))
         return Graph(
-            structure=GraphStructure(
-                nodes=(consumer, provider),
-                edges=resolve_port_requirements(
-                    (provider, consumer),
-                    (ExactProviderRequirement(consumer, provider, port),),
-                ),
-            )
-        ).structure
+            nodes=(consumer, provider),
+            edges=resolve_port_requirements(
+                (provider, consumer),
+                (ExactProviderRequirement(consumer, provider, port),),
+            ),
+        )
 
     graph = Graph.from_wiring(
         (
@@ -172,7 +161,7 @@ def test_runtime_child_preserves_interface_ports_and_ancestor_results(
         else partial(run_execution, max_workers=1)
     )(
         Execution(
-            Graph(structure=graph.structure),
+            graph,
             execution_state=ExecutionState(results=ResultStore()),
         )
     )

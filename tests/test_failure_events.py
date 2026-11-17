@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import Never
 
 import pytest
@@ -22,7 +20,6 @@ from rivlet import (
     Graph,
     GraphInterface,
     GraphMode,
-    GraphStructure,
     NodeConditionSite,
     NodeExecutionEvent,
     NodeExecutionState,
@@ -35,7 +32,6 @@ from rivlet import (
     resolve_port_requirements,
 )
 from rivlet import run as run_execution
-from rivlet._native import _rust_process_graph
 
 
 @dataclass
@@ -63,7 +59,10 @@ type Execute = Callable[[Graph, Events, GraphMode], Execution]
 @pytest.fixture(params=["serial", "threaded", "async"])
 def execute(request: pytest.FixtureRequest) -> Execute:
     def run(graph: Graph, events: Events, mode: GraphMode) -> Execution:
-        execution = Execution(Graph(structure=graph.structure), events=events)
+        execution = Execution(
+            graph,
+            events=events,
+        )
         with pytest.raises((RuntimeError, ExceptionGroup)):
             match request.param:
                 case "serial":
@@ -292,8 +291,8 @@ def test_unentered_subgraph_children_reference_their_blocked_parent(
     execute: Execute, mode: GraphMode
 ) -> None:
     source = Step(fail)
-    inner = Graph(structure=GraphStructure(nodes=(Step(lambda: None),)))
-    container = Graph(structure=GraphStructure(nodes=(inner,)))
+    inner = Graph(nodes=(Step(lambda: None),))
+    container = Graph(nodes=(inner,))
     events = Events()
     execute((source >> container).graph(), events, mode)
     assert events.failures() == {
@@ -333,16 +332,34 @@ def test_unentered_subgraph_children_reference_their_blocked_parent(
 def test_repeated_subgraphs_keep_failure_sources_in_their_own_mount(
     execute: Execute, mode: GraphMode, dynamic: bool
 ) -> None:
-    child = Graph(structure=GraphStructure(nodes=(Step(fail),)))
+    child = Graph(nodes=(Step(fail),))
     left = (
-        Step(lambda: child.structure) if dynamic else Graph(structure=child.structure)
+        Step(lambda: child)
+        if dynamic
+        else Graph(
+            nodes=child.nodes,
+            edges=child.edges,
+            observation=child.observation,
+            static=child.static,
+            static_selections=child.static_selections,
+            interface=child.interface.declaration,
+        )
     )
     right = (
-        Step(lambda: child.structure) if dynamic else Graph(structure=child.structure)
+        Step(lambda: child)
+        if dynamic
+        else Graph(
+            nodes=child.nodes,
+            edges=child.edges,
+            observation=child.observation,
+            static=child.static,
+            static_selections=child.static_selections,
+            interface=child.interface.declaration,
+        )
     )
     events = Events()
     execute((left | right).graph(), events, mode)
-    assert events.failures() == {
+    expected = {
         NodePath((0, 0, 0)): ActionFailed(),
         NodePath(
             (
@@ -358,29 +375,35 @@ def test_repeated_subgraphs_keep_failure_sources_in_their_own_mount(
             )
         ): SubgraphFailed(NodePath((0, 1, 0))),
     }
+    if dynamic:
+        # 返回的是实际 Graph 节点，动态动作与返回图各保留自己的失败边界。
+        expected = {}
+        for index in (0, 1):
+            failed = NodePath((0, index, 0, 0))
+            expected[failed] = ActionFailed()
+            expected[NodePath((0, index, 0))] = SubgraphFailed(failed)
+            expected[NodePath((0, index))] = SubgraphFailed(failed)
+    assert events.failures() == expected
 
 
 @pytest.mark.parametrize("mode", ["dynamic", "compiled"])
 def test_dynamic_failure_chain_preserves_each_session_boundary(
     execute: Execute, mode: GraphMode
 ) -> None:
-    grandchild = Graph(structure=GraphStructure(nodes=(Step(fail),)))
-    child = Graph(structure=GraphStructure(nodes=(Step(lambda: grandchild.structure),)))
+    grandchild = Graph(nodes=(Step(fail),))
+    child = Graph(nodes=(Step(lambda: grandchild),))
     events = Events()
     execute(
-        Graph(structure=GraphStructure(nodes=(Step(lambda: child.structure),))),
+        Graph(nodes=(Step(lambda: child),)),
         events,
         mode,
     )
     assert events.failures() == {
-        NodePath((0, 0, 0, 0)): ActionFailed(),
+        NodePath((0, 0, 0, 0, 0, 0)): ActionFailed(),
+        NodePath((0, 0, 0, 0, 0)): SubgraphFailed(NodePath((0, 0, 0, 0, 0, 0))),
+        NodePath((0, 0, 0, 0)): SubgraphFailed(NodePath((0, 0, 0, 0, 0, 0))),
         NodePath((0, 0, 0)): SubgraphFailed(NodePath((0, 0, 0, 0))),
-        NodePath(
-            (
-                0,
-                0,
-            )
-        ): SubgraphFailed(NodePath((0, 0, 0))),
+        NodePath((0, 0)): SubgraphFailed(NodePath((0, 0, 0, 0))),
     }
 
 
@@ -391,22 +414,16 @@ def test_port_failure_points_to_the_actual_provider_step(
     port = "ready"
     provide, consume = Step(fail), Step(lambda: None)
     provider = Graph(
-        structure=GraphStructure(
-            nodes=(provide,), interface=GraphInterface(outputs={port: provide})
-        )
+        nodes=(provide,), interface=GraphInterface(outputs={port: provide})
     )
-    consumer = Graph(
-        structure=GraphStructure(
-            nodes=(consume,), interface=GraphInterface(inputs={port: consume})
-        )
-    )
+    consumer = Graph(nodes=(consume,), interface=GraphInterface(inputs={port: consume}))
     bindings = resolve_port_requirements(
         (provider, consumer),
         (ExactProviderRequirement(consumer=consumer, provider=provider, port=port),),
     )
     events = Events()
     execute(
-        Graph(structure=GraphStructure(nodes=(provider, consumer), edges=bindings)),
+        Graph(nodes=(provider, consumer), edges=bindings),
         events,
         mode,
     )
@@ -424,18 +441,14 @@ def test_provider_failure_after_ready_does_not_retroactively_block_consumer(
     provider = (ready >> late_failure).graph(
         interface=GraphInterface(outputs={port: ready}),
     )
-    consumer = Graph(
-        structure=GraphStructure(
-            nodes=(consume,), interface=GraphInterface(inputs={port: consume})
-        )
-    )
+    consumer = Graph(nodes=(consume,), interface=GraphInterface(inputs={port: consume}))
     bindings = resolve_port_requirements(
         (provider, consumer),
         (ExactProviderRequirement(consumer=consumer, provider=provider, port=port),),
     )
     events = Events()
     execution = execute(
-        Graph(structure=GraphStructure(nodes=(provider, consumer), edges=bindings)),
+        Graph(nodes=(provider, consumer), edges=bindings),
         events,
         mode,
     )
@@ -449,28 +462,3 @@ def test_provider_failure_after_ready_does_not_retroactively_block_consumer(
         ): SubgraphFailed(NodePath((0, 0, 1))),
     }
     assert NodePath((0, 1, 0)) in execution.execution_state.completed_steps
-
-
-@pytest.mark.parametrize("mode", ["dynamic", "compiled"])
-def test_native_action_failure_uses_the_same_causal_model(
-    execute: Execute, mode: GraphMode, tmp_path: Path
-) -> None:
-    native = _rust_process_graph(
-        [("fail", sys.executable, ["-c", "raise SystemExit(7)"], str(tmp_path), {})],
-        [],
-    )
-    events = Events()
-    execute(
-        Graph(structure=GraphStructure(nodes=(Graph(structure=native),))),
-        events,
-        mode,
-    )
-    assert events.failures() == {
-        NodePath((0, 0, 0)): ActionFailed(),
-        NodePath(
-            (
-                0,
-                0,
-            )
-        ): SubgraphFailed(NodePath((0, 0, 0))),
-    }

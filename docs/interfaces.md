@@ -41,8 +41,24 @@ a_graph = (a_1 >> a_2 >> a_3 >> a_4 >> a_5).graph(
 b_graph = (b_a >> b_b >> b_c >> b_d >> b_e).graph(
     interface=GraphInterface(inputs={port_123: b_b}),
 )
-a = Graph(structure=(a_graph).structure, label=("A"))
-b = Graph(structure=(b_graph).structure, label=("B"))
+a = Graph(
+    nodes=(a_graph.nodes),
+    edges=(a_graph.edges),
+    observation=(a_graph.observation),
+    static=(a_graph.static),
+    static_selections=(a_graph.static_selections),
+    interface=a_graph.interface.declaration,
+    label=("A"),
+)
+b = Graph(
+    nodes=(b_graph.nodes),
+    edges=(b_graph.edges),
+    observation=(b_graph.observation),
+    static=(b_graph.static),
+    static_selections=(b_graph.static_selections),
+    interface=b_graph.interface.declaration,
+    label=("B"),
+)
 ```
 
 An output is a stability promise: later steps must not destroy or replace what has
@@ -85,7 +101,7 @@ there is exactly one named endpoint. An input can still fan out to several nodes
 This complete example uses both kinds without passing action results:
 
 ```python
-from rivlet import Edge, Graph, GraphInterface, GraphStructure, Step, run
+from rivlet import Edge, Graph, GraphInterface, Step, run
 
 compile_code = Step(lambda: print("compile"))
 install = Step(lambda: print("install"))
@@ -102,13 +118,13 @@ consumer = ((configure | check_report) >> launch).graph(
         outputs=launch,
     ),
 )
-workflow = Graph(GraphStructure(
+workflow = Graph(
     nodes=(producer, consumer),
     edges=(
         Edge(producer.interface.output, consumer.interface.input),
         Edge(producer.interface.outputs["report"], consumer.interface.inputs["report"]),
     ),
-))
+)
 run(workflow, max_workers=2)
 ```
 
@@ -131,7 +147,7 @@ candidates for name-based provider discovery; connect them explicitly.
 
 ## Forwarding and reuse
 
-GraphStructure, Graph.from_wiring, and wiring.graph accept the same `interface` declaration.
+Graph, Graph.from_wiring, and wiring.graph accept the same `interface` declaration.
 Omitting it means an empty interface, not automatic exposure of inner ports.
 
 ```python
@@ -210,38 +226,28 @@ endpoints to bind Option arguments; see [result transport](#result-transport).
 
 ## Result transport
 
-GraphStructure accepts `interface=` declarations; Graph.interface exposes read-only ports
+Graph.interface stores declarations; Graph.interface exposes read-only ports
 bound to that actual graph. Inputs return InputPort and outputs return OutputPort;
 Step has no interface. References preserve their owning graph without a
 (Step, "port") pair or a separate bind call. This example is independently runnable:
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphInterface, GraphStructure, Step, run
+from rivlet import Edge, Execution, Graph, GraphInterface, Step, run
 
 plan = Step(lambda: "design", label="plan")
 producer = Graph(
-    GraphStructure(
-        nodes=(plan,),
-        interface=GraphInterface(outputs={"plan": plan}),
-    ),
-    label="producer",
+    nodes=(plan,), interface=GraphInterface(outputs={"plan": plan}), label=("producer")
 )
 work = Step(lambda ctx, value: print(value.unwrap()), label="work")
 consumer = Graph(
-    GraphStructure(
-        nodes=(work,),
-        interface=GraphInterface(inputs={"apply": work}),
-    ),
-    label="consumer",
+    nodes=(work,), interface=GraphInterface(inputs={"apply": work}), label=("consumer")
 )
 root = Graph(
-    GraphStructure(
-        nodes=(producer, consumer),
-        edges=Edge.results(
-            (producer.interface.outputs["plan"],),
-            consumer.interface.inputs["apply"],
-        ),
-    )
+    nodes=(producer, consumer),
+    edges=Edge.results(
+        (producer.interface.outputs["plan"],),
+        consumer.interface.inputs["apply"],
+    ),
 )
 run(root)
 ```
@@ -249,7 +255,7 @@ run(root)
 An exposed input may remain unbound until outer composition; final compilation validates
 each actual leaf's complete argument group. A fan-out input supplies that same ordered
 group to every receiver, whose signature must match. Aliased ports cannot install
-multiple groups on one action. Reuse GraphStructure through distinct Graph nodes and
+multiple groups on one action. Reuse Graph through distinct Graph nodes and
 take ports from the intended instance. Forward with inputs=child/outputs=child or
 child.interface.inputs/outputs; forwarding preserves ownership.
 Runtime skip supplies Nothing; successful None supplies Some(None); failures block
@@ -305,7 +311,7 @@ bindings = resolve_port_requirements(
     (requirement,),
     selections=(ProviderSelection(requirement=requirement, provider=a),),
 )
-graph = Graph(structure=GraphStructure(nodes=((a, b, c)), edges=(bindings)))
+graph = Graph(nodes=(a, b, c), edges=bindings)
 ```
 
 Ambiguity without a selection is an error. There is no “first ready wins” policy
@@ -390,7 +396,22 @@ compensate for A's failure, while unrelated consumer work can still proceed.
 
 ```python
 graph = (
-    Graph(structure=(a_graph).structure) >> Graph(structure=(b_graph).structure)
+    Graph(
+        nodes=(a_graph.nodes),
+        edges=(a_graph.edges),
+        observation=(a_graph.observation),
+        static=(a_graph.static),
+        static_selections=(a_graph.static_selections),
+        interface=a_graph.interface.declaration,
+    )
+    >> Graph(
+        nodes=(b_graph.nodes),
+        edges=(b_graph.edges),
+        observation=(b_graph.observation),
+        static=(b_graph.static),
+        static_selections=(b_graph.static_selections),
+        interface=b_graph.interface.declaration,
+    )
 ).graph()
 ```
 
@@ -422,8 +443,8 @@ must finish before any of B starts.” Both public modes use the same lowering:
 ```python
 from rivlet import run
 
-run(Execution(root=Graph(structure=(graph).structure)), mode="compiled")
-run(Execution(root=Graph(structure=(graph).structure)), mode="dynamic")
+run(Execution(root=graph), mode="compiled")
+run(Execution(root=graph), mode="dynamic")
 ```
 
 ## Language boundaries
@@ -436,12 +457,10 @@ explicit selections without executing actions or providing failover.
 Explicit bindings enter declaration compilation and lowering. Final DAG validation
 and scheduling live in Rust; Python does not maintain a second provider solver.
 
-Ports bind to concrete Graph instances, including native bodies exported through
-[the SDK](./python-native.md). Python does not receive internal executable Rust
-Step objects; use the native body's exposed ports. To publish whole-body completion,
-use its Graph node as an output. A dynamically returned graph cannot expose unknown
-internal ports before it exists.
+Ports reference nodes in the Python declaration.
 
-Provider components and their direct output nodes cannot use runtime `condition` to
-decide whether they exist. Provider selection is fixed before compilation; runtime
-skipping is not a mechanism for changing candidates.
+Provider selection is fixed before compilation. A provider or its output may be
+runtime-skipped, using ordinary completion semantics: skipping releases completion
+waits, does not produce a value, and does not select another provider. A result reader
+receives Nothing for a skipped producer. If a consumer must also be skipped, declare
+its condition explicitly; a port connection is not an implicit existence test.

@@ -8,8 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from rivlet import Edge, Execution, Graph, GraphStructure, Step, arun, run
-from rivlet._native import _ResultFixtureKind, _rust_result_fixture
+from rivlet import Execution, Graph, Step, arun, run
 
 
 @pytest.mark.skipif(
@@ -90,7 +89,7 @@ def test_coroutines_are_not_limited_by_thread_pool_size(asynchronous) -> None:
             async with asyncio.timeout(3):
                 await barrier.wait()
 
-        graph = Graph(GraphStructure(nodes=tuple(Step(action) for _ in range(8))))
+        graph = Graph(nodes=tuple(Step(action) for _ in range(8)))
         with ThreadPoolExecutor(max_workers=1) as pool:
             await Execution(graph).arun(pool=pool)
         assert len(loops) == 8
@@ -108,7 +107,7 @@ def test_coroutines_are_not_limited_by_thread_pool_size(asynchronous) -> None:
                 await barrier.wait()
             calls.append("done")
 
-        root = Graph(GraphStructure(nodes=tuple(Step(action) for _ in range(8))))
+        root = Graph(nodes=tuple(Step(action) for _ in range(8)))
         run(root, max_workers=1)
         assert calls == ["done"] * 8
 
@@ -124,39 +123,11 @@ def test_coroutine_can_release_a_blocked_thread(asynchronous) -> None:
         await asyncio.sleep(0)
         ready.set()
 
-    graph = Graph(GraphStructure(nodes=(Step(blocking), Step(release))))
+    graph = Graph(nodes=(Step(blocking), Step(release)))
     if asynchronous:
         asyncio.run(arun(graph, max_workers=1))
     else:
         run(graph, max_workers=1)
-
-
-@pytest.mark.parametrize("asynchronous", [False, True])
-def test_rust_completion_does_not_require_a_python_action_worker(asynchronous) -> None:
-    ready = threading.Event()
-
-    def blocking() -> None:
-        assert ready.wait(3), (
-            "Rust completion notification must not occupy the action pool"
-        )
-
-    async def release(_ctx, value) -> None:
-        assert value.unwrap() == 42
-        ready.set()
-
-    source, _ = _rust_result_fixture(_ResultFixtureKind.I64)
-    provider = Graph(source)
-    consumer = Step(release)
-    root = Graph(
-        GraphStructure(
-            nodes=(Step(blocking), provider, consumer),
-            edges=Edge.results((provider.interface.outputs["value"],), consumer),
-        )
-    )
-    if asynchronous:
-        asyncio.run(arun(root, max_workers=1))
-    else:
-        run(root, max_workers=1)
 
 
 @pytest.mark.parametrize("fails", [False, True])

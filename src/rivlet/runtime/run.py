@@ -16,8 +16,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from ..model import (
+        Graph,
         GraphObservationMessages,
-        GraphStructure,
         Node,
         NodeLabelPath,
         NodePath,
@@ -59,7 +59,7 @@ class CompiledGraphRun:
         return self.compilation.observation
 
     @property
-    def source_graph(self) -> GraphStructure:
+    def source_graph(self) -> Graph:
         return self.compilation.source_graph
 
     @property

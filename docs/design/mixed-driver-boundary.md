@@ -12,7 +12,7 @@ Pure Rust execution and the independent Node.js frontend are separate capabiliti
 The SDK exports a concrete Step or Graph through `export_node`. A Graph exported
 by the current Rust SDK has Rust actions and predicates throughout: the SDK has no
 Python-action injection API. Python can compose that node into an outer workflow.
-Reuse of `.structure` creates new Graph declarations, not implicit copies of root
+Explicit reuse of `.nodes/.edges` creates new Graph declarations, not implicit copies of root
 identity or condition. A factory is optional; an extension may export node objects
 as module attributes.
 

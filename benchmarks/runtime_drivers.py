@@ -12,7 +12,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING
 
-from rivlet import Graph, GraphStructure, Step
+from rivlet import Graph, Step
 from rivlet._native import _experimental_run_tokio_callbacks
 from rivlet.compile import compile_graph
 from rivlet.runtime.batch_driver import run_session
@@ -28,13 +28,9 @@ if TYPE_CHECKING:
 
 def _compilation(nodes: int) -> GraphCompilation:
     graph = Graph(
-        structure=GraphStructure(
-            nodes=tuple(
-                Step(lambda: None, label=f"step-{index}") for index in range(nodes)
-            )
-        )
+        nodes=tuple(Step(lambda: None, label=f"step-{index}") for index in range(nodes))
     )
-    return compile_graph(graph.structure, root_label="benchmark")
+    return compile_graph(graph, root_label="benchmark")
 
 
 def _host(compilation: GraphCompilation) -> CompiledExecutionHost:
@@ -59,8 +55,6 @@ def _batch(compilation: GraphCompilation, workers: int) -> None:
     definition = SessionDefinition(
         compilation._execution_graph,
         _host(compilation),
-        compilation._rust_actions,
-        [],
         max(1, len(compilation._execution_nodes)),
     )
     with ThreadPoolExecutor(max_workers=workers) as pool:

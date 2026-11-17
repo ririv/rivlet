@@ -14,8 +14,6 @@ no selectable retention policy or per-consumer reclamation.
 | Order-only or readiness edges, with no result inputs or explicitly supplied store | Not enabled by default |
 | Result inputs to a Python action | Enabled automatically before the session executes |
 | Result inputs to a node condition or conditional-edge predicate | Enabled automatically before the session executes |
-| Python results needed as Rust action inputs | Enabled automatically before the session executes |
-| Only Rust-to-Rust result inputs | Native transport does not by itself enable a Python ResultStore |
 | Explicit `ExecutionState(results=ResultStore())` | Enabled explicitly |
 
 Recording is execution state, not a property of one source or consumer. Once it
@@ -28,16 +26,13 @@ executed, not stored as an ordinary action payload.
 For example, one result edge also enables recording of `unrelated`:
 
 ```python
-from rivlet import Edge, Execution, Graph, GraphStructure, Step, run
+from rivlet import Edge, Execution, Graph, Step, run
 
 source = Step(lambda: "plan", label="source")
 consumer = Step(lambda _ctx, result: print(result.unwrap()), label="consumer")
 unrelated = Step(lambda: "not consumed", label="unrelated")
 workflow = Graph(
-    GraphStructure(
-        nodes=(source, consumer, unrelated),
-        edges=Edge.results((source,), consumer),
-    )
+    nodes=(source, consumer, unrelated), edges=Edge.results((source,), consumer)
 )
 execution = Execution(workflow)
 run(execution, max_workers=2)
@@ -85,10 +80,7 @@ injected shared state for shared mutation, not the result store.
 
 ## Rust ownership
 
-The mixed Python/Rust driver keeps native values in their execution session.
-When Python result recording is enabled, retained Rust results are opaque native
-references; conversion to a Python value happens only when read. Pure native
-transport does not require Python result wrappers. See [Rust results](./rust-results.md).
+
 
 The standalone Rust `execution::Execution::run()` has a different inspection
 owner: its ExecutionOutcome retains successful native values until that outcome

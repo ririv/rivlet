@@ -10,7 +10,7 @@ from collections import Counter
 
 import pytest
 
-from rivlet import Graph, GraphStructure, Step, arun, run
+from rivlet import Graph, Step, arun, run
 from rivlet._native import _rust_process_graph
 
 
@@ -65,17 +65,11 @@ change(-1)
                 [sys.executable, *base, branch, "python"], check=True, timeout=10
             )
 
-        return GraphStructure(
-            nodes=(Graph(rust), *(Step(python_action) for _ in range(3)))
-        )
+        return Graph(nodes=(rust, *(Step(python_action) for _ in range(3))))
 
     # 两层动态 session 继承同一个受限祖先；父 action 不能占着名额等待。
-    left = Graph(
-        GraphStructure(nodes=tuple(Step(lambda: dynamic("left")) for _ in range(2)))
-    )
-    right = Graph(
-        GraphStructure(nodes=tuple(Step(lambda: dynamic("right")) for _ in range(2)))
-    )
+    left = Graph(nodes=tuple(Step(lambda: dynamic("left")) for _ in range(2)))
+    right = Graph(nodes=tuple(Step(lambda: dynamic("right")) for _ in range(2)))
     root = (left | right).graph()
     limits = {root: 2, left: 1, right: 1}
     thread = threading.Thread(

@@ -10,12 +10,36 @@ from .._native import _NativeCondition
 from ..errors import GraphError
 
 if TYPE_CHECKING:
+    from ..interface import OutputEndpoint
     from . import ConditionInput
     from .node import Node
 
 
 # 参数按声明顺序接收 Option[object]，不按类型标注猜测调用约定。
 type ConditionalEdgePredicate = Callable[..., bool | Awaitable[bool]]
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class _BoundNativeCondition:
+    """Experimental: a Rust predicate with explicit, GC-visible source references."""
+
+    _native: _NativeCondition
+    inputs: tuple[OutputEndpoint, ...]
+
+    @property
+    def when(self) -> _NativeCondition:
+        return self._native
+
+    def as_input(self) -> _BoundNativeCondition:
+        return self
+
+
+def _bind_native_condition(
+    condition: _NativeCondition | _RuntimeCondition | _BoundNativeCondition | None,
+) -> _RuntimeCondition | _BoundNativeCondition | None:
+    if isinstance(condition, _NativeCondition):
+        return _BoundNativeCondition(condition, ())
+    return condition
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -33,8 +57,8 @@ class _RuntimeCondition:
 
 def _normalize_condition(
     condition: ConditionInput,
-) -> _RuntimeCondition | _NativeCondition:
-    if isinstance(condition, _NativeCondition):
+) -> _RuntimeCondition | _BoundNativeCondition:
+    if isinstance(condition, _BoundNativeCondition):
         return condition
     if callable(condition):
         return _RuntimeCondition(when=condition, inputs=())

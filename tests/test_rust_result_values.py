@@ -17,7 +17,6 @@ from rivlet import (
     GraphError,
     GraphInterface,
     GraphNodeFailure,
-    GraphStructure,
     NodePath,
     ResultStore,
     SerialGraphExecutor,
@@ -72,15 +71,21 @@ def test_rust_to_rust_to_python_preserves_actual_typed_values(
         [],
         [("result", 1, "value")],
     )
-    native = Graph(body, label="native")
+    native = Graph(
+        nodes=(body.nodes),
+        edges=(body.edges),
+        observation=(body.observation),
+        static=(body.static),
+        static_selections=(body.static_selections),
+        interface=body.interface.declaration,
+        label=("native"),
+    )
     seen: list[object] = []
     sink = Step(lambda ctx, value: seen.append(value.unwrap()), label="sink")
     execution = Execution(
         Graph(
-            GraphStructure(
-                nodes=(native, sink),
-                edges=Edge.results((native.interface.outputs["result"],), sink),
-            )
+            nodes=(native, sink),
+            edges=Edge.results((native.interface.outputs["result"],), sink),
         )
     )
     run(execution, backend)
@@ -89,8 +94,9 @@ def test_rust_to_rust_to_python_preserves_actual_typed_values(
     declaration = export_graph(execution.root)
     result_edges = [edge for edge in declaration["edges"] if edge["kind"] == "result"]
     assert len(result_edges) == 2
-    assert result_edges[0]["provider_node"] == "0.0.0.0"
-    assert result_edges[0]["consumer_nodes"] == ["0.0.1.0"]
+    internal = next(edge for edge in result_edges if "consumer_nodes" in edge)
+    assert internal["provider_node"] == "0.0.0.0"
+    assert internal["consumer_nodes"] == ["0.0.1.0"]
     assert "action input: 0" in render_graph(execution.root, root_label="root")
     assert "action input 0" in render_graph_mermaid(execution.root, root_label="root")
 
@@ -101,19 +107,25 @@ def test_python_to_rust_and_back_uses_receiver_type(
     kind: Kind, value: object, backend: Backend
 ) -> None:
     _, body = _rust_result_fixture(kind)
-    native = Graph(body, label="native")
+    native = Graph(
+        nodes=(body.nodes),
+        edges=(body.edges),
+        observation=(body.observation),
+        static=(body.static),
+        static_selections=(body.static_selections),
+        interface=body.interface.declaration,
+        label=("native"),
+    )
     producer = Step(lambda: value)
     seen: list[object] = []
     sink = Step(lambda ctx, result: seen.append(result.unwrap()))
     execution = Execution(
         Graph(
-            GraphStructure(
-                nodes=(producer, native, sink),
-                edges=(
-                    *Edge.results((producer,), native.interface.inputs["apply"]),
-                    *Edge.results((native.interface.outputs["value"],), sink),
-                ),
-            )
+            nodes=(producer, native, sink),
+            edges=(
+                *Edge.results((producer,), native.interface.inputs["apply"]),
+                *Edge.results((native.interface.outputs["value"],), sink),
+            ),
         )
     )
     run(execution, backend)
@@ -132,7 +144,7 @@ def test_custom_native_payload_needs_no_codec_for_native_only_edges(
         [],
         [],
     )
-    execution = Execution(Graph(body))
+    execution = Execution(body)
     run(execution, backend)
     assert execution.execution_state.results is None
 
@@ -143,22 +155,28 @@ def test_native_option_distinguishes_skipped_from_successful_unit(
     skipped: bool, backend: Backend
 ) -> None:
     source, target = _rust_result_fixture(Kind.Unit)
-    producer = Graph(source, condition=(lambda: False) if skipped else None)
-    consumer = Graph(target)
+    producer = Graph(
+        nodes=(source.nodes),
+        edges=(source.edges),
+        observation=(source.observation),
+        static=(source.static),
+        static_selections=(source.static_selections),
+        interface=source.interface.declaration,
+        condition=((lambda: False) if skipped else None),
+    )
+    consumer = target
     seen: list[object] = []
     sink = Step(lambda ctx, value: seen.append(value.unwrap()))
     execution = Execution(
         Graph(
-            GraphStructure(
-                nodes=(producer, consumer, sink),
-                edges=(
-                    *Edge.results(
-                        (producer.interface.outputs["value"],),
-                        consumer.interface.inputs["apply"],
-                    ),
-                    *Edge.results((consumer.interface.outputs["value"],), sink),
+            nodes=(producer, consumer, sink),
+            edges=(
+                *Edge.results(
+                    (producer.interface.outputs["value"],),
+                    consumer.interface.inputs["apply"],
                 ),
-            )
+                *Edge.results((consumer.interface.outputs["value"],), sink),
+            ),
         )
     )
     run(execution, backend)
@@ -181,20 +199,26 @@ def test_bad_python_import_fails_receiver_only(
     kind: Kind, bad_value: object, backend: Backend
 ) -> None:
     _, body = _rust_result_fixture(kind)
-    native = Graph(body, label="receiver")
+    native = Graph(
+        nodes=(body.nodes),
+        edges=(body.edges),
+        observation=(body.observation),
+        static=(body.static),
+        static_selections=(body.static_selections),
+        interface=body.interface.declaration,
+        label=("receiver"),
+    )
     producer = Step(lambda: bad_value)
     seen: list[str] = []
     independent = Step(lambda: seen.append("independent"))
     blocked = Step(lambda: seen.append("blocked"))
     execution = Execution(
         Graph(
-            GraphStructure(
-                nodes=(producer, native, independent, blocked),
-                edges=(
-                    *Edge.results((producer,), native.interface.inputs["apply"]),
-                    Edge(native, blocked),
-                ),
-            )
+            nodes=(producer, native, independent, blocked),
+            edges=(
+                *Edge.results((producer,), native.interface.inputs["apply"]),
+                Edge(native, blocked),
+            ),
         )
     )
     with pytest.raises(RuntimeError):
@@ -210,16 +234,14 @@ def test_unregistered_native_export_fails_python_reader_not_native_producer(
     backend: Backend,
 ) -> None:
     source, _ = _rust_result_fixture(Kind.Opaque)
-    native = Graph(source)
+    native = source
     reader = Step(lambda ctx, value: value.unwrap())
     seen: list[str] = []
     independent = Step(lambda: seen.append("independent"))
     execution = Execution(
         Graph(
-            GraphStructure(
-                nodes=(native, reader, independent),
-                edges=Edge.results((native.interface.outputs["value"],), reader),
-            )
+            nodes=(native, reader, independent),
+            edges=Edge.results((native.interface.outputs["value"],), reader),
         )
     )
     with pytest.raises(TypeError, match="no Python export codec"):
@@ -237,30 +259,55 @@ def test_forwarded_reused_consumers_keep_values_bound_to_each_mount(
     backend: Backend,
 ) -> None:
     _, body = _rust_result_fixture(Kind.Custom)
-    inner = Graph(body, label="inner")
-    shared = GraphStructure(
+    inner = Graph(
+        nodes=(body.nodes),
+        edges=(body.edges),
+        observation=(body.observation),
+        static=(body.static),
+        static_selections=(body.static_selections),
+        interface=body.interface.declaration,
+        label=("inner"),
+    )
+    shared = Graph(
         nodes=(inner,), interface=GraphInterface(inputs=inner, outputs=inner)
     )
-    left, right = Graph(shared, label="left"), Graph(shared, label="right")
+    left, right = (
+        Graph(
+            nodes=(shared.nodes),
+            edges=(shared.edges),
+            observation=(shared.observation),
+            static=(shared.static),
+            static_selections=(shared.static_selections),
+            interface=shared.interface.declaration,
+            label=("left"),
+        ),
+        Graph(
+            nodes=(shared.nodes),
+            edges=(shared.edges),
+            observation=(shared.observation),
+            static=(shared.static),
+            static_selections=(shared.static_selections),
+            interface=shared.interface.declaration,
+            label=("right"),
+        ),
+    )
     first, second = Step(lambda: {"value": 1}), Step(lambda: {"value": 2})
     seen: list[object] = []
     sink = Step(lambda ctx, a, b: seen.extend((a.unwrap(), b.unwrap())))
     execution = Execution(
         Graph(
-            GraphStructure(
-                nodes=(first, second, left, right, sink),
-                edges=(
-                    *Edge.results((first,), left.interface.inputs["apply"]),
-                    *Edge.results((second,), right.interface.inputs["apply"]),
-                    *Edge.results(
-                        (
-                            right.interface.outputs["value"],
-                            left.interface.outputs["value"],
-                        ),
-                        sink,
+            nodes=(first, second, left, right, sink),
+            edges=(
+                *Edge.results((first,), left.interface.inputs["apply"]),
+                *Edge.results((second,), right.interface.inputs["apply"]),
+                *Edge.results(
+                    (
+                        right.interface.outputs["value"],
+                        left.interface.outputs["value"],
                     ),
+                    sink,
                 ),
-            )
+            ),
         )
     )
     run(execution, backend)
@@ -272,18 +319,16 @@ def test_custom_export_is_cached_for_fanout_and_retained_results(
     backend: Backend,
 ) -> None:
     body, _ = _rust_result_fixture(Kind.Custom)
-    native = Graph(body)
+    native = body
     seen: list[object] = []
     one = Step(lambda ctx, value: seen.append(value.unwrap()))
     two = Step(lambda ctx, value: seen.append(value.unwrap()))
     graph = Graph(
-        GraphStructure(
-            nodes=(native, one, two),
-            edges=(
-                *Edge.results((native.interface.outputs["value"],), one),
-                *Edge.results((native.interface.outputs["value"],), two),
-            ),
-        )
+        nodes=(native, one, two),
+        edges=(
+            *Edge.results((native.interface.outputs["value"],), one),
+            *Edge.results((native.interface.outputs["value"],), two),
+        ),
     )
     execution = Execution(graph, execution_state=ExecutionState(results=ResultStore()))
     run(execution, backend)
@@ -292,20 +337,19 @@ def test_custom_export_is_cached_for_fanout_and_retained_results(
     results = execution.execution_state.results
     assert results is not None
     assert results.require(NodePath((0, 0, 0))).value is seen[0]
+    assert execution.require_result(native.nodes[0]).value is seen[0]
     assert '"value": 42' not in json.dumps(export_graph(execution.compile()))
 
 
 def test_known_native_result_type_mismatch_is_rejected_before_execution() -> None:
     source, _ = _rust_result_fixture(Kind.Bool)
     _, target = _rust_result_fixture(Kind.I64)
-    first, second = Graph(source), Graph(target)
+    first, second = source, target
     graph = Graph(
-        GraphStructure(
-            nodes=(first, second),
-            edges=Edge.results(
-                (first.interface.outputs["value"],), second.interface.inputs["apply"]
-            ),
-        )
+        nodes=(first, second),
+        edges=Edge.results(
+            (first.interface.outputs["value"],), second.interface.inputs["apply"]
+        ),
     )
     with pytest.raises(GraphError, match="native result type mismatch"):
         Execution(graph).compile()

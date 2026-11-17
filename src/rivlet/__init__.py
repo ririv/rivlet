@@ -62,7 +62,6 @@ if TYPE_CHECKING:
         GraphEdge,
         GraphMode,
         GraphObservationMessages,
-        GraphStructure,
         GraphWiring,
         Node,
         NodeId,
@@ -203,7 +202,6 @@ _EXPORT_GROUPS = (
         ".model",
         (
             "Graph",
-            "GraphStructure",
             "GraphMode",
             "GraphObservationMessages",
             "GraphWiring",
@@ -327,7 +325,6 @@ __all__ = [
     "ProviderSelection",
     "resolve_port_requirements",
     "Graph",
-    "GraphStructure",
     "GraphError",
     "GraphMode",
     "GraphObservationMessages",

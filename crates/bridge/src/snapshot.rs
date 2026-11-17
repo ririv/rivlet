@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use action::ActionError;
-use graph::{Edge, Node, OutputEndpoint, ProjectedKind, Projection, ResultTarget};
+use graph::{Edge, InputEndpoint, Node, OutputEndpoint, ProjectedKind, Projection, ResultTarget};
 use serde::{Deserialize, Serialize};
 
 use crate::types::{Type, describe};
@@ -52,6 +52,22 @@ pub struct ScopeInfo {
     pub inputs: Vec<(Option<String>, Vec<usize>)>,
     pub outputs: Vec<(Option<String>, usize)>,
     pub edges: Vec<EdgeInfo>,
+    pub interface: InterfaceInfo,
+}
+
+/// 原始声明端点，与 lowering 后的调度索引分开保存。
+#[derive(Clone, Debug, Deserialize, Serialize)]
+#[serde(tag = "kind", deny_unknown_fields)]
+pub enum EndpointInfo {
+    Node { node: usize },
+    Port { owner: usize, name: Option<String> },
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct InterfaceInfo {
+    pub inputs: Vec<(Option<String>, Vec<EndpointInfo>)>,
+    pub outputs: Vec<(Option<String>, EndpointInfo)>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -119,6 +135,7 @@ impl Site {
 #[serde(deny_unknown_fields)]
 pub struct ConditionInfo {
     pub inputs: Vec<usize>,
+    pub sources: Vec<EndpointInfo>,
     pub types: Vec<Type>,
     pub site: Site,
 }
@@ -166,6 +183,7 @@ impl Snapshot {
                         .map(|(name, node)| (name.as_option().map(str::to_owned), node.index()))
                         .collect(),
                     edges,
+                    interface: scope_interface(scope),
                 }
             })
             .collect();
@@ -248,6 +266,13 @@ fn projection_conditions(
             let target = condition.target().index();
             Ok(ConditionInfo {
                 inputs: condition.inputs().iter().map(|node| node.index()).collect(),
+                sources: condition
+                    .sources()
+                    .iter()
+                    .map(|source| {
+                        output_endpoint(&projection.scopes()[nodes[target].graph], source)
+                    })
+                    .collect(),
                 types: condition
                     .input_types()
                     .iter()
@@ -264,12 +289,74 @@ fn projection_conditions(
         .collect::<Result<_, ActionError>>()
 }
 
+fn output_endpoint(scope: &graph::ProjectedScope, endpoint: &OutputEndpoint) -> EndpointInfo {
+    let global = |id| {
+        scope
+            .local_node(id)
+            .expect("validated declaration endpoint")
+            .index()
+    };
+    match endpoint {
+        OutputEndpoint::Node(node) => EndpointInfo::Node {
+            node: global(*node),
+        },
+        OutputEndpoint::Port(port) => EndpointInfo::Port {
+            owner: global(port.owner()),
+            name: port.name().as_option().map(str::to_owned),
+        },
+    }
+}
+
+fn scope_interface(scope: &graph::ProjectedScope) -> InterfaceInfo {
+    let view = scope.declaration().interface();
+    let interface = view.declaration();
+    InterfaceInfo {
+        inputs: interface
+            .inputs()
+            .iter()
+            .map(|(name, endpoints)| {
+                (
+                    name.as_option().map(str::to_owned),
+                    endpoints
+                        .iter()
+                        .map(|endpoint| match endpoint {
+                            InputEndpoint::Node(node) => EndpointInfo::Node {
+                                node: scope
+                                    .local_node(*node)
+                                    .expect("validated input endpoint")
+                                    .index(),
+                            },
+                            InputEndpoint::Port(port) => EndpointInfo::Port {
+                                owner: scope
+                                    .local_node(port.owner())
+                                    .expect("validated input owner")
+                                    .index(),
+                                name: port.name().as_option().map(str::to_owned),
+                            },
+                        })
+                        .collect(),
+                )
+            })
+            .collect(),
+        outputs: interface
+            .outputs()
+            .iter()
+            .map(|(name, endpoint)| {
+                (
+                    name.as_option().map(str::to_owned),
+                    output_endpoint(scope, endpoint),
+                )
+            })
+            .collect(),
+    }
+}
+
 fn scope_edges(
     scope: &graph::ProjectedScope,
     edge_conditions: &HashMap<(usize, usize), usize>,
 ) -> (Vec<EdgeInfo>, Vec<usize>) {
     let indexes: HashMap<_, _> = scope
-        .structure()
+        .declaration()
         .nodes()
         .iter()
         .enumerate()
@@ -277,7 +364,7 @@ fn scope_edges(
         .collect();
     let mut edges = Vec::new();
     let mut offsets = Vec::new();
-    for (index, edge) in scope.structure().edges().iter().enumerate() {
+    for (index, edge) in scope.declaration().edges().iter().enumerate() {
         offsets.push(edges.len());
         let source = |id| indexes[&id];
         let target = indexes[&edge.target()];

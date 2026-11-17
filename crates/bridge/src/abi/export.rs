@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use action::{ActionContext, ActionError, Value};
-use graph::{GraphStructure, NodeKind, ProjectedKind, Projection};
+use graph::{Graph, NodeKind, ProjectedKind, Projection};
 
 use super::values::{error, export_value, inputs, provider};
 use super::{ABI_VERSION, Bytes, GraphFunctions, Header, Input, Outcome, Payload};
@@ -98,7 +98,7 @@ unsafe extern "C" fn graph_project(context: *const c_void, scope: usize) -> Outc
             .scopes()
             .get(scope)
             .ok_or_else(|| ActionError::new("native scope index is outside its graph"))?;
-        ExportedGraph::new(Arc::clone(scope.structure()))
+        ExportedGraph::new(Arc::clone(scope.declaration()))
     };
     match catch_unwind(AssertUnwindSafe(operation)) {
         Ok(Ok(graph)) => Outcome {
@@ -133,8 +133,8 @@ impl ExportedGraph {
     ///
     /// # Errors
     /// Returns structural/type declaration or metadata encoding errors.
-    pub fn new(structure: Arc<GraphStructure>) -> Result<Self, ActionError> {
-        let projection = Projection::from_structure(structure)
+    pub fn new(structure: Arc<Graph>) -> Result<Self, ActionError> {
+        let projection = Projection::from_graph_contents(structure)
             .map_err(|error| ActionError::new(error.to_string()))?;
         Self::from_projection(projection)
     }

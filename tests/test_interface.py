@@ -13,7 +13,6 @@ from rivlet import (
     GraphError,
     GraphInterface,
     GraphMode,
-    GraphStructure,
     Node,
     ProviderSelection,
     Step,
@@ -73,25 +72,49 @@ def test_graph_forwards_complete_or_selected_interface_without_flattening() -> N
     forwarded = (child >> finish).graph(interface=child)
     assert forwarded.interface.inputs[sdk].graph is forwarded
     assert forwarded.interface.inputs[sdk].nodes == (configure,)
-    assert forwarded.structure._declaration.nodes[0] is child
+    assert forwarded.nodes[0] is child
     custom = (child >> finish).graph(
         interface=GraphInterface(inputs=child, outputs={final: finish})
     )
     assert custom.interface.inputs[sdk].nodes == (configure,)
-    assert dict(custom.structure._declaration.interface.outputs) == {final: finish}
-    outputs_only = Graph(
-        structure=GraphStructure(
-            nodes=(child,), interface=GraphInterface(outputs=child)
-        )
-    )
+    assert dict(custom.interface.declaration.outputs) == {final: finish}
+    outputs_only = Graph(nodes=(child,), interface=GraphInterface(outputs=child))
     assert not outputs_only.interface.inputs
     assert (
-        outputs_only.structure._declaration.interface.outputs[library]
+        outputs_only.interface.declaration.outputs[library]
         == child.interface.outputs[library]
     )
     # 不声明接口时，不自动暴露内部图的端口。
-    assert not (Graph(structure=child.structure) >> finish).graph().interface.inputs
-    assert not (Graph(structure=child.structure) >> finish).graph().interface.outputs
+    assert (
+        not (
+            Graph(
+                nodes=child.nodes,
+                edges=child.edges,
+                observation=child.observation,
+                static=child.static,
+                static_selections=child.static_selections,
+                interface=child.interface.declaration,
+            )
+            >> finish
+        )
+        .graph()
+        .interface.inputs
+    )
+    assert (
+        not (
+            Graph(
+                nodes=child.nodes,
+                edges=child.edges,
+                observation=child.observation,
+                static=child.static,
+                static_selections=child.static_selections,
+                interface=child.interface.declaration,
+            )
+            >> finish
+        )
+        .graph()
+        .interface.outputs
+    )
 
 
 @pytest.mark.parametrize("mode", ("compiled", "dynamic"))
@@ -117,11 +140,7 @@ def test_one_input_unlocks_multiple_independent_steps(mode: GraphMode) -> None:
         _require_event(a_started, "a input was serialized after b")
 
     ready = Step(provide)
-    provider = Graph(
-        structure=GraphStructure(
-            nodes=(ready,), interface=GraphInterface(outputs={sdk: ready})
-        )
-    )
+    provider = Graph(nodes=(ready,), interface=GraphInterface(outputs={sdk: ready}))
     a, b = Step(configure_a), Step(configure_b)
     consumer = ((Step(a_prepared.set) >> a) | (Step(b_prepared.set) >> b)).graph(
         interface=GraphInterface(inputs={sdk: (a, b)})
@@ -132,10 +151,7 @@ def test_one_input_unlocks_multiple_independent_steps(mode: GraphMode) -> None:
     )
     run_execution(
         Execution(
-            root=Graph(
-                structure=GraphStructure(nodes=(provider, consumer), edges=bindings),
-                label="root",
-            )
+            root=Graph(nodes=(provider, consumer), edges=bindings, label=("root"))
         ),
         max_workers=4,
         mode=mode,
@@ -151,17 +167,29 @@ def test_interface_rejects_empty_input_and_unmounted_or_repeated_steps() -> None
     with pytest.raises(GraphError, match="duplicate steps"):
         GraphInterface(inputs={sdk: (step, step)})
     with pytest.raises(GraphError, match="outside this graph"):
-        Graph(structure=GraphStructure(interface=GraphInterface(inputs={sdk: step})))
-    child = Graph(structure=GraphStructure(nodes=(step,)))
+        Graph(interface=GraphInterface(inputs={sdk: step}))
+    child = Graph(nodes=(step,))
     with pytest.raises(GraphError, match="mounted more than once"):
         Graph(
-            structure=GraphStructure(
-                nodes=(
-                    Graph(structure=child.structure),
-                    Graph(structure=child.structure),
+            nodes=(
+                Graph(
+                    nodes=child.nodes,
+                    edges=child.edges,
+                    observation=child.observation,
+                    static=child.static,
+                    static_selections=child.static_selections,
+                    interface=child.interface.declaration,
                 ),
-                interface=GraphInterface(inputs={sdk: step}),
-            )
+                Graph(
+                    nodes=child.nodes,
+                    edges=child.edges,
+                    observation=child.observation,
+                    static=child.static,
+                    static_selections=child.static_selections,
+                    interface=child.interface.declaration,
+                ),
+            ),
+            interface=GraphInterface(inputs={sdk: step}),
         )
 
 
@@ -191,7 +219,15 @@ def _component(
             ),
         ),
     )
-    return Graph(structure=graph.structure, label=label)
+    return Graph(
+        nodes=graph.nodes,
+        edges=graph.edges,
+        observation=graph.observation,
+        static=graph.static,
+        static_selections=graph.static_selections,
+        interface=graph.interface.declaration,
+        label=(label),
+    )
 
 
 def test_port_connection_unlocks_only_the_consumer_input() -> None:
@@ -233,10 +269,20 @@ def test_port_connection_unlocks_only_the_consumer_input() -> None:
         (provider, consumer),
         (AnyProviderRequirement(consumer=consumer, port=_input_of(consumer)),),
     )
-    graph = Graph(structure=GraphStructure(nodes=(provider, consumer), edges=bindings))
+    graph = Graph(nodes=(provider, consumer), edges=bindings)
 
     run_execution(
-        Execution(root=Graph(structure=graph.structure, label="port")),
+        Execution(
+            root=Graph(
+                nodes=graph.nodes,
+                edges=graph.edges,
+                observation=graph.observation,
+                static=graph.static,
+                static_selections=graph.static_selections,
+                interface=graph.interface.declaration,
+                label=("port"),
+            )
+        ),
         max_workers=2,
         mode="compiled",
     )
@@ -283,15 +329,17 @@ def test_direct_connections_gate_each_named_port_independently(mode: GraphMode) 
     )
 
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(provider, consumer),
-            edges=(
-                Edge(source=provider, target=consumer, ports=library_ready),
-                Edge(source=provider, target=consumer, ports=docs_ready),
-            ),
-        )
+        nodes=(provider, consumer),
+        edges=(
+            Edge(source=provider, target=consumer, ports=library_ready),
+            Edge(source=provider, target=consumer, ports=docs_ready),
+        ),
     )
-    run_execution(Execution(Graph(structure=graph.structure)), max_workers=2, mode=mode)
+    run_execution(
+        Execution(graph),
+        max_workers=2,
+        mode=mode,
+    )
     assert docs_used.is_set()
 
 
@@ -372,19 +420,31 @@ def test_port_port_can_explicitly_export_descendant_step() -> None:
     ready = Step(lambda: None, label=("ready"))
     needs = Step(lambda: None, label=("needs"))
     provider_graph = Graph.from_wiring(
-        wiring=(
-            Graph(structure=Graph.from_wiring(wiring=(ready.wire(),)).structure).wire(),
-        ),
+        wiring=(Graph.from_wiring(wiring=((ready.wire(),))).wire(),),
         interface=GraphInterface(outputs={port: ready}),
     )
     consumer_graph = Graph.from_wiring(
-        wiring=(
-            Graph(structure=Graph.from_wiring(wiring=(needs.wire(),)).structure).wire(),
-        ),
+        wiring=(Graph.from_wiring(wiring=((needs.wire(),))).wire(),),
         interface=GraphInterface(inputs={port: needs}),
     )
-    provider = Graph(structure=provider_graph.structure, label="A")
-    consumer = Graph(structure=consumer_graph.structure, label="B")
+    provider = Graph(
+        nodes=provider_graph.nodes,
+        edges=provider_graph.edges,
+        observation=provider_graph.observation,
+        static=provider_graph.static,
+        static_selections=provider_graph.static_selections,
+        interface=provider_graph.interface.declaration,
+        label=("A"),
+    )
+    consumer = Graph(
+        nodes=consumer_graph.nodes,
+        edges=consumer_graph.edges,
+        observation=consumer_graph.observation,
+        static=consumer_graph.static,
+        static_selections=consumer_graph.static_selections,
+        interface=consumer_graph.interface.declaration,
+        label=("B"),
+    )
     bindings = resolve_port_requirements(
         (provider, consumer),
         (
@@ -398,10 +458,7 @@ def test_port_port_can_explicitly_export_descendant_step() -> None:
 
     run_execution(
         Execution(
-            root=Graph(
-                structure=GraphStructure(nodes=(provider, consumer), edges=bindings),
-                label="root",
-            ),
+            root=Graph(nodes=(provider, consumer), edges=bindings, label=("root")),
         ),
         mode="compiled",
     )
@@ -468,13 +525,11 @@ def test_port_connection_uses_unified_execution_path() -> None:
         steps=(needs,),
     )
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(provider, consumer),
-            edges=resolve_port_requirements(
-                (provider, consumer),
-                (AnyProviderRequirement(consumer=consumer, port=_input_of(consumer)),),
-            ),
-        )
+        nodes=(provider, consumer),
+        edges=resolve_port_requirements(
+            (provider, consumer),
+            (AnyProviderRequirement(consumer=consumer, port=_input_of(consumer)),),
+        ),
     )
 
-    run_execution(Execution(root=Graph(structure=graph.structure)))
+    run_execution(Execution(root=graph))

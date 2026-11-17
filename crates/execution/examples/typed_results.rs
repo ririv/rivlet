@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use action::{Action, ActionContext, ActionError, ActionHandle};
 use execution::{Execution, ExecutionOptions, ExecutionStatus, NodeOutcome};
-use graph::{Edge, Graph, GraphStructure, Step};
+use graph::{Edge, Graph, Step};
 
 // 故意不实现 Clone，验证跨节点共享原始 Rust 结果，而不是复制载荷。
 struct Plan {
@@ -35,10 +35,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let design = Step::new("design", ActionHandle::new(Design))?;
     let apply = Step::new("apply", ActionHandle::new(Apply))?;
     let edge = Edge::results([&design], &apply)?;
-    let graph = Graph::new(
-        "workflow",
-        Arc::new(GraphStructure::new([design.into(), apply.into()], [edge])?),
-    )?;
+    let graph = Graph::new("workflow", [design.into(), apply.into()], [edge])?;
     let compilation = graph.compile()?;
     let outcome = Execution::new(compilation, ExecutionOptions::new(4)?).run()?;
 
@@ -46,7 +43,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         let metadata = outcome.compilation().node(node);
         match result {
             NodeOutcome::Succeeded(value)
-                if value.type_id() == action::ValueType::of::<usize>().id() =>
+                if value.type_id()
+                    == action::ValueTypeId::Rust(std::any::TypeId::of::<usize>()) =>
             {
                 println!("{}: {}", metadata.label(), value.downcast::<usize>()?);
             }

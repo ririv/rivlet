@@ -110,7 +110,7 @@ export class Compilation {
           childGraph: child.id,
           activation,
         });
-        node.structure.nodes.forEach((item, position) =>
+        node.nodes.forEach((item, position) =>
           visit(item, child, [...path, position], record.labelPath),
         );
       }
@@ -137,7 +137,7 @@ export class Compilation {
         "output port owner has no child scope",
       );
       return output(
-        endpoint.owner.structure.interface.output(endpoint.name),
+        endpoint.owner.interface.declaration.output(endpoint.name),
         child,
       );
     };
@@ -149,7 +149,7 @@ export class Compilation {
         owner.child,
         "input port owner has no child scope",
       );
-      return endpoint.owner.structure.interface
+      return endpoint.owner.interface.declaration
         .input(endpoint.name)
         .flatMap((item) => inputs(item, child));
     };
@@ -177,7 +177,7 @@ export class Compilation {
         );
       if (record.node.kind !== "graph") continue;
       const scope = requireValue(record.child, "graph has no scope");
-      for (const edge of record.node.structure.edges) {
+      for (const edge of record.node.edges) {
         const edgeSpec = edge[edgeDeclaration];
         if (edgeSpec.kind === "results") {
           const reads = edgeSpec.sources.map((source) => output(source, scope));
@@ -278,7 +278,7 @@ export class Compilation {
         "output owner has no scope",
       );
       return this.#outputIndex(
-        source.owner.structure.interface.output(source.name),
+        source.owner.interface.declaration.output(source.name),
         scope,
       );
     }
@@ -295,7 +295,7 @@ export class Compilation {
       "forwarded output owner is outside its graph",
     );
     return this.#outputIndex(
-      source.owner.structure.interface.output(source.name),
+      source.owner.interface.declaration.output(source.name),
       requireValue(owner.child, "missing forwarded scope"),
     );
   }

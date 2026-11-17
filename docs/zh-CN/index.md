@@ -20,7 +20,7 @@
 
 ## 设计目标
 
-- Step/Graph 是实际节点；GraphStructure 保存可复用结构，Execution 持有单次执行状态
+- Step/Graph 是实际节点；Graph 保存可复用结构，Execution 持有单次执行状态
 - 声明期直接引用 Node 对象，挂载后才分配内部 `NodePath`
 - 依赖、条件读取和端口绑定全部显式参与拓扑校验
 - 子图可以组合，但不会被声明 DSL 隐式展开
@@ -29,20 +29,17 @@
 
 ## 文档
 
-- [实验性混合执行、SDK 与移除边界](./mixed-execution.md)
-
 - [核心模型](./core_model.md)
 - [版本化结构导出](./graph_export.md)
 - [图内静态选择](./static_selection.md)
 - [拓扑复杂度与实现开销](./topology_complexity.md)
 - [执行语义](./execution.md)
 - [失败事件与直接原因](./failure_events.md)
-- [Python 图与 Rust 原生图](./rust-graphs.md)
+- [Rust 图声明](./rust-graphs.md)
 - [执行 Rust 图](./rust-execution.md)
-- [Python 工作流中的独立 Rust 扩展](./python-native.md)
 - [Rust 运行时谓词](./rust-conditions.md)
 - [实验性 Node.js API](./node-api.md)
-- [原生结果值与跨语言转换](./rust-results.md)
+- [Rust 类型化结果值](./rust-results.md)
 - [结果记录、生命周期与未来保留策略候选](./result_lifetime.md)
 - [条件边](./conditional_edges.md)
 - [条件 Node](./conditional_steps.md)
@@ -66,7 +63,7 @@
   - 声明图与一次执行作用域
 - `Node` / `NodeKind`
   - Step/Graph 的共同协议，以及封闭的可执行联合
-- `GraphStructure.edges`
+- `Graph.edges`
   - 可复用结构内的显式接线关系
 - `Node.wire(after=(Results(...),))` / `Edge.results(...)`
   - 按顺序绑定 action 参数的结果依赖；条件独立声明自己的来源
@@ -97,3 +94,9 @@ Rivlet 不解释应用的数据结构、业务策略或持久化格式。应用�
 英文是默认入口。中文版保留相同文件名，每个页面提供语言切换链接。
 修改 API 语义、示例或限制时，应同步更新两种语言。历史基准的原始样本保持不变，
 结论以对应日期和测量负载为准。
+
+## 实验分支
+
+Python/Rust 混合执行仅在 `codex/experimental-mixed-execution`，不接入 main。
+见[状态与移除边界](./mixed-execution.md)、[扩展 SDK](./python-native.md)与
+[驱动边界](./design/mixed-driver-boundary.md)。

@@ -5,14 +5,26 @@
 use std::sync::Arc;
 
 use action::{ActionError, ActionHandle, Value, ValueType};
-use graph::{GraphStructure, ProjectedKind, Projection};
+use graph::{Graph, ProjectedKind, Projection};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rivlet_bridge::{EdgeInfo, ImportedGraph, NodeKind, Snapshot};
+use rivlet_bridge::{EdgeInfo, EndpointInfo, ImportedGraph, NodeKind, Snapshot};
 
 use crate::result_values::ValueCodecs;
 
-type ConditionDescription = (Vec<usize>, Option<usize>, Vec<Vec<usize>>);
+type EndpointDescription = (usize, Option<(Option<String>,)>);
+type MountedPath = (Vec<usize>, Vec<String>);
+type InterfaceDescription = (
+    Vec<(Option<String>, Vec<EndpointDescription>)>,
+    Vec<(Option<String>, EndpointDescription)>,
+);
+
+fn endpoint_description(endpoint: &EndpointInfo) -> EndpointDescription {
+    match endpoint {
+        EndpointInfo::Node { node } => (*node, None),
+        EndpointInfo::Port { owner, name } => (*owner, Some((name.clone(),))),
+    }
+}
 
 fn invalid(error: impl std::fmt::Display) -> PyErr {
     PyValueError::new_err(error.to_string())
@@ -30,8 +42,8 @@ pub(crate) struct NativeGraph {
 }
 
 impl NativeGraph {
-    fn local(structure: Arc<GraphStructure>, codecs: Arc<ValueCodecs>) -> PyResult<Arc<Self>> {
-        let projection = Arc::new(Projection::from_structure(structure).map_err(invalid)?);
+    fn local(structure: Arc<Graph>, codecs: Arc<ValueCodecs>) -> PyResult<Arc<Self>> {
+        let projection = Arc::new(Projection::from_graph_contents(structure).map_err(invalid)?);
         let snapshot = Arc::new(Snapshot::from_projection(&projection).map_err(invalid)?);
         Ok(Arc::new(Self {
             snapshot,
@@ -84,7 +96,7 @@ impl NativeGraph {
         }
         match &self.implementation {
             Implementation::Local(projection) => Self::local(
-                Arc::clone(projection.scopes()[scope].structure()),
+                Arc::clone(projection.scopes()[scope].declaration()),
                 Arc::clone(&self.codecs),
             ),
             Implementation::External(graph) => {
@@ -114,22 +126,19 @@ impl NativePredicate {
     }
 }
 
-/// Private storage; Python users receive rivlet.GraphStructure, never this payload.
+/// Private storage; Python users receive rivlet.Graph, never this payload.
 #[pyclass(frozen, module = "rivlet._native", skip_from_py_object)]
 #[derive(Clone)]
-pub(crate) struct _NativeStructure {
+pub(crate) struct _NativeGraph {
     graph: Arc<NativeGraph>,
     scope: usize,
 }
 
-impl _NativeStructure {
-    pub(crate) fn new(structure: GraphStructure) -> PyResult<Self> {
+impl _NativeGraph {
+    pub(crate) fn new(structure: Graph) -> PyResult<Self> {
         Self::with_codecs(structure, Arc::new(ValueCodecs::default()))
     }
-    pub(crate) fn with_codecs(
-        structure: GraphStructure,
-        codecs: Arc<ValueCodecs>,
-    ) -> PyResult<Self> {
+    pub(crate) fn with_codecs(structure: Graph, codecs: Arc<ValueCodecs>) -> PyResult<Self> {
         Ok(Self {
             graph: NativeGraph::local(Arc::new(structure), codecs)?,
             scope: 0,
@@ -144,10 +153,10 @@ impl _NativeStructure {
     pub(crate) fn codecs(&self) -> &Arc<ValueCodecs> {
         &self.graph.codecs
     }
-    pub(crate) fn graph(&self) -> PyResult<Arc<GraphStructure>> {
+    pub(crate) fn graph(&self) -> PyResult<Arc<Graph>> {
         match &self.graph.implementation {
             Implementation::Local(projection) => {
-                Ok(Arc::clone(projection.scopes()[self.scope].structure()))
+                Ok(Arc::clone(projection.scopes()[self.scope].declaration()))
             }
             Implementation::External(_) => Err(invalid(
                 "private Rust declaration composition cannot reinterpret an external graph; compose its Graph node and public ports",
@@ -155,153 +164,243 @@ impl _NativeStructure {
         }
     }
     pub(crate) fn into_public(self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        let (identity, label) = if let Some(index) = self.graph.snapshot.scopes[self.scope].owner {
+            let node = &self.graph.snapshot.nodes[index];
+            (self.graph.identity(index), node.label.clone())
+        } else {
+            let declaration = self.graph()?;
+            (declaration.id().value(), declaration.label().to_owned())
+        };
+        // 真实根条件由 Python 视图按需读取；创建编译作用域不展开其同级来源。
         py.import("rivlet.model")?
-            .getattr("GraphStructure")?
-            .call_method1("_from_declaration", (Py::new(py, self)?,))
+            .getattr("Graph")?
+            .call_method1(
+                "_from_native",
+                (
+                    Py::new(py, self)?,
+                    identity,
+                    label,
+                    None::<_NativeCondition>,
+                ),
+            )
             .map(Bound::unbind)
-    }
-    fn relative_path(&self, node: usize) -> Vec<usize> {
-        let prefix = self.graph.snapshot.scopes[self.scope]
-            .owner
-            .map_or(0, |owner| self.graph.snapshot.nodes[owner].path.len());
-        self.graph.snapshot.nodes[node].path[prefix..].to_vec()
     }
 }
 
 #[pymethods]
-impl _NativeStructure {
-    fn node_ids(&self) -> Vec<u64> {
-        self.graph.snapshot.scopes[self.scope]
-            .nodes
-            .iter()
-            .map(|node| self.graph.identity(*node))
-            .collect()
-    }
-    fn nodes(&self) -> Vec<(u64, String, Option<Self>)> {
-        self.graph.snapshot.scopes[self.scope]
-            .nodes
-            .iter()
+impl _NativeGraph {
+    fn mounted_paths(&self, indexes: Vec<usize>) -> PyResult<Vec<Option<MountedPath>>> {
+        let prefix = self.graph.snapshot.scopes[self.scope]
+            .owner
+            .map_or(&[][..], |owner| {
+                self.graph.snapshot.nodes[owner].path.as_slice()
+            });
+        indexes
+            .into_iter()
             .map(|index| {
-                let node = &self.graph.snapshot.nodes[*index];
-                let child = match node.kind {
-                    NodeKind::Step { .. } => None,
-                    NodeKind::Graph { scope } => Some(Self::view(Arc::clone(&self.graph), scope)),
-                };
-                (self.graph.identity(*index), node.label.clone(), child)
+                let node = self
+                    .graph
+                    .snapshot
+                    .nodes
+                    .get(index)
+                    .ok_or_else(|| invalid("unknown native node"))?;
+                if node.path.len() <= prefix.len() || !node.path.starts_with(prefix) {
+                    return Ok(None);
+                }
+                let path = node.path[prefix.len()..].to_vec();
+                let mut labels = Vec::with_capacity(path.len());
+                let mut current = Some(index);
+                while let Some(index) = current {
+                    let node = &self.graph.snapshot.nodes[index];
+                    if node.path.len() <= prefix.len() {
+                        break;
+                    }
+                    labels.push(node.label.clone());
+                    current = self.graph.snapshot.scopes[node.graph].owner;
+                }
+                labels.reverse();
+                Ok(Some((path, labels)))
             })
             .collect()
     }
-    fn edges(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
-        self.graph.snapshot.scopes[self.scope]
-            .edges
-            .iter()
-            .map(|edge| match edge {
-                EdgeInfo::Order { source, target, .. } => (*source, *target)
-                    .into_pyobject(py)
-                    .map(|value| value.into_any().unbind()),
+    fn owner_index(&self) -> Option<usize> {
+        self.graph.snapshot.scopes[self.scope].owner
+    }
+    fn node_indexes(&self) -> Vec<usize> {
+        self.graph.snapshot.scopes[self.scope].nodes.clone()
+    }
+    fn descendants(&self, indexes: Vec<usize>) -> PyResult<Vec<bool>> {
+        let prefix = self.graph.snapshot.scopes[self.scope]
+            .owner
+            .map_or(&[][..], |owner| {
+                self.graph.snapshot.nodes[owner].path.as_slice()
+            });
+        indexes
+            .into_iter()
+            .map(|index| {
+                let node = self
+                    .graph
+                    .snapshot
+                    .nodes
+                    .get(index)
+                    .ok_or_else(|| invalid("unknown native node"))?;
+                Ok(node.path.len() > prefix.len() && node.path.starts_with(prefix))
+            })
+            .collect()
+    }
+    fn node_condition(&self, index: usize) -> PyResult<Option<usize>> {
+        Ok(self
+            .graph
+            .snapshot
+            .nodes
+            .get(index)
+            .ok_or_else(|| invalid("unknown native node"))?
+            .condition)
+    }
+    fn node_descriptor(
+        &self,
+        py: Python<'_>,
+        index: usize,
+    ) -> PyResult<(u64, String, Py<PyAny>, Option<usize>)> {
+        let node = self
+            .graph
+            .snapshot
+            .nodes
+            .get(index)
+            .ok_or_else(|| invalid("unknown native node"))?;
+        let body = match node.kind {
+            NodeKind::Step { .. } => {
+                Py::new(py, _NativeStep::new(Arc::clone(&self.graph), index))?.into_any()
+            }
+            NodeKind::Graph { scope } => {
+                Py::new(py, Self::view(Arc::clone(&self.graph), scope))?.into_any()
+            }
+        };
+        Ok((
+            self.graph.identity(index),
+            node.label.clone(),
+            body,
+            node.condition,
+        ))
+    }
+    fn condition_descriptor(
+        &self,
+        index: usize,
+    ) -> PyResult<(_NativeCondition, Vec<EndpointDescription>)> {
+        let info = self
+            .graph
+            .snapshot
+            .conditions
+            .get(index)
+            .ok_or_else(|| invalid("unknown native predicate"))?;
+        Ok((
+            _NativeCondition::bound(&self.graph, index),
+            info.sources.iter().map(endpoint_description).collect(),
+        ))
+    }
+    fn interface_descriptor(&self) -> InterfaceDescription {
+        let interface = &self.graph.snapshot.scopes[self.scope].interface;
+        (
+            interface
+                .inputs
+                .iter()
+                .map(|(name, endpoints)| {
+                    (
+                        name.clone(),
+                        endpoints.iter().map(endpoint_description).collect(),
+                    )
+                })
+                .collect(),
+            interface
+                .outputs
+                .iter()
+                .map(|(name, endpoint)| (name.clone(), endpoint_description(endpoint)))
+                .collect(),
+        )
+    }
+    fn edge_descriptors(&self, py: Python<'_>) -> PyResult<Vec<Py<PyAny>>> {
+        let scope = &self.graph.snapshot.scopes[self.scope];
+        let mut edges = Vec::new();
+        let mut index = 0;
+        while index < scope.edges.len() {
+            match &scope.edges[index] {
+                EdgeInfo::Order {
+                    source,
+                    target,
+                    condition,
+                } => {
+                    edges.push(
+                        (0_u8, *source, *target, *condition)
+                            .into_pyobject(py)?
+                            .into_any()
+                            .unbind(),
+                    );
+                    index += 1;
+                }
                 EdgeInfo::Ports {
                     source,
                     target,
                     output,
                     input,
-                    ..
-                } => (*source, *target, output, input)
-                    .into_pyobject(py)
-                    .map(|value| value.into_any().unbind()),
-                EdgeInfo::Result {
-                    source,
-                    target,
-                    argument,
-                    output,
-                    input,
-                } => (
-                    *source,
-                    *target,
-                    *argument,
-                    output.as_ref().map(|port| (port.name.as_deref(),)),
-                    input.as_ref().map(|port| (port.name.as_deref(),)),
-                )
-                    .into_pyobject(py)
-                    .map(|value| value.into_any().unbind()),
-            })
-            .collect()
-    }
-    fn conditions(&self) -> Vec<ConditionDescription> {
-        self.graph
-            .snapshot
-            .conditions
-            .iter()
-            .filter(|condition| {
-                self.graph.snapshot.nodes[condition.site.target()].graph == self.scope
-            })
-            .map(|condition| {
-                (
-                    self.relative_path(condition.site.target()),
-                    condition.site.edge_index(),
-                    condition
-                        .inputs
-                        .iter()
-                        .map(|node| self.relative_path(*node))
-                        .collect(),
-                )
-            })
-            .collect()
-    }
-    fn input_ports(&self) -> Vec<Option<String>> {
-        self.graph.snapshot.scopes[self.scope]
-            .inputs
-            .iter()
-            .map(|(name, _)| name.clone())
-            .collect()
-    }
-    fn output_ports(&self) -> Vec<Option<String>> {
-        self.graph.snapshot.scopes[self.scope]
-            .outputs
-            .iter()
-            .map(|(name, _)| name.clone())
-            .collect()
-    }
-    fn has_input_port(&self, name: Option<&str>) -> bool {
-        self.graph.snapshot.scopes[self.scope]
-            .inputs
-            .iter()
-            .any(|(port, _)| port.as_deref() == name)
-    }
-    fn has_output_port(&self, name: Option<&str>) -> bool {
-        self.graph.snapshot.scopes[self.scope]
-            .outputs
-            .iter()
-            .any(|(port, _)| port.as_deref() == name)
-    }
-    fn input_paths(&self, name: Option<&str>) -> PyResult<Vec<Vec<usize>>> {
-        let (_, nodes) = self.graph.snapshot.scopes[self.scope]
-            .inputs
-            .iter()
-            .find(|(port, _)| port.as_deref() == name)
-            .ok_or_else(|| invalid("unknown native input port"))?;
-        Ok(nodes.iter().map(|node| self.relative_path(*node)).collect())
-    }
-    fn output_path(&self, name: Option<&str>) -> PyResult<Vec<usize>> {
-        let (_, node) = self.graph.snapshot.scopes[self.scope]
-            .outputs
-            .iter()
-            .find(|(port, _)| port.as_deref() == name)
-            .ok_or_else(|| invalid("unknown native output port"))?;
-        Ok(self.relative_path(*node))
-    }
-    fn input_arities(&self, name: Option<&str>) -> PyResult<Vec<usize>> {
-        let (_, nodes) = self.graph.snapshot.scopes[self.scope]
-            .inputs
-            .iter()
-            .find(|(port, _)| port.as_deref() == name)
-            .ok_or_else(|| invalid("unknown native input port"))?;
-        nodes
-            .iter()
-            .map(|node| match &self.graph.snapshot.nodes[*node].kind {
-                NodeKind::Step { inputs, .. } => Ok(inputs.len()),
-                NodeKind::Graph { .. } => Err(invalid("result target must be a native action")),
-            })
-            .collect()
+                    condition,
+                } => {
+                    edges.push(
+                        (
+                            1_u8,
+                            *source,
+                            *target,
+                            output.clone(),
+                            input.clone(),
+                            *condition,
+                        )
+                            .into_pyobject(py)?
+                            .into_any()
+                            .unbind(),
+                    );
+                    index += 1;
+                }
+                EdgeInfo::Result { target, input, .. } => {
+                    let receiver = (
+                        scope.nodes[*target],
+                        input.as_ref().map(|port| (port.name.clone(),)),
+                    );
+                    let mut sources = Vec::new();
+                    while let Some(EdgeInfo::Result {
+                        source,
+                        target,
+                        argument,
+                        output,
+                        input,
+                    }) = scope.edges.get(index)
+                    {
+                        if *argument == 0 && !sources.is_empty() {
+                            break;
+                        }
+                        if *argument != sources.len()
+                            || receiver
+                                != (
+                                    scope.nodes[*target],
+                                    input.as_ref().map(|port| (port.name.clone(),)),
+                                )
+                        {
+                            return Err(invalid("invalid native result argument group"));
+                        }
+                        sources.push((
+                            scope.nodes[*source],
+                            output.as_ref().map(|port| (port.name.clone(),)),
+                        ));
+                        index += 1;
+                    }
+                    edges.push(
+                        (2_u8, sources, receiver)
+                            .into_pyobject(py)?
+                            .into_any()
+                            .unbind(),
+                    );
+                }
+            }
+        }
+        Ok(edges)
     }
 }
 
@@ -340,6 +439,12 @@ pub(crate) struct _NativeCondition {
 }
 
 impl _NativeCondition {
+    fn bound(graph: &Arc<NativeGraph>, index: usize) -> Self {
+        Self {
+            predicate: graph.predicate(index),
+            codecs: Arc::clone(&graph.codecs),
+        }
+    }
     fn new(graph: &Arc<NativeGraph>, index: usize) -> PyResult<Self> {
         let predicate = graph.predicate(index);
         // 独立根节点没有外部同级声明；不能静默丢弃条件输入。
@@ -352,20 +457,6 @@ impl _NativeCondition {
             predicate,
             codecs: Arc::clone(&graph.codecs),
         })
-    }
-}
-
-#[pymethods]
-impl _NativeCondition {
-    fn as_input(slf: PyRef<'_, Self>) -> Py<Self> {
-        slf.into()
-    }
-
-    // Python 属性 getter 需要实例接收方；独立根的输入已由构造器固定为空。
-    #[allow(clippy::unused_self)]
-    #[getter]
-    fn inputs(&self, py: Python<'_>) -> Py<pyo3::types::PyTuple> {
-        pyo3::types::PyTuple::empty(py).unbind()
     }
 }
 
@@ -402,7 +493,7 @@ pub(crate) fn import_node(py: Python<'_>, graph: Arc<ImportedGraph>) -> PyResult
             .call_method1(
                 "_from_native",
                 (
-                    _NativeStructure::view(Arc::clone(&native), scope).into_public(py)?,
+                    Py::new(py, _NativeGraph::view(Arc::clone(&native), scope))?,
                     id,
                     &node.label,
                     condition,

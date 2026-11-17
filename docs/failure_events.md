@@ -3,9 +3,8 @@
 English | [简体中文](./zh-CN/failure_events.md)
 
 Rivlet reports a direct reason that actually made a node fail or become blocked.
-It does not traverse the declaration after execution to guess causes. Python and
-native actions, port edges, static subgraphs, and returned graphs share
-this model.
+It does not traverse the declaration after execution to guess causes. Python
+actions, port edges, static subgraphs and returned graphs share this model.
 
 ## Event model
 
@@ -22,7 +21,7 @@ states and typed failure/blockage causes.
 | `NodeExecutionState.STARTED` | STARTED | The node started |
 | `NodeExecutionState.COMPLETED` | COMPLETED | The node completed |
 | `NodeExecutionState.SKIPPED` | SKIPPED | The node was skipped |
-| `ActionFailed()` | FAILED | The node's own Python or native action failed |
+| `ActionFailed()` | FAILED | The node's own Python action failed |
 | `SubgraphFailed(source)` | FAILED | An actual child failed or was blocked |
 | `BlockedByDependency(source)` | BLOCKED | A required predecessor failed or was blocked |
 | `BlockedByCondition(condition)` | BLOCKED | A runtime predicate raised an error |
@@ -69,7 +68,7 @@ class Events:
                 print(event.node_path, event.state)
 
 
-run(Execution(Graph(structure=(graph).structure), events=Events()))
+run(Execution(graph, events=Events()))
 ```
 
 ## Direct witnesses

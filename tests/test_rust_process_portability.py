@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 from execution_support import run_async_execution
 
-from rivlet import Execution, Graph, GraphStructure
+from rivlet import Execution, Graph
 from rivlet import run as run_execution
 from rivlet._native import _rust_process_graph
 
@@ -39,19 +39,17 @@ pathlib.Path('result.json').write_text(json.dumps({
 print('stdout marker', flush=True)
 print('stderr marker', file=sys.stderr, flush=True)
 """
-    native = Graph(
-        structure=_rust_process_graph(
-            [
-                (
-                    "process",
-                    sys.executable,
-                    ["-c", script, *arguments],
-                    str(directory),
-                    environment,
-                )
-            ],
-            [],
-        )
+    native = _rust_process_graph(
+        [
+            (
+                "process",
+                sys.executable,
+                ["-c", script, *arguments],
+                str(directory),
+                environment,
+            )
+        ],
+        [],
     )
     (
         partial(run_async_execution, max_workers=2)
@@ -59,7 +57,7 @@ print('stderr marker', file=sys.stderr, flush=True)
         else partial(run_execution, max_workers=2)
     )(
         Execution(
-            Graph(structure=GraphStructure(nodes=(native,))),
+            Graph(nodes=(native,)),
             node_log_paths={native: log_path},
         )
     )

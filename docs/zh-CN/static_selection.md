@@ -32,7 +32,17 @@ graph = (
     >> finish
 ).graph()
 
-run(Graph(structure=(graph).structure, label=("platform workflow")))
+run(
+    Graph(
+        nodes=(graph.nodes),
+        edges=(graph.edges),
+        observation=(graph.observation),
+        static=(graph.static),
+        static_selections=(graph.static_selections),
+        interface=graph.interface.declaration,
+        label=("platform workflow"),
+    )
+)
 ```
 
 结果为 `prepare → modern → finish`。每个 `Case(condition, component)` 只有两个参数：
@@ -75,7 +85,7 @@ from rivlet import (
     Edge,
     Execution,
     Graph,
-    GraphStructure,
+    Graph,
     StaticSelection,
     Step,
     run,
@@ -87,13 +97,11 @@ finish = Step(lambda: print("finish"), label=("finish"))
 cases = (Case(False, first), Case(True, second))
 
 graph = Graph(
-    structure=GraphStructure(
-        nodes=(tuple(case.node for case in cases) + (finish,)),
-        edges=(tuple(Edge(case.node, finish) for case in cases)),
-        static_selections=((StaticSelection(cases=cases),)),
-    )
+    nodes=tuple(case.node for case in cases) + (finish,),
+    edges=tuple(Edge(case.node, finish) for case in cases),
+    static_selections=(StaticSelection(cases=cases),),
 )
-run(Graph(structure=(graph).structure))
+run(graph)
 ```
 
 `Graph.from_wiring()` 和 `.graph()` 同样接受 `static_selections=`。DSL 自动携带声明，
@@ -103,7 +111,7 @@ run(Graph(structure=(graph).structure))
 
 未选子图里的静态条件与嵌套选择不求值；外层图被静态裁剪时，其选择也不求值。
 已构造候选仍遵循既有声明校验。同一作用域不能重复声明同一个 Node；需要在多个分支
-复用实现时，从同一 GraphStructure 显式创建不同 Graph 节点；重复传同一个 Graph
+复用实现时，从同一 Graph 显式创建不同 Graph 节点；重复传同一个 Graph
 不会隐式得到独立挂载，也不合并节点。
 每次编译、每次挂载独立选择，不把选中结果缓存到声明对象。
 

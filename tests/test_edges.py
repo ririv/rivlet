@@ -14,7 +14,6 @@ from rivlet import (
     Graph,
     GraphError,
     GraphInterface,
-    GraphStructure,
     StaticCondition,
     StaticConditions,
     Step,
@@ -84,29 +83,25 @@ def test_conditional_named_ports_gate_only_internal_consumers(
     condition = predicate
     unused = Step(lambda: pytest.fail("static exclusion did not apply"))
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(unused, probe, provider, consumer)
-            if project
-            else (probe, provider, consumer),
-            edges=(
-                Edge(
-                    provider,
-                    consumer,
-                    ports=("sdk-ready", "toolchain-ready"),
-                    condition=(condition, probe),
-                ),
+        nodes=(unused, probe, provider, consumer)
+        if project
+        else (probe, provider, consumer),
+        edges=(
+            Edge(
+                provider,
+                consumer,
+                ports=("sdk-ready", "toolchain-ready"),
+                condition=(condition, probe),
             ),
-            static=StaticConditions(
-                evaluator=lambda item: bool(item.payload),
-                conditions={
-                    unused: StaticCondition(payload=False, description="disabled")
-                },
-            )
-            if project
-            else (),
+        ),
+        static=StaticConditions(
+            evaluator=lambda item: bool(item.payload),
+            conditions={unused: StaticCondition(payload=False, description="disabled")},
         )
+        if project
+        else (),
     )
-    execution = Execution(Graph(structure=graph.structure))
+    execution = Execution(graph)
     (
         partial(run_async_execution, max_workers=4)
         if asynchronous
@@ -123,26 +118,12 @@ def test_conditional_named_ports_gate_only_internal_consumers(
 
 def test_port_directions_are_fixed_by_tuple_position():
     ready, use = Step(lambda: None), Step(lambda: None)
-    a = Graph(
-        structure=GraphStructure(
-            nodes=(ready,), interface=GraphInterface(outputs={"out": ready})
-        )
-    )
-    b = Graph(
-        structure=GraphStructure(
-            nodes=(use,), interface=GraphInterface(inputs={"in": use})
-        )
-    )
-    Graph(
-        structure=GraphStructure(nodes=(a, b), edges=(Edge(a, b, ports=("out", "in")),))
-    )
+    a = Graph(nodes=(ready,), interface=GraphInterface(outputs={"out": ready}))
+    b = Graph(nodes=(use,), interface=GraphInterface(inputs={"in": use}))
+    Graph(nodes=(a, b), edges=(Edge(a, b, ports=("out", "in")),))
     # 任意名称来自用户声明，无法通过 Python 类型预知；必须校验真实图接口。
     with pytest.raises(GraphError, match="does not provide port in"):
-        Graph(
-            structure=GraphStructure(
-                nodes=(a, b), edges=(Edge(a, b, ports=("in", "out")),)
-            )
-        )
+        Graph(nodes=(a, b), edges=(Edge(a, b, ports=("in", "out")),))
 
 
 @pytest.mark.parametrize("enabled", (False, True))
@@ -154,63 +135,48 @@ def test_port_condition_controls_failure_propagation(enabled, mode):
         raise RuntimeError("provider failed")
 
     output = Step(fail)
-    provider = Graph(
-        structure=GraphStructure(
-            nodes=(output,), interface=GraphInterface(outputs={"out": output})
-        )
-    )
+    provider = Graph(nodes=(output,), interface=GraphInterface(outputs={"out": output}))
     prepare = Step(lambda: calls.append("prepare"))
     use = Step(lambda: calls.append("use"))
     consumer = (prepare >> use).graph(interface=GraphInterface(inputs={"in": use}))
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(provider, consumer),
-            edges=(
-                Edge(
-                    provider, consumer, ports=("out", "in"), condition=lambda: enabled
-                ),
-            ),
-        )
+        nodes=(provider, consumer),
+        edges=(
+            Edge(provider, consumer, ports=("out", "in"), condition=lambda: enabled),
+        ),
     )
     with pytest.raises(RuntimeError, match="provider failed"):
-        run_execution(Execution(Graph(structure=graph.structure)), mode=mode)
+        run_execution(
+            Execution(graph),
+            mode=mode,
+        )
     assert calls == (["prepare"] if enabled else ["prepare", "use"])
 
 
 def test_static_exclusion_removes_port_connection_and_its_condition():
     calls = []
     output = Step(lambda: pytest.fail("excluded provider ran"))
-    provider = Graph(
-        structure=GraphStructure(
-            nodes=(output,), interface=GraphInterface(outputs={"out": output})
-        )
-    )
+    provider = Graph(nodes=(output,), interface=GraphInterface(outputs={"out": output}))
     use = Step(lambda: calls.append("use"))
-    consumer = Graph(
-        structure=GraphStructure(
-            nodes=(use,), interface=GraphInterface(inputs={"in": use})
-        )
-    )
+    consumer = Graph(nodes=(use,), interface=GraphInterface(inputs={"in": use}))
 
     def condition():
         return pytest.fail("excluded condition evaluated")
 
     graph = Graph(
-        structure=GraphStructure(
-            nodes=(provider, consumer),
-            edges=(Edge(provider, consumer, ports=("out", "in"), condition=condition),),
-            static=StaticConditions(
-                evaluator=lambda item: bool(item.payload),
-                conditions={
-                    provider: StaticCondition(payload=False, description="no provider"),
-                    (provider, consumer): StaticCondition(
-                        payload=False, description="no connection"
-                    ),
-                },
-            ),
-        )
+        nodes=(provider, consumer),
+        edges=(Edge(provider, consumer, ports=("out", "in"), condition=condition),),
+        static=StaticConditions(
+            evaluator=lambda item: bool(item.payload),
+            conditions={
+                provider: StaticCondition(payload=False, description="no provider"),
+                (provider, consumer): StaticCondition(
+                    payload=False, description="no connection"
+                ),
+            },
+        ),
     )
-    execution = Execution(Graph(structure=graph.structure))
+    execution = Execution(graph)
     run_execution(execution)
     assert calls == ["use"]
     document = export_graph(execution.compile())
@@ -224,31 +190,21 @@ def test_condition_with_all_port_consumers_excluded_is_not_exported_or_evaluated
     def condition():
         return pytest.fail("unused condition evaluated")
 
-    provider = Graph(
-        structure=GraphStructure(
-            nodes=(output,), interface=GraphInterface(outputs={"out": output})
-        )
-    )
+    provider = Graph(nodes=(output,), interface=GraphInterface(outputs={"out": output}))
     consumer = Graph(
-        structure=GraphStructure(
-            nodes=(unused,),
-            interface=GraphInterface(inputs={"in": unused}),
-            static=StaticConditions(
-                evaluator=lambda item: bool(item.payload),
-                conditions={
-                    unused: StaticCondition(payload=False, description="unused input")
-                },
-            ),
-        )
+        nodes=(unused,),
+        interface=GraphInterface(inputs={"in": unused}),
+        static=StaticConditions(
+            evaluator=lambda item: bool(item.payload),
+            conditions={
+                unused: StaticCondition(payload=False, description="unused input")
+            },
+        ),
     )
     execution = Execution(
         Graph(
-            structure=GraphStructure(
-                nodes=(provider, consumer),
-                edges=(
-                    Edge(provider, consumer, ports=("out", "in"), condition=condition),
-                ),
-            )
+            nodes=(provider, consumer),
+            edges=(Edge(provider, consumer, ports=("out", "in"), condition=condition),),
         )
     )
     run_execution(execution)
@@ -262,16 +218,8 @@ def test_same_port_graph_can_be_mounted_twice_with_distinct_condition_inputs():
     seen = []
     probe = Step(lambda: next(decisions))
     output, use = Step(lambda: None), Step(lambda: None)
-    provider = Graph(
-        structure=GraphStructure(
-            nodes=(output,), interface=GraphInterface(outputs={"out": output})
-        )
-    )
-    consumer = Graph(
-        structure=GraphStructure(
-            nodes=(use,), interface=GraphInterface(inputs={"in": use})
-        )
-    )
+    provider = Graph(nodes=(output,), interface=GraphInterface(outputs={"out": output}))
+    consumer = Graph(nodes=(use,), interface=GraphInterface(inputs={"in": use}))
 
     def decide(result):
         seen.append(result.unwrap())
@@ -279,25 +227,35 @@ def test_same_port_graph_can_be_mounted_twice_with_distinct_condition_inputs():
 
     condition = decide
     child = Graph(
-        structure=GraphStructure(
-            nodes=(probe, provider, consumer),
-            edges=(
-                Edge(
-                    provider,
-                    consumer,
-                    ports=("out", "in"),
-                    condition=(condition, probe),
-                ),
+        nodes=(probe, provider, consumer),
+        edges=(
+            Edge(
+                provider,
+                consumer,
+                ports=("out", "in"),
+                condition=(condition, probe),
             ),
-        )
+        ),
     )
     execution = Execution(
         Graph(
-            structure=GraphStructure(
-                nodes=(
-                    Graph(structure=child.structure),
-                    Graph(structure=child.structure),
-                )
+            nodes=(
+                Graph(
+                    nodes=child.nodes,
+                    edges=child.edges,
+                    observation=child.observation,
+                    static=child.static,
+                    static_selections=child.static_selections,
+                    interface=child.interface.declaration,
+                ),
+                Graph(
+                    nodes=child.nodes,
+                    edges=child.edges,
+                    observation=child.observation,
+                    static=child.static,
+                    static_selections=child.static_selections,
+                    interface=child.interface.declaration,
+                ),
             )
         )
     )

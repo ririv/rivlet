@@ -13,7 +13,7 @@
 SDK 只提供 `rivlet_python::export_node(py, node)`：接收 Rust Step 或 Graph，返回
 对应的普通 Python `rivlet.Step` 或 `rivlet.Graph`。根节点的 label、condition 和声明
 身份一起导入，身份映射到宿主的身份空间；动作和谓词仍由 Rust 执行。不公开另一套
-RustNode、RustGraphStructure、NativeAction，也不保留单独的结构导出入口。
+RustNode 或 NativeAction，也不保留单独的结构导出入口。
 导入的 Step 进入原生 driver，不伪装成 Python callable 执行。
 
 扩展可以在模块初始化时直接注册已创建的节点：
@@ -25,28 +25,49 @@ module.add("pipeline", export_node(module.py(), graph)?)?;
 
 Python 直接使用 `demo_native.double` 或 `demo_native.pipeline`；不必再包装或调用
 工厂。需要构造参数或独立新声明时，扩展自行提供工厂函数，不增加第二套导出协议。
-Step 没有 `.structure` 或 `.interface`。
+Step 没有 `.interface`。
 
-复用 Graph 结构时，使用已有属性：
+复用时显式取 Graph 自己的声明成员：
 
 ```python
-left = Graph(pipeline.structure, label="left")
-right = Graph(pipeline.structure, label="right")
+left = Graph(
+    nodes=pipeline.nodes,
+    edges=pipeline.edges,
+    interface=pipeline.interface.declaration,
+    label="left",
+)
+right = Graph(
+    nodes=pipeline.nodes,
+    edges=pipeline.edges,
+    interface=pipeline.interface.declaration,
+    label="right",
+)
 ```
 
-两者共享结构，但节点身份独立；不自动继承导出根的 label 或 condition，新条件必须
-显式声明。
-若确实要把导入根的条件保留到新节点，条件存在时使用已有的
-`condition=native.condition.as_input()`；谓词仍由 Rust 执行，不包装成 Python callable。
-导出的节点不能引用未声明的同级节点；需要这些引用时，将它们组合成 Graph 一起导出。
+这两个 Graph 的根身份独立，内部节点引用可复用；不自动继承原根的身份、label 或
+condition。普通 Python 图如果还要复用静态规则，须显式传入其 `static` 与
+`static_selections`，不能从已裁剪的执行图还原未选候选。
 
-`pipeline.structure.describe()` 返回采用现有[结构导出 schema](./graph_export.md)的分离声明
-快照；`structure.nodes` / `structure.edges` 返回节点、边描述的元组，包含嵌套声明，
-不是特定语言的可执行对象。检查不编译、不求值静态条件；修改返回字典不会修改声明。
-同时检查多个字段时，一次调用 `describe()` 即可。
+`pipeline.nodes` 是本层实际 Step/Graph 对象的元组；`pipeline.edges` 是本层实际
+Edge 对象的元组。边的端点、条件来源与接口声明引用同一批缓存对象，不再是描述字典，
+因此可以直接接线、重组。读取子 Graph 的成员看到该子图的声明，不是平铺后的执行图。
 
-Python 结构通过构造器 `interface=` 声明端口，挂载后通过 `graph.interface` 获取
-端点引用。原生体只通过已公开的端口对外接线，不向 Python 暴露内部 Rust callable。
+原生声明视图按需创建。不读取这些成员时，编译和运行仍走批量导入路径，不物化逐个
+Python 节点/边；显式检查或复制声明才支付对应成本。检查不执行 action，也不求值
+运行时谓词。
+
+快照统一使用 `export_graph(pipeline)`，沿用[结构导出 schema](./graph_export.md)。
+不增加 `describe()`，也不保留公共 GraphStructure 层。修改快照不会修改可执行声明。
+
+若确实要保留导入根的条件，在条件存在时显式传入
+`condition=native.condition.as_input()`。Rust 谓词仍由 Rust 执行，其输入仍是明确的
+来源引用。单独取出一个内部节点时，它引用的同级节点也必须在新作用域中声明。导出根
+不能引用未声明的外部同级节点；需要这些关系时应导出包围它们的 Graph。
+
+Python Graph 构造器用 `interface=` 声明接口；`graph.interface` 提供绑定到该图的
+端口，`graph.interface.declaration` 提供可复用定义。检查得到的原生 Step 保存私有
+原生动作句柄，不是 Python callable；可接线并经混合 session 执行，不能当 Python
+函数调用。
 
 ## 运行真实示例
 
@@ -71,7 +92,7 @@ Maturin 都是显式前置条件。
 
 ```python
 from demo_native import pipeline
-from rivlet import Edge, Graph, GraphStructure, NodeRunContext, Option, Step, run
+from rivlet import Edge, Graph, NodeRunContext, Option, Step, run
 
 def show(_ctx: NodeRunContext, value: Option[int]) -> None:
     print("Python received:", value.unwrap())
@@ -80,12 +101,10 @@ prepare = Step(lambda: 21, label="prepare")
 native = pipeline
 display = Step(show, label="display")
 workflow = Graph(
-    GraphStructure(
-        nodes=(prepare, native, display),
-        edges=(
-            *Edge.results((prepare,), native.interface.input),
-            *Edge.results((native.interface.output,), display),
-        ),
+    nodes=(prepare, native, display),
+    edges=(
+        *Edge.results((prepare,), native.interface.input),
+        *Edge.results((native.interface.output,), display),
     ),
     label="mixed",
 )
@@ -99,7 +118,7 @@ run(workflow, max_workers=2)
 [类型声明](../../examples/python-native/demo_native.pyi) 使用
 `pipeline: Graph`、`double: Step` 和 `def make_graph() -> Graph`。
 PyO3 返回 Python 对象句柄，不把 Rust
-GraphStructure 的内存布局共享给宿主二进制。
+Graph 的内存布局共享给宿主二进制。
 
 ## 所有权与 ABI
 
@@ -116,6 +135,10 @@ GraphStructure 的内存布局共享给宿主二进制。
 图和值的分配及释放回调始终属于创建库。图句柄与保留结果持有创建方 lease，直到最后
 一个读取者释放。协议要求同进程、同架构和保持加载的 Python 扩展库，不是 IPC 协议，
 也不提供显式卸载动态库 API。
+
+
+当前实验描述协议为 ABI v3：原始声明端点与 lowering 后的调度索引分开传输。旧 ABI v2
+扩展必须按匹配的 SDK 重新构建；版本不匹配会明确报错，不推断、不降级。
 
 ## 值与条件
 

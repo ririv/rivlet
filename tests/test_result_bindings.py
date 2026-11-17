@@ -14,7 +14,6 @@ from rivlet import (
     ExecutionState,
     Graph,
     GraphError,
-    GraphStructure,
     NodeRunContext,
     Nothing,
     Option,
@@ -22,9 +21,9 @@ from rivlet import (
     SerialGraphExecutor,
     Some,
     Step,
-    compile_graph,
 )
 from rivlet import run as run_execution
+from rivlet.compile import _compile_graph_scope
 
 type Backend = Literal["serial", "thread", "async"]
 
@@ -32,7 +31,7 @@ type Backend = Literal["serial", "thread", "async"]
 def execute(graph: Graph, backend: Backend) -> None:
     if backend == "serial":
         SerialGraphExecutor(ExecutionState()).execute(
-            compile_graph(graph.structure, root_label="root")
+            _compile_graph_scope(graph, root_label="root")
         )
     else:
         options = (
@@ -40,7 +39,7 @@ def execute(graph: Graph, backend: Backend) -> None:
             if backend == "thread"
             else partial(run_async_execution, max_workers=2)
         )
-        (options)(Execution(Graph(structure=graph.structure)))
+        (options)(Execution(graph))
 
 
 def test_option_preserves_none_and_false_values() -> None:
@@ -146,14 +145,37 @@ def test_repeated_nested_graph_mounts_supply_their_own_results(
             probe.wire(),
         )
     )
-    nested = Graph(structure=GraphStructure(nodes=(Graph(structure=child.structure),)))
+    nested = Graph(
+        nodes=(
+            Graph(
+                nodes=child.nodes,
+                edges=child.edges,
+                observation=child.observation,
+                static=child.static,
+                static_selections=child.static_selections,
+                interface=child.interface.declaration,
+            ),
+        )
+    )
     execute(
         Graph(
-            structure=GraphStructure(
-                nodes=(
-                    Graph(structure=nested.structure),
-                    Graph(structure=nested.structure),
-                )
+            nodes=(
+                Graph(
+                    nodes=nested.nodes,
+                    edges=nested.edges,
+                    observation=nested.observation,
+                    static=nested.static,
+                    static_selections=nested.static_selections,
+                    interface=nested.interface.declaration,
+                ),
+                Graph(
+                    nodes=nested.nodes,
+                    edges=nested.edges,
+                    observation=nested.observation,
+                    static=nested.static,
+                    static_selections=nested.static_selections,
+                    interface=nested.interface.declaration,
+                ),
             )
         ),
         backend,
@@ -175,11 +197,7 @@ def test_repeated_input_preserves_arguments_without_rewrapping() -> None:
         condition=(_consumer_condition := (condition, probe, probe)),
     )
     execution = Execution(
-        Graph(
-            structure=Graph.from_wiring(
-                (consumer.wire(after=(Results(probe, probe),)), probe.wire())
-            ).structure
-        )
+        Graph.from_wiring((consumer.wire(after=(Results(probe, probe),)), probe.wire()))
     )
     run_execution(execution)
     assert len(seen) == 1
@@ -250,11 +268,23 @@ def test_action_only_inputs_enable_recording_and_bind_each_mount(
     )
     execute(
         Graph(
-            structure=GraphStructure(
-                nodes=(
-                    Graph(structure=child.structure),
-                    Graph(structure=child.structure),
-                )
+            nodes=(
+                Graph(
+                    nodes=child.nodes,
+                    edges=child.edges,
+                    observation=child.observation,
+                    static=child.static,
+                    static_selections=child.static_selections,
+                    interface=child.interface.declaration,
+                ),
+                Graph(
+                    nodes=child.nodes,
+                    edges=child.edges,
+                    observation=child.observation,
+                    static=child.static,
+                    static_selections=child.static_selections,
+                    interface=child.interface.declaration,
+                ),
             )
         ),
         backend,
@@ -304,11 +334,23 @@ def test_each_receiver_binds_its_own_results_on_each_mount(backend: Backend) -> 
     )
     execute(
         Graph(
-            structure=GraphStructure(
-                nodes=(
-                    Graph(structure=child.structure),
-                    Graph(structure=child.structure),
-                )
+            nodes=(
+                Graph(
+                    nodes=child.nodes,
+                    edges=child.edges,
+                    observation=child.observation,
+                    static=child.static,
+                    static_selections=child.static_selections,
+                    interface=child.interface.declaration,
+                ),
+                Graph(
+                    nodes=child.nodes,
+                    edges=child.edges,
+                    observation=child.observation,
+                    static=child.static,
+                    static_selections=child.static_selections,
+                    interface=child.interface.declaration,
+                ),
             )
         ),
         backend,
@@ -362,7 +404,10 @@ def test_false_node_condition_does_not_wait_for_other_receiver_inputs() -> None:
             ),
         )
     )
-    run_async_execution(Execution(Graph(structure=graph.structure)), max_workers=4)
+    run_async_execution(
+        Execution(graph),
+        max_workers=4,
+    )
     assert decided.is_set()
 
 
@@ -418,26 +463,16 @@ def test_result_edge_group_is_complete_and_unique_per_action() -> None:
     consumer = Step(lambda _ctx, *values: None)
     connections = Edge.results((first, second), consumer)
     with pytest.raises(GraphError, match="included in full"):
-        Graph(
-            structure=GraphStructure(
-                nodes=(first, second, consumer), edges=connections[:1]
-            )
-        )
+        Graph(nodes=(first, second, consumer), edges=connections[:1])
     with pytest.raises(GraphError, match="must not be repeated"):
-        Graph(
-            structure=GraphStructure(
-                nodes=(first, second, consumer), edges=(*connections, connections[0])
-            )
-        )
+        Graph(nodes=(first, second, consumer), edges=(*connections, connections[0]))
     with pytest.raises(GraphError, match="one result connection group"):
         Graph(
-            structure=GraphStructure(
-                nodes=(first, second, consumer),
-                edges=(
-                    *Edge.results((first,), consumer),
-                    *Edge.results((second,), consumer),
-                ),
-            )
+            nodes=(first, second, consumer),
+            edges=(
+                *Edge.results((first,), consumer),
+                *Edge.results((second,), consumer),
+            ),
         )
 
 
@@ -451,10 +486,8 @@ def test_result_edges_supply_ordered_values_without_extra_order_edges(
     consumer = Step(lambda _ctx, a, b: seen.append((a.unwrap(), b.unwrap())))
     execute(
         Graph(
-            structure=GraphStructure(
-                nodes=(consumer, second, first),
-                edges=tuple(reversed(Edge.results((first, second), consumer))),
-            )
+            nodes=(consumer, second, first),
+            edges=tuple(reversed(Edge.results((first, second), consumer))),
         ),
         backend,
     )
@@ -463,13 +496,9 @@ def test_result_edges_supply_ordered_values_without_extra_order_edges(
 
 def test_result_connections_require_local_producers_and_a_callable_target() -> None:
     producer = Step(lambda: 1)
-    child = Graph(structure=GraphStructure(nodes=(producer,)))
+    child = Graph(nodes=(producer,))
     consumer = Step(lambda _ctx, value: None)
     with pytest.raises(GraphError, match="unknown|outside"):
-        Graph(
-            structure=GraphStructure(
-                nodes=(child, consumer), edges=Edge.results((producer,), consumer)
-            )
-        )
+        Graph(nodes=(child, consumer), edges=Edge.results((producer,), consumer))
     with pytest.raises(GraphError, match="callable action"):
         Edge.results((producer,), child)

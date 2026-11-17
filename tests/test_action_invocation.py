@@ -13,7 +13,6 @@ from rivlet import (
     ExecutionControl,
     ExecutionState,
     Graph,
-    GraphStructure,
     NodePath,
     ResultStore,
     SerialGraphExecutor,
@@ -23,7 +22,7 @@ from rivlet.runtime import GraphExecutor
 
 
 def _execute(graph: Graph, workers: int) -> ResultStore:
-    compilation = Execution(root=Graph(structure=graph.structure)).compile()
+    compilation = Execution(root=graph).compile()
     results = ResultStore()
     state = ExecutionState(results=results)
     if workers == 0:
@@ -46,14 +45,12 @@ def test_sync_actions_and_returned_graph_do_not_create_event_loop(
     monkeypatch.setattr(asyncio, "run", unexpected_loop)
     calls: list[str] = []
 
-    def make_graph() -> GraphStructure:
+    def make_graph() -> Graph:
         calls.append("declare")
-        return Graph(
-            structure=GraphStructure(nodes=(Step(lambda: calls.append("nested")),))
-        ).structure
+        return Graph(nodes=(Step(lambda: calls.append("nested")),))
 
     steps = (Step(lambda: 42), Step(lambda: None), Step(make_graph))
-    results = _execute(Graph(structure=GraphStructure(nodes=steps)), workers)
+    results = _execute(Graph(nodes=steps), workers)
     assert calls == ["declare", "nested"]
     assert (
         results.require(
@@ -119,7 +116,7 @@ def test_awaitable_results_remain_supported(
         case "awaitable":
             action = Result
 
-    results = _execute(Graph(structure=GraphStructure(nodes=(Step(action),))), workers)
+    results = _execute(Graph(nodes=(Step(action),)), workers)
     assert calls == ["started", "finished"]
     assert (
         results.require(
@@ -150,6 +147,6 @@ def test_awaitable_keeps_action_context_and_propagates_error(workers: int) -> No
     token = marker.set("outside")
     try:
         with pytest.raises(RuntimeError, match="action failed"):
-            _execute(Graph(structure=GraphStructure(nodes=(Step(action),))), workers)
+            _execute(Graph(nodes=(Step(action),)), workers)
     finally:
         marker.reset(token)

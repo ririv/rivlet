@@ -5,14 +5,15 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING
 
-from .._native import _NativeCondition, dag_cycle
+from .._native import dag_cycle
 from ..errors import GraphError
 from ..interface import InputPort, OutputPort, _declared_interface
+from .condition import _BoundNativeCondition
 from .edge import _condition_uses, _ResultConnection
 from .graph import Graph
 from .identity import NodePath
+from .native_graph import _NativeContents
 from .node import Node, resolve_node_label
-from .python_structure import _PythonStructure
 from .step import Step
 
 if TYPE_CHECKING:
@@ -22,8 +23,6 @@ if TYPE_CHECKING:
 
 def _input_nodes(endpoint: InputEndpoint) -> tuple[Node, ...]:
     if isinstance(endpoint, InputPort):
-        if not isinstance(endpoint.graph.structure._declaration, _PythonStructure):
-            return ()
         return tuple(
             node
             for target in _declared_interface(endpoint.graph).inputs[endpoint.name]
@@ -34,23 +33,16 @@ def _input_nodes(endpoint: InputEndpoint) -> tuple[Node, ...]:
 
 def _validate_result_target(endpoint: InputEndpoint, count: int) -> None:
     if isinstance(endpoint, InputPort):
-        body = endpoint.graph.structure._declaration
-        if isinstance(body, _PythonStructure):
-            for target in body.interface.inputs[endpoint.name]:
-                _validate_result_target(target, count)
-        else:
-            for arity in body.input_arities(endpoint.name):
-                if arity != count:
-                    raise GraphError(
-                        f"native action expects {arity} result inputs, received {count}"
-                    )
+        body = endpoint.graph
+        for target in body._interface.inputs[endpoint.name]:
+            _validate_result_target(target, count)
     elif isinstance(endpoint, Step):
         endpoint.validate_inputs(count)
     else:
         raise GraphError("result target must have a callable action")
 
 
-def _validate_result_bindings(graph: _PythonStructure) -> None:
+def _validate_result_bindings(graph: Graph) -> None:
     # O(V + E + I)：每组结果只校验一次；公开入口允许待绑定，最终编译仍须闭合。
     groups: dict[Node | InputPort, _ResultGroup] = {}
     slots: dict[Node | InputPort, set[int]] = {}
@@ -72,7 +64,7 @@ def _validate_result_bindings(graph: _PythonStructure) -> None:
         _validate_result_target(target, len(indexes))
     exposed = {
         node
-        for targets in graph.interface.inputs.values()
+        for targets in graph._interface.inputs.values()
         for target in targets
         for node in _input_nodes(target)
     }
@@ -80,7 +72,7 @@ def _validate_result_bindings(graph: _PythonStructure) -> None:
         if isinstance(node, Step) and node not in exposed and node not in slots:
             node.validate_inputs(0)
     for _, condition in _condition_uses(graph.nodes, graph.edges):
-        if isinstance(condition, _NativeCondition):
+        if isinstance(condition, _BoundNativeCondition):
             continue
         count = len(condition.inputs)
         try:
@@ -95,7 +87,7 @@ def _validated_nodes(nodes: tuple[Node, ...], *, graph_label: str) -> set[Node]:
     known: set[Node] = set()
     for index, node in enumerate(nodes):
         if not isinstance(node, (Step, Graph)):
-            raise GraphError("GraphStructure.nodes accepts only Step or Graph nodes")
+            raise GraphError("Graph.nodes accepts only Step or Graph nodes")
         if node in known:
             raise GraphError(
                 f"graph '{graph_label}' contains the same node more than once: "
@@ -105,7 +97,7 @@ def _validated_nodes(nodes: tuple[Node, ...], *, graph_label: str) -> set[Node]:
     return known
 
 
-def _validate_graph_topology(graph: _PythonStructure) -> None:
+def _validate_graph_topology(graph: Graph) -> None:
     known = _validated_nodes(graph.nodes, graph_label="<structure>")
     indexes: dict[Node, int] = {node: index for index, node in enumerate(graph.nodes)}
     arcs: set[tuple[int, int]] = set()
@@ -118,17 +110,8 @@ def _validate_graph_topology(graph: _PythonStructure) -> None:
             output_name, input_name = edge.ports
             _require_port_output(edge.source, output_name)
             _require_declared_port_input(edge.target, input_name)
-            if edge.source.condition is not None:
-                raise GraphError(
-                    "port provider component must not have a runtime condition"
-                )
-            assert isinstance(edge.source, Graph)
-            if isinstance(edge.source.structure._declaration, _PythonStructure):
-                output = _declared_interface(edge.source).outputs[output_name]
-                if not isinstance(output, OutputPort) and output.condition is not None:
-                    raise GraphError(
-                        "port output node must not have a runtime condition"
-                    )
+            # 提供者身份在声明期固定；运行时跳过沿用普通完成依赖语义，
+            # 不等于重新选择提供者，也不把被跳过的出口伪装成成功结果。
             continue
         if isinstance(edge.result_source, OutputPort) or isinstance(
             edge.result_target, InputPort
@@ -139,6 +122,12 @@ def _validate_graph_topology(graph: _PythonStructure) -> None:
         arcs.add((indexes[edge.source], indexes[edge.target]))
     for target, condition in _condition_uses(graph.nodes, graph.edges):
         for source in condition.inputs:
+            if isinstance(source, OutputPort):
+                if source.graph not in known:
+                    raise GraphError(
+                        "condition input references a graph outside this graph"
+                    )
+                continue
             if source not in known:
                 raise GraphError("condition input references a node outside this graph")
             arcs.add((indexes[source], indexes[target]))
@@ -159,16 +148,30 @@ def _validate_port_interface(
 ) -> None:
     if not interface.inputs and not interface.outputs:
         return
-    # O(V + R) 建立挂载计数，端口引用不逐项重扫整张子图。
+    # 普通声明一次遍历建立挂载计数；原生图只查询已引用端点的快照归属，
+    # 不为校验端口而物化整张原生图的兄弟节点。
     counts: dict[Node, int] = {}
+    required = {
+        *(
+            target.graph if isinstance(target, InputPort) else target
+            for targets in interface.inputs.values()
+            for target in targets
+        ),
+        *(
+            target.graph if isinstance(target, OutputPort) else target
+            for target in interface.outputs.values()
+        ),
+    }
     pending = list(nodes)
     while pending:
         node = pending.pop()
         counts[node] = counts.get(node, 0) + 1
-        if isinstance(node, Graph) and isinstance(
-            node.structure._declaration, _PythonStructure
-        ):
-            pending.extend(node.structure._declaration.nodes)
+        if isinstance(node, Graph):
+            if isinstance(node._contents, _NativeContents):
+                for member in node._contents.declared_members(required):
+                    counts[member] = counts.get(member, 0) + 1
+            else:
+                pending.extend(node.nodes)
     for port, targets in interface.inputs.items():
         for target in targets:
             node = target.graph if isinstance(target, InputPort) else target
@@ -192,9 +195,9 @@ def _require_unique_port_node(
         )
 
 
-def validate_graph(graph: _PythonStructure) -> None:
+def validate_graph(graph: Graph) -> None:
     """Validate local structure, retaining explicitly exposed unresolved inputs."""
 
     _validate_graph_topology(graph)
     _validate_result_bindings(graph)
-    _validate_port_interface(nodes=graph.nodes, interface=graph.interface)
+    _validate_port_interface(nodes=graph.nodes, interface=graph._interface)

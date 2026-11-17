@@ -1,10 +1,10 @@
-export { Step, Graph, GraphStructure, Edge, Results } from "./model.js";
+export { Step, Graph, Edge, Results } from "./model.js";
 export type {
   Node,
   StepNode,
   NodeRunContext,
   NodeOptions,
-  StructureOptions,
+  GraphOptions,
   ResultSource,
   ResultTarget,
   Condition,

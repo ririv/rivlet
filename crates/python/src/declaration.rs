@@ -13,7 +13,7 @@ use crate::CompiledExecutionGraph;
 use crate::mixed_execution::{
     _NativePredicate, RustActionBindings, RustActionDeclaration, RustConditionDeclaration,
 };
-use crate::native_structure::{_NativeCondition, _NativeStep, _NativeStructure};
+use crate::native_structure::{_NativeCondition, _NativeGraph, _NativeStep};
 use crate::result_values::ValueCodecs;
 
 type ExportOrigins = (
@@ -25,6 +25,7 @@ type ExportOrigins = (
 struct PythonTypes<'py> {
     graph: Bound<'py, PyAny>,
     runtime_condition: Bound<'py, PyAny>,
+    native_condition: Bound<'py, PyAny>,
     input_port: Bound<'py, PyAny>,
     output_port: Bound<'py, PyAny>,
 }
@@ -35,11 +36,12 @@ impl<'py> PythonTypes<'py> {
         let interface = py.import("rivlet.interface")?;
         Ok(Self {
             graph: model.getattr("Graph")?,
+            native_condition: model.getattr("_BoundNativeCondition")?,
             runtime_condition: pyo3::types::PyTuple::new(
                 py,
                 [
                     model.getattr("_RuntimeCondition")?,
-                    py.import("rivlet._native")?.getattr("_NativeCondition")?,
+                    model.getattr("_BoundNativeCondition")?,
                 ],
             )?
             .into_any(),
@@ -318,7 +320,7 @@ impl<'py> Collector<'py> {
         let mut port_scopes = owner.map_or_else(Vec::new, |node| {
             self.graphs[self.nodes[node].graph].port_scopes.clone()
         });
-        let interface = source_graph.getattr("interface")?;
+        let interface = source_graph.getattr("_interface")?;
         if interface.getattr("inputs")?.len()? != 0 || interface.getattr("outputs")?.len()? != 0 {
             port_scopes.push(graph_index);
         }
@@ -443,21 +445,22 @@ impl<'py> Collector<'py> {
         let mut child_label_path = self.graphs[graph_index].label_path.clone();
         child_label_path.push(step_label.to_owned());
         let child_graph = if action.is_instance(&self.types.graph)? {
-            let structure = action.getattr("structure")?.getattr("_declaration")?;
-            if let Ok(rust_graph) = structure.extract::<PyRef<'_, _NativeStructure>>() {
-                Some(self.collect_rust_graph(
-                    &rust_graph,
-                    &child_label_path,
-                    node_index,
+            let handle = action.getattr("_native")?;
+            if handle.is_none() {
+                Some(self.collect_graph(
+                    action,
+                    step_label,
+                    child_label_path,
+                    Some(node_index),
                     node_path,
                     active,
                 )?)
             } else {
-                Some(self.collect_graph(
-                    &structure,
-                    step_label,
-                    child_label_path,
-                    Some(node_index),
+                let rust_graph = handle.extract::<PyRef<'_, _NativeGraph>>()?;
+                Some(self.collect_rust_graph(
+                    &rust_graph,
+                    &child_label_path,
+                    node_index,
                     node_path,
                     active,
                 )?)
@@ -485,7 +488,7 @@ impl<'py> Collector<'py> {
 
     fn collect_rust_graph(
         &mut self,
-        rust_graph: &_NativeStructure,
+        rust_graph: &_NativeGraph,
         label_path: &[String],
         owner: usize,
         id_prefix: &[usize],
@@ -609,7 +612,7 @@ impl<'py> Collector<'py> {
                 self.nodes[owner].label.clone()
             };
             self.graphs.push(GraphRecord {
-                source_graph: Py::new(self.py, _NativeStructure::view(Arc::clone(native), index))?
+                source_graph: Py::new(self.py, _NativeGraph::view(Arc::clone(native), index))?
                     .into_any(),
                 label,
                 label_path: path,
@@ -863,17 +866,6 @@ impl<'py> Collector<'py> {
         target: usize,
         edge_index: Option<usize>,
     ) -> PyResult<ConditionId> {
-        if let Ok(native) = condition.extract::<PyRef<'_, _NativeCondition>>() {
-            let condition_id = ConditionId::new(self.conditions.len());
-            self.conditions.push(ConditionRecord {
-                predicate: Predicate::Rust(native.predicate.clone(), Arc::clone(&native.codecs)),
-                reads: Vec::new(),
-                target,
-                edge_index,
-            });
-            self.runtime_conditions.push(RuntimeCondition::new([]));
-            return Ok(condition_id);
-        }
         // I 为条件的输入引用数。按当前挂载的局部索引一次解析，时间/空间 O(I)，
         // 不从结果边反查，也不把条件输入加入 action 的无条件前置。
         let graph_index = self.nodes[target].graph;
@@ -887,8 +879,13 @@ impl<'py> Collector<'py> {
         let mut reads = Vec::new();
         for source in condition.getattr("inputs")?.try_iter()? {
             let source = source?;
-            let node = self.require_local_node(graph_index, &source)?;
-            let binding = bindings.call_method1("get", ((&source, target_step),))?;
+            let node = self.resolve_result_source(graph_index, &source)?;
+            let source_node = if source.is_instance(&self.types.output_port)? {
+                source.getattr("graph")?
+            } else {
+                source.clone()
+            };
+            let binding = bindings.call_method1("get", ((&source_node, target_step),))?;
             if matches!(self.node_activation(node), NodeActivation::Inactive)
                 || (!binding.is_none() && !binding.call_method0("evaluate")?.extract::<bool>()?)
             {
@@ -899,8 +896,15 @@ impl<'py> Collector<'py> {
             reads.push(NodeId::new(node));
         }
         let condition_id = ConditionId::new(self.conditions.len());
+        let predicate = if condition.is_instance(&self.types.native_condition)? {
+            let handle = condition.getattr("_native")?;
+            let native = handle.extract::<PyRef<'_, _NativeCondition>>()?;
+            Predicate::Rust(native.predicate.clone(), Arc::clone(&native.codecs))
+        } else {
+            Predicate::Python(condition.getattr("when")?.unbind())
+        };
         self.conditions.push(ConditionRecord {
-            predicate: Predicate::Python(condition.getattr("when")?.unbind()),
+            predicate,
             reads: reads.iter().map(|node| node.index()).collect(),
             target,
             edge_index,
@@ -1093,7 +1097,7 @@ fn require_interface_port<'py>(
 ) -> PyResult<Bound<'py, PyAny>> {
     // 映射按能力直接查找，平均 O(1)，不再逐端口跨语言扫描。
     graph
-        .getattr("interface")?
+        .getattr("_interface")?
         .getattr(attribute)?
         .get_item(port)
 }
@@ -1241,12 +1245,14 @@ impl DeclarationCompilation {
                     .owner
                     .and_then(|node| self.nodes[node].source_node.as_ref())
                 {
-                    return source.bind(py).getattr("structure").map(Bound::unbind);
+                    return Ok(source.clone_ref(py));
                 }
-                py.import("rivlet.model")?
-                    .getattr("GraphStructure")?
-                    .call_method1("_from_declaration", (graph.source_graph.bind(py),))
-                    .map(Bound::unbind)
+                let source = graph.source_graph.bind(py);
+                if let Ok(native) = source.extract::<PyRef<'_, _NativeGraph>>() {
+                    native.clone().into_public(py)
+                } else {
+                    Ok(graph.source_graph.clone_ref(py))
+                }
             })
             .collect()
     }
@@ -1286,7 +1292,7 @@ pub(crate) fn compile_declaration(
     id_prefix: Vec<usize>,
 ) -> PyResult<DeclarationCompilation> {
     Collector::new(source_graph.py())?.collect_root(
-        &source_graph.getattr("_declaration")?,
+        source_graph,
         root_label,
         root_label_path,
         &id_prefix,
