@@ -10,6 +10,16 @@ import {
 import type { Option } from "./option.js";
 import type { SharedAccess } from "./shared.js";
 import { snapshotStatic, type StaticRule } from "./static.js";
+import {
+  NodeWiring,
+  createNodeWire,
+  normalizeWiring,
+  type CheckedAfter,
+  type Prerequisite,
+  type OrderPrerequisite,
+  type WiringGraphArgs,
+  type WiringGraphOptions,
+} from "./wiring.js";
 
 export const invokeAction = Symbol("invokeAction");
 export const edgeDeclaration = Symbol("edgeDeclaration");
@@ -30,6 +40,10 @@ export interface StepNode<
   T = unknown,
   Inputs extends readonly unknown[] = never,
 > {
+  wire(): NodeWiring;
+  wire<const A extends readonly Prerequisite[]>(options: {
+    readonly after: CheckedAfter<Inputs, A>;
+  }): NodeWiring;
   readonly kind: "step";
   readonly id: bigint;
   readonly label: string;
@@ -61,7 +75,7 @@ export interface NodeOptions {
   readonly condition?: Condition;
 }
 
-function snapshotCondition(
+export function snapshotCondition(
   condition: Condition | undefined,
 ): Condition | undefined {
   return condition === undefined || typeof condition === "function"
@@ -74,6 +88,13 @@ export class Step<
   T,
   Inputs extends readonly unknown[] = [],
 > implements StepNode<T, Inputs> {
+  wire(): NodeWiring;
+  wire<const A extends readonly Prerequisite[]>(options: {
+    readonly after: CheckedAfter<Inputs, A>;
+  }): NodeWiring;
+  wire(options?: { readonly after: readonly Prerequisite[] }): NodeWiring {
+    return NodeWiring[createNodeWire](this, options?.after ?? []);
+  }
   readonly kind = "step";
   readonly id = native.allocateNodeId();
   readonly label: string;
@@ -116,6 +137,24 @@ export type GraphOptions<I extends AnyGraphInterface = GraphInterface> =
 
 /** A complete graph declaration with identity, topology and public ports. */
 export class Graph<I extends AnyGraphInterface = GraphInterface> {
+  wire(
+    options: { readonly after?: readonly OrderPrerequisite[] } = {},
+  ): NodeWiring {
+    return NodeWiring[createNodeWire](this, options.after ?? []);
+  }
+  static fromWiring<I extends AnyGraphInterface = GraphInterface>(
+    input: readonly NodeWiring[],
+    ...args: WiringGraphArgs<I>
+  ): Graph<I> {
+    const wiring = normalizeWiring(input);
+    const options = args[0] as WiringGraphOptions<I> | undefined;
+    // 条件参数组已要求非空接口提供实际声明；此处仅恢复合并前的泛型关系。
+    return new Graph<I>({
+      ...options,
+      nodes: wiring.nodes,
+      edges: [...wiring.edges, ...(options?.edges ?? [])],
+    } as unknown as GraphOptions<I>);
+  }
   readonly static: readonly StaticRule[];
   readonly kind = "graph";
   readonly id = native.allocateNodeId();

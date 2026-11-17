@@ -5,6 +5,7 @@ import {
   GraphInterfaceView,
   Step,
   Results,
+  type Prerequisite,
   type NodeRunContext,
   type Option,
 } from "../src/index.js";
@@ -168,3 +169,32 @@ const selectedInput = new Graph({
 declare const inputName: "text" | "number";
 // @ts-expect-error 动态名字可能选中 string 输入，不能仅检查 number 分支。
 Edge.results([number], selectedInput.interface.input(inputName));
+
+// wire 与 Edge.results 使用相同的完整参数组规则。
+expectsBoth.wire({ after: [number, new Results([number, string])] });
+expectsBoth.wire({ after: [new Results([number]), new Results([string])] });
+expectsString.wire(); // 可以留给外层公开的输入端口接线。
+// @ts-expect-error 结果参数数量必须完整。
+expectsBoth.wire({ after: [new Results([number])] });
+// @ts-expect-error 结果顺序不能交换。
+expectsBoth.wire({ after: [new Results([string, number])] });
+// @ts-expect-error 拆成多组也不能绕过参数类型检查。
+expectsBoth.wire({ after: [new Results([string]), new Results([number])] });
+// @ts-expect-error Graph 接收结果必须通过公开的输入端口。
+consumer.wire({ after: [new Results([design])] });
+const wiredProvider = Graph.fromWiring([design.wire()], {
+  interface: new GraphInterface({ outputs: design }),
+});
+Edge.results([wiredProvider.interface.output()], apply);
+const namedWiredProvider = Graph.fromWiring([design.wire(), number.wire()], {
+  interface: new GraphInterface({ outputs: [["plan", design]] }),
+});
+Edge.results([namedWiredProvider.interface.output("plan")], apply);
+// @ts-expect-error 接线不得暗中公开未声明的出口。
+namedWiredProvider.interface.output("count");
+// @ts-expect-error 泛型不能凭空构造接口。
+Graph.fromWiring<typeof consumer.interface.declaration>([]);
+declare const uncertainOrder: readonly Prerequisite[];
+const noParameters = new Step(() => undefined);
+// @ts-expect-error 扩大的数组不能假装为已知的空结果参数组。
+noParameters.wire({ after: uncertainOrder });
