@@ -217,7 +217,8 @@ napi-rs 注册宏需要在生成 FFI 代码中局部允许 unsafe，因此仅此
 首版前端支持显式构造、层级组合、匿名与具名端口、结果传递、节点与边的运行时条件、
 子图限额、跳过、编译复用、失败隔离、静态条件与选择、动态生成子图和事件观察。
 完整写法与边界见[Node/Rust 高级 API](./node-rust-advanced.md)。
-尚未暴露 Python 的 wire/DSL、共享状态、渲染、符号 provider 选择、Rust 原生动作注册。
+结构导出与 Tree／Mermaid 渲染已复用共享 Rust 检查层，见[完整示例](./graph_export.md#三端共用的结构渲染)。
+尚未暴露 Python 的 wire/DSL、共享状态、实时执行渲染、符号 provider 选择、Rust 原生动作注册。
 
 尚无 Python/JS/Rust 混合值协议、浏览器/WASM 绑定、npm 发行或 Node 预编译平台矩阵。
 复用 core 不意味着这些能力已存在。Python 的发行和既有 API 保持独立。

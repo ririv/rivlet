@@ -6,6 +6,8 @@ English | [简体中文](./zh-CN/graph_export.md)
 `Graph`, root `Node`, or `GraphCompilation`. It does not parse rendered text, infer relationships
 from labels, execute actions, or include application state. The public schema is
 [`GraphDocument`](../src/rivlet/structure/schema.py), a discriminated TypedDict union.
+The Rust `inspection` crate owns runtime validation, Tree and Mermaid rendering;
+language adapters extract declarations and frozen compilation facts, without invoking callbacks.
 It has no HTTP, frontend, or Pydantic dependency and is not an executable input format.
 
 ## Declaration versus compilation
@@ -46,7 +48,7 @@ For this example, selected fields are:
 ```json
 {
   "declaration": {
-    "schema_version": 2,
+    "schema_version": 3,
     "view": "declaration",
     "nodes": [{"id": "0", "label": "choose"}, {"id": "0.0", "label": "keep"}, {"id": "0.1", "label": "drop"}],
     "selections": [{"id": "graph:0/selection:0", "cases": [
@@ -54,7 +56,7 @@ For this example, selected fields are:
     ]}]
   },
   "compiled": {
-    "schema_version": 2,
+    "schema_version": 3,
     "view": "compiled",
     "nodes": [{"id": "0", "label": "choose"}, {"id": "0.0", "label": "keep"}],
     "edges": [],
@@ -86,7 +88,8 @@ condition tuple at several sites can produce multiple compiled instances.
   not a label, function, process-global object address, or permanent business entity.
 - Reusing the same child Graph creates different mounted IDs, for example `0.0`
   and `1.0`. Export and runtime events use the same mounted NodePath namespace.
-- Node `node_id` is the declaration's process-local integer identity. Repeated
+- Node `node_id` is the declaration's process-local integer identity, encoded as a
+  decimal string to preserve full u64 precision in JavaScript. Repeated
   mounts share it; recompiling the same declarations preserves it. It is not a
   persistent identity across process restarts or a cache key.
 - Keeping the same mounting layout preserves IDs when labels change. Changing
@@ -98,7 +101,7 @@ condition tuple at several sites can produce multiple compiled instances.
 - Interfaces retain their port names and exact input/output node references in `ports`.
   Port forwarding appears on the scope that explicitly exposes it.
 
-Schema v2 retains the wire kinds `"leaf"`/`"subgraph"`; `"leaf"` describes an action
+Schema v3 retains the wire kinds `"leaf"`/`"subgraph"`; `"leaf"` describes an action
 node declared with Step, including actions in an opaque Rust body. Renaming the
 declaration API does not change these wire tags or the schema version.
 A result edge through ports retains source/target component IDs and, as applicable,
@@ -141,7 +144,7 @@ example, serialize `export_graph(execution.compile())` before calling `run()`.
 The returned lists/dicts are fresh copies; changing them does not change the graph
 or later exports. JSON serialization freezes their values for that historical record.
 
-`schema_version=2` identifies the document format, not a package version, workflow
+`schema_version=3` identifies the document format, not a package version, workflow
 revision, run ID, or fingerprint. Hosts should store their own run/revision identity
 alongside it. Do not regenerate an old history's topology from today's source graph,
 add nodes that never existed, or relabel unknown historical work as executed.
@@ -184,7 +187,27 @@ GraphError rather than recompiling or guessing missing edge kinds. Use compile_g
 or Execution.compile to obtain a compiler-produced result.
 
 JSON export is an inspection format, not an execution service or foreign-language
-binding. It introduces no new third-party dependency.
+binding. There is no new Python runtime dependency; the inspection crate uses
+serde/serde_json, while the scheduling core remains dependency-free.
 
 Export cost is proportional to mounted nodes, edges, ports, condition/input references,
 and total path/output size. It performs no action I/O and does not affect scheduling.
+
+## Shared rendering across languages
+
+Python retains `render_graph()` / `render_graph_mermaid()` and their compiled variants.
+Node.js exposes `exportGraph(source)`, `renderTree(source)` and `renderMermaid(source)`;
+the renderers accept a Node, an existing Compilation, or a detached GraphDocument.
+Rust exposes `graph::export_graph(&source)` and
+`graph::inspection::{to_json, render_tree, render_mermaid}` over the shared document.
+See the [complete three-language examples](./zh-CN/graph_export.md#三端共用的结构渲染).
+
+Version 3 uses decimal-string `node_id`, action kinds `python` / `native` / `rust` /
+`javascript`, and boolean or opaque-ID static selection conditions. Unsupported
+schemas are rejected, not guessed. Mermaid IDs encode mounted positions rather
+than labels; identical labels cannot collapse distinct nodes. Exact generated IDs
+are render details, not application identities. Live execution views remain separate.
+
+Mounted IDs are opaque strings: Python/Rust standalone roots start at `0`; Node.js
+retains its existing event namespace, with `[]` / `""` for the root and `0`, `1`, … for
+its children. Sharing a document format does not equate process identities or mounts.

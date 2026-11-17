@@ -3,9 +3,10 @@
 [English](../graph_export.md) | 简体中文
 
 `export_graph()` 直接读取实际的 `Graph`、根 `Node` 或 `GraphCompilation`，返回独立的纯 JSON 数据。
-它不反向解析 Mermaid 或文本、不根据标签猜依赖，也不执行 Action。公开 schema 是
-[`GraphDocument`](../../src/rivlet/structure/schema.py)：按 `view` 区分的 TypedDict 联合类型，
-没有 HTTP、前端样式或 Pydantic 依赖，不是另一套可执行图模型或反序列化执行入口。
+它不反向解析 Mermaid 或文本、不根据标签猜依赖，也不执行 Action。公开 schema 的运行时实现是
+Rust [`inspection`](../../crates/inspection/src/lib.rs)；Python 的
+[`GraphDocument`](../../src/rivlet/structure/schema.py) 是对应的 TypedDict 联合类型。
+它不是另一套可执行图模型或反序列化执行入口，没有 HTTP、前端样式或 Pydantic 依赖。
 
 ## 声明与编译结果
 
@@ -46,7 +47,7 @@ assert execution.compilation is prepared
 ```json
 {
   "declaration": {
-    "schema_version": 2,
+    "schema_version": 3,
     "view": "declaration",
     "nodes": [{"id": "0", "label": "choose"}, {"id": "0.0", "label": "keep"}, {"id": "0.1", "label": "drop"}],
     "selections": [{"id": "graph:0/selection:0", "cases": [
@@ -54,7 +55,7 @@ assert execution.compilation is prepared
     ]}]
   },
   "compiled": {
-    "schema_version": 2,
+    "schema_version": 3,
     "view": "compiled",
     "nodes": [{"id": "0", "label": "choose"}, {"id": "0.0", "label": "keep"}],
     "edges": [],
@@ -80,7 +81,8 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 - 节点 `id` 等于 `str(NodePath)`，例如 `0`、`2.1`，表示挂载位置，不是标签、函数身份、
   进程对象地址或永久业务身份。
 - 同一子图挂载两次会得到 `0.0`、`1.0` 等不同 ID；导出和运行事件使用同一个 NodePath 命名空间。
-- 节点 `node_id` 是声明的进程内整数身份；重复挂载共享它，同一声明重新编译也保持不变。
+- 节点 `node_id` 是声明的进程内整数身份，以十进制字符串保存，避免 JavaScript Number 精度损失；
+  重复挂载共享它，同一声明重新编译也保持不变。
   它不是跨进程持久身份，也不作为缓存键。
 - 挂载结构不变时，改标签不改变 ID；调整节点顺序或组合结构可能改变 ID。必须结合当次冻结
   的图文档或 run 身份使用，不能拿另一版源码生成的图来解释旧事件。
@@ -95,7 +97,7 @@ evaluator、描述字符串，也不猜测求值结果。`Case` 中已经明确�
 
 ## 边的语义
 
-schema v2 保留 `"leaf"`/`"subgraph"` wire tag；`"leaf"` 对应 Step 声明的动作节点，
+schema v3 保留 `"leaf"`/`"subgraph"` wire tag；`"leaf"` 对应 Step 声明的动作节点，
 声明 API 改名不改变这些标签或 schema 版本。跨端口结果边保留外层
 source/target，并按方向包含 source_port/provider_node 或 target_port/consumer_nodes，
 这些解析字段指向真实内部端点，转发不会丢失归属。
@@ -130,7 +132,9 @@ source/target，并按方向包含 source_port/provider_node 或 target_port/con
 `export_graph(execution.compile())`，再调用 `run()`。返回的字典和列表是独立副本，修改它们
 不会影响 Graph 或下次导出；保存 JSON 才是冻结该次历史的具体值。
 
-`schema_version=2` 只表示文档格式，不是 Rivlet 版本、工作流修订、run ID 或 fingerprint。
+`schema_version=3` 只表示文档格式，不是 Rivlet 版本、工作流修订、run ID 或 fingerprint。
+第 3 版将 `node_id` 改为十进制字符串，`action_kind` 支持 `python`、`native`、`rust`、
+`javascript`；静态选择条件允许明确的 bool 或不透明的位置 ID，不调用回调猜结果。
 第 2 版使用 `port` 边类型，以 `source_port`、`target_port` 分别记录两端名称；
 `condition` 为条件 ID，无条件时为 null。图接口自身的端口声明仍用单个 `port` 名称。
 第 1 版以 `capability` 表示边类型和双方共同名称。
@@ -157,7 +161,54 @@ source/target，并按方向包含 source_port/provider_node 或 target_port/con
 手工拼装而没有编译来源的 GraphCompilation 会明确拒绝导出，不重新编译或猜边类型。
 请通过 compile_graph 或 Execution.compile 获取编译器产物。
 
-JSON 导出是检查格式，不是执行服务或其它语言绑定，不引入新的第三方依赖。
+JSON 导出是检查格式，不是执行服务或跨语言执行协议。无新增 Python 运行时依赖；
+Rust 检查层使用 serde/serde_json，调度 core 仍不依赖第三方库。
 
 导出开销与挂载节点、边、端口、条件及输入引用、路径／输出总长度成正比，不执行 Action I/O，
 不改变调度。编译来源侧表不复制另一套拓扑，只记录原有编译过程已经作出的决定。
+
+## 三端共用的结构渲染
+
+Tree 与 Mermaid 由 `crates/inspection` 的唯一 Rust 实现生成；Python、Node.js 只提取
+本语言的声明与已有编译事实，不各自维护第二套排版逻辑。运行时事件树和实时执行视图不在本次
+结构渲染范围内，仍由各语言的观察组件负责。
+
+Python 保留 `render_graph()`、`render_graph_mermaid()` 及编译结果版本的公开签名。
+传声明时不求静态条件；传已有编译结果时不重新编译。Mermaid 元素 ID 按挂载位置编码，
+不从标签生成，同名节点和同一声明的重复挂载不会合并。该 ID 是渲染细节，不是业务身份。
+
+Node.js 可以直接渲染声明、已有编译结果或导出的文档：
+
+```js
+import { Compilation, Edge, Graph, Step, exportGraph, renderTree, renderMermaid } from "rivlet";
+
+const prepare = new Step(() => 42, { label: "prepare" });
+const use = new Step((_ctx, value) => value.unwrap(), { label: "use" });
+const workflow = new Graph({ nodes: [prepare, use], edges: [Edge.results([prepare], use)], label: "workflow" });
+const declaration = exportGraph(workflow);
+const compilation = new Compilation(workflow);
+const compiled = exportGraph(compilation);
+console.log(renderTree(compilation));
+console.log(renderMermaid(declaration));
+console.log(JSON.stringify(compiled));
+```
+
+Rust 从正式 `Graph`／`Step`／`NodeKind`／`Compilation` 取文档，再选择输出格式：
+
+```rust
+use graph::{Graph, export_graph, inspection};
+
+fn inspect(workflow: &Graph) -> Result<(), Box<dyn std::error::Error>> {
+    let declaration = export_graph(workflow)?;
+    let compilation = workflow.compile()?;
+    let compiled = export_graph(&compilation)?;
+    println!("{}", inspection::to_json(&compiled)?);
+    println!("{}", inspection::render_tree(&compiled, &inspection::RenderOptions::default())?);
+    println!("{}", inspection::render_mermaid(&declaration, &inspection::RenderOptions::default())?);
+    Ok(())
+}
+```
+
+文档中的位置 ID 必须当不透明字符串使用。Python／Rust 的独立根节点路径从 `0` 开始；
+Node.js 保留原有事件路径约定，根路径为空数组，文档节点 ID 为 `""`，子节点为 `"0"`、
+`"1"` 等。共享格式与渲染不意味着不同声明对象的进程身份或挂载命名空间相同。

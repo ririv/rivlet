@@ -10,6 +10,10 @@ Rust 的 Step 与 Graph 直接组成原生工作流，使用同一 core 编译�
 静态条件与恰好一个分支选择使用 `Graph::with_static`，见
 [Node/Rust 扩展 API](./node-rust-advanced.md)；完整候选声明仍保留在原 Graph 中。
 
+`graph::export_graph(&source)` 支持 Graph、Step、NodeKind 与已有 Compilation；
+`graph::inspection` 提供共用的 JSON、Tree、Mermaid 输出。
+详见[结构导出与三端示例](./graph_export.md#三端共用的结构渲染)。
+
 `graph` crate 提供真实的 `Step` 和 `Graph` 节点，二者内部组合共同身份和 label，
 实现 `Node` trait；`NodeKind` 是封闭的 `Step | Graph` 枚举。协议不引入实现继承，
 也不意味着可以任意扩展可执行节点类型。只有 `Graph` 可以获取接口。

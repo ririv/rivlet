@@ -244,7 +244,9 @@ anonymous/named ports, result passing, node/edge runtime conditions, subtree lim
 skips, compilation reuse, failure isolation, static selection, runtime-generated graphs
 and event observation. See the [Node/Rust advanced API guide (Chinese)](./zh-CN/node-rust-advanced.md)
 for examples and boundaries. It does **not** yet expose Python's wire/DSL helpers,
-shared state, rendering, symbolic provider selection, or Rust-native action registration.
+shared state, live execution rendering, symbolic provider selection, or Rust-native action registration.
+Structural export and Tree/Mermaid rendering use the shared Rust inspection layer;
+see the [complete inspection examples](./zh-CN/graph_export.md#三端共用的结构渲染).
 
 There is no mixed Python/JS/Rust value protocol, browser/WASM binding, npm release,
 or prebuilt Node platform matrix yet. Reusing core does not imply these features
