@@ -1,71 +1,92 @@
+use super::{
+    state::{ActionSite, Mode, State},
+    workers::PoolOwner,
+};
+use crate::{ExecutionError, ExecutionOptions, ExecutionOutcome};
+use action::{ActionError, ActionFuture, Value};
+use futures_util::{Stream, stream::FuturesUnordered};
+use graph::{Compilation, ConditionEvaluation, ConditionFuture};
+use rivlet::ConditionId;
 use std::future::{Future, poll_fn};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use action::ActionError;
-use futures_util::{Stream, stream::FuturesUnordered};
-use graph::{Compilation, ConditionEvaluation, ConditionFuture};
-use rivlet::{ConditionId, SessionStatus};
-
-use super::{state::State, workers::PoolOwner};
-use crate::{ExecutionError, ExecutionOptions, ExecutionOutcome};
-
-struct PendingCondition {
-    id: ConditionId,
-    future: ConditionFuture,
+enum Pending {
+    Condition {
+        id: ConditionId,
+        future: ConditionFuture,
+    },
+    Action {
+        site: ActionSite,
+        future: ActionFuture,
+    },
 }
-
-impl Future for PendingCondition {
-    type Output = (ConditionId, Result<bool, ActionError>);
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = self.get_mut();
-        this.future
-            .as_mut()
-            .poll(cx)
-            .map(|result| (this.id, result))
-    }
-}
-
 enum Progress {
-    Actions,
+    Workers,
     Condition(ConditionId, Result<bool, ActionError>),
+    Action(ActionSite, Result<Value, ActionError>),
     Cancel,
+}
+impl Future for Pending {
+    type Output = Progress;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Progress> {
+        match self.get_mut() {
+            Self::Condition { id, future } => future
+                .as_mut()
+                .poll(cx)
+                .map(|value| Progress::Condition(*id, value)),
+            Self::Action { site, future } => future
+                .as_mut()
+                .poll(cx)
+                .map(|value| Progress::Action(*site, value)),
+        }
+    }
 }
 
 pub(crate) async fn run_async(
     compilation: Arc<Compilation>,
     options: ExecutionOptions,
 ) -> Result<ExecutionOutcome, ExecutionError> {
-    let mut state = State::new(compilation, options, PoolOwner::Async(None))?;
+    let mut state = State::new(compilation, options, PoolOwner::Async(None), Mode::Async)?;
     let mut pending = FuturesUnordered::new();
-    let mut batch = state.start()?;
     loop {
         let mut resolutions = Vec::new();
-        for (id, evaluation) in state.dispatch(&batch)? {
+        for (id, evaluation) in state.dispatch()? {
             match evaluation {
                 ConditionEvaluation::Ready(result) => resolutions.push(state.resolve(id, result)),
                 ConditionEvaluation::Pending(future) => {
-                    pending.push(PendingCondition { id, future });
+                    pending.push(Pending::Condition { id, future });
                 }
             }
         }
-        if batch.status() != SessionStatus::Running {
-            let (outcome, workers) = state.finish()?;
+        for (site, future) in state.take_async_actions() {
+            pending.push(Pending::Action { site, future });
+        }
+        if state.is_finished() {
+            let (outcome, workers, observer_error) = state.finish()?;
             if let Some(shutdown) = workers.shutdown() {
                 shutdown.await;
             }
-            return Ok(outcome);
+            return outcome.delivered(observer_error);
         }
-        if state.cancellation.is_cancelled() && !pending.is_empty() {
-            for condition in &pending {
-                resolutions.push(state.resolve(condition.id, Err(ActionError::Cancelled)));
+        if state.cancellation.is_cancelled()
+            && pending
+                .iter()
+                .any(|item| matches!(item, Pending::Condition { .. }))
+        {
+            // 谓词可丢弃；动作必须继续 poll 到真实收尾，不能把 Future drop 冒充协作取消。
+            for item in std::mem::take(&mut pending) {
+                match item {
+                    Pending::Condition { id, .. } => {
+                        resolutions.push(state.resolve(id, Err(ActionError::Cancelled)));
+                    }
+                    action @ Pending::Action { .. } => pending.push(action),
+                }
             }
-            pending.clear();
         }
         if !resolutions.is_empty() || state.cancellation_pending() {
-            batch = state.advance(Vec::new(), resolutions)?;
+            state.advance(resolutions);
             continue;
         }
         if !state.actions_running() && pending.is_empty() {
@@ -77,38 +98,38 @@ pub(crate) async fn run_async(
             None
         };
         let token = state.cancellation.clone();
+        let cancelling_at_wait = token.is_cancelled();
         let cancellation = token.cancelled();
         let mut cancellation = std::pin::pin!(cancellation);
-        // 同时注册动作与谓词的唤醒；不为等待创建线程、不在事件循环上 Condvar::wait。
         let progress = poll_fn(|cx| {
-            if !state.cancellation.is_cancelled() && cancellation.as_mut().poll(cx).is_ready() {
+            if !cancelling_at_wait && cancellation.as_mut().poll(cx).is_ready() {
                 return Poll::Ready(Progress::Cancel);
             }
-            if state.cancellation_pending() {
-                return Poll::Ready(Progress::Cancel);
-            }
-            // 先推进谓词，避免持续就绪的动作通知让它们一直没有首次 poll。
-            if let Poll::Ready(Some((id, result))) = Pin::new(&mut pending).poll_next(cx) {
-                return Poll::Ready(Progress::Condition(id, result));
+            if let Poll::Ready(Some(progress)) = Pin::new(&mut pending).poll_next(cx) {
+                return Poll::Ready(progress);
             }
             if let Some(wait) = &mut action_wait {
                 if Pin::new(wait).poll(cx).is_ready() {
-                    return Poll::Ready(Progress::Actions);
+                    return Poll::Ready(Progress::Workers);
                 }
             }
             Poll::Pending
         })
         .await;
-        batch = match progress {
-            Progress::Cancel => state.advance(Vec::new(), Vec::new())?,
-            Progress::Actions => {
-                let completed = state.complete_actions()?;
-                state.advance(completed, Vec::new())?
+        match progress {
+            Progress::Cancel => state.advance(Vec::new()),
+            Progress::Workers => {
+                state.complete_actions()?;
+                state.advance(Vec::new());
             }
             Progress::Condition(id, result) => {
                 let resolution = state.resolve(id, result);
-                state.advance(Vec::new(), vec![resolution])?
+                state.advance(vec![resolution]);
             }
-        };
+            Progress::Action(site, result) => {
+                state.complete_async(site, result)?;
+                state.advance(Vec::new());
+            }
+        }
     }
 }

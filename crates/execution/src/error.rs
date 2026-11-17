@@ -7,8 +7,10 @@ use rivlet::{ConditionId, NodeId, SessionError};
 /// Infrastructure failures, distinct from action failures in an execution outcome.
 #[derive(Debug)]
 pub enum ExecutionError {
+    Concurrency(crate::ConcurrencyError),
     InvalidWorkers,
     AsyncPredicate(ConditionId),
+    AsyncAction(NodeId),
     Session(SessionError),
     Executor(ActionError),
     UnexpectedComposite(NodeId),
@@ -17,11 +19,24 @@ pub enum ExecutionError {
     InvalidTransition(NodeId),
     InvalidCompletion,
     Stalled,
+    Observation {
+        error: ActionError,
+        outcome: Box<crate::ExecutionOutcome>,
+    },
 }
 
 impl Display for ExecutionError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            Self::AsyncAction(id) => write!(
+                formatter,
+                "action {} is asynchronous; use run_async()",
+                id.index()
+            ),
+            Self::Concurrency(error) => Display::fmt(error, formatter),
+            Self::Observation { error, .. } => {
+                write!(formatter, "execution event delivery failed: {error}")
+            }
             Self::AsyncPredicate(id) => write!(
                 formatter,
                 "condition {} is asynchronous; use run_async()",
@@ -59,10 +74,17 @@ impl Display for ExecutionError {
 impl Error for ExecutionError {
     fn source(&self) -> Option<&(dyn Error + 'static)> {
         match self {
+            Self::Concurrency(error) => Some(error),
+            Self::Observation { error, .. } | Self::Executor(error) => Some(error),
             Self::Session(error) => Some(error),
-            Self::Executor(error) => Some(error),
             _ => None,
         }
+    }
+}
+
+impl From<crate::ConcurrencyError> for ExecutionError {
+    fn from(error: crate::ConcurrencyError) -> Self {
+        Self::Concurrency(error)
     }
 }
 

@@ -60,10 +60,7 @@ impl Results {
                     node,
                     cause: FailureCause::Action,
                 } => {
-                    if !matches!(
-                        self.0[node.index()],
-                        Some(NodeOutcome::Failed(NodeFailure::Action(_)))
-                    ) {
+                    if !matches!(self.0[node.index()], Some(NodeOutcome::Failed(_))) {
                         return Err(ExecutionError::InvalidTransition(node));
                     }
                 }

@@ -5,10 +5,13 @@ use graph::Compilation;
 use rivlet::{BlockCause, ConditionId, NodeId};
 
 /// One direct failure witness; child failures retain their compiled node identity.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub enum NodeFailure {
     Action(ActionError),
     Child(NodeId),
+    Expansion(graph::GraphError),
+    AsyncSubgraph,
+    Subgraph,
 }
 
 /// A terminal node outcome, with a value only for successful completion.
@@ -44,9 +47,22 @@ pub struct ExecutionOutcome {
     nodes: Vec<NodeOutcome>,
     conditions: Vec<ConditionOutcome>,
     status: ExecutionStatus,
+    subgraphs: std::collections::HashMap<NodeId, ExecutionOutcome>,
 }
 
 impl ExecutionOutcome {
+    pub(crate) fn delivered(
+        self,
+        error: Option<ActionError>,
+    ) -> Result<Self, crate::ExecutionError> {
+        match error {
+            None => Ok(self),
+            Some(error) => Err(crate::ExecutionError::Observation {
+                error,
+                outcome: Box::new(self),
+            }),
+        }
+    }
     pub(crate) fn new(
         compilation: Arc<Compilation>,
         nodes: Vec<NodeOutcome>,
@@ -58,7 +74,20 @@ impl ExecutionOutcome {
             nodes,
             conditions,
             status,
+            subgraphs: std::collections::HashMap::new(),
         }
+    }
+    pub(crate) fn with_subgraphs(
+        mut self,
+        subgraphs: std::collections::HashMap<NodeId, Self>,
+    ) -> Self {
+        self.subgraphs = subgraphs;
+        self
+    }
+    /// Returns the generated child execution, bound to its own compilation.
+    #[must_use]
+    pub fn subgraph(&self, generator: NodeId) -> Option<&Self> {
+        self.subgraphs.get(&generator)
     }
 
     #[must_use]
@@ -90,5 +119,15 @@ impl ExecutionOutcome {
     #[must_use]
     pub fn status(&self) -> ExecutionStatus {
         self.status
+    }
+}
+
+impl std::fmt::Debug for ExecutionOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ExecutionOutcome")
+            .field("status", &self.status)
+            .field("nodes", &self.nodes)
+            .field("conditions", &self.conditions)
+            .finish_non_exhaustive()
     }
 }
