@@ -27,6 +27,22 @@ macOS arm64（macOS 11 起）与 Windows x86_64（`win_amd64`，MSVC）。同时
 加上 `--tag v0.4.0` 可验证当前准备创建的标签。脚本支持正式版及其规范的 `.postN`
 形式，不接受其它未支持的版本写法。
 
+## Rust 源码发行
+
+后续 Rust 发行只打包 `rivlet-core` 和 `rivlet`。先验证两个源码包，
+再发布 `rivlet-core`，等它进入 crates.io 索引后发布 `rivlet`。
+Rust 用户只需依赖 `rivlet`；Python 和 Node.js 绑定仍只使用 `rivlet-core`。
+
+```sh
+cargo package --locked -p rivlet-core -p rivlet
+```
+
+已发布的 Rust 0.5.0 保持不变。升级到后续版本时，直接依赖旧独立 crate 的项目
+应改用 `rivlet::{action, graph, execution}` 或 `rivlet::core`。
+已从 `rivlet` 导入的项目不需要修改导入路径。
+
+## 版本记录
+
 ### 0.5.0
 
 Graph 直接接收节点、边、接口与静态声明，删除独立的 GraphStructure，不保留兼容别名。

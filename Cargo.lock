@@ -120,42 +120,11 @@ dependencies = [
 name = "rivlet"
 version = "0.5.0"
 dependencies = [
- "rivlet-action",
  "rivlet-core",
- "rivlet-execution",
- "rivlet-graph",
 ]
-
-[[package]]
-name = "rivlet-action"
-version = "0.5.0"
 
 [[package]]
 name = "rivlet-core"
-version = "0.5.0"
-dependencies = [
- "rivlet-topology",
-]
-
-[[package]]
-name = "rivlet-execution"
-version = "0.5.0"
-dependencies = [
- "rivlet-action",
- "rivlet-core",
- "rivlet-graph",
-]
-
-[[package]]
-name = "rivlet-graph"
-version = "0.5.0"
-dependencies = [
- "rivlet-action",
- "rivlet-core",
-]
-
-[[package]]
-name = "rivlet-topology"
 version = "0.5.0"
 
 [[package]]

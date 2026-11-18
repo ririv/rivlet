@@ -9,23 +9,19 @@ integration.
 
 ## Crate boundaries
 
-- `crates/action` defines typed Action inputs/outputs, Rust-owned values,
-  stable errors, and process actions without
-  Python callbacks. It does not depend on PyO3, Tokio, or Graph core.
-- `crates/graph` exposes actual Rust Step/Graph nodes, the common Node trait,
-  reusable Graph, typed interfaces/edges/predicates, and GraphError.
-- `crates/execution` composes graph/action/core into a single-use synchronous Rust
-  Execution with typed terminal outcomes and synchronous predicate evaluation.
-  It depends on no Python or third-party
-  runtime; declarations and the Python adapter do not depend on it.
-- `crates/topology` uses only the Rust standard library for integer nodes,
-  adjacency indexes, and DAG algorithms. It knows nothing about actions or domains.
-- `crates/core` (package `rivlet-core`) depends on the workspace topology crate,
-  not third-party libraries. It owns declaration compilation, port resolution,
-  the compiled execution graph, and scheduling.
-- `crates/rivlet` is the public Rust entry. It re-exports graph, action and
-  execution APIs without introducing another compiler or scheduler. Advanced
-  hosts can use `rivlet::core`.
+The Rust distribution has two crates:
+
+- `rivlet-core` is shared by Rust, Python, and Node.js. It owns declaration
+  compilation, port resolution, and scheduling. Its internal `topology` module
+  holds integer nodes, adjacency indexes, and DAG algorithms. It uses only the
+  Rust standard library and does not interpret language-specific callbacks.
+- `rivlet` is the Rust library. Its `action` module defines typed actions,
+  values, and process actions; `graph` defines nodes, interfaces, edges, and
+  predicates; `execution` composes those modules with core to run the graph.
+  Advanced hosts can use `rivlet::core`.
+
+The binding and experiment crates are not published to crates.io:
+
 - `crates/python` is the private PyO3 adapter. It converts declarations into integer
   IDs in batches, retains Python action/predicate/observation side tables, connects
   host control.
@@ -85,7 +81,7 @@ graph releases action admission. Explicit subtree limits and dynamic inheritance
 use the existing core's shared counters.
 
 Pure Rust Step/Graph declarations use the graph projection and the same compiler.
-The execution crate supplies synchronous Execution::run, native workers and typed
+The Rust execution module supplies synchronous Execution::run, native workers and typed
 outcomes, independently of Python. The Node.js frontend independently uses its JS
 callbacks and event loop with the same core.
 
@@ -123,7 +119,7 @@ cycles without interpreting language-specific closures.
 
 The core does not interpret application payloads or implement business-specific
 resolution and persistence policies. Actions and predicates are supplied by the
-application. Python's generic topology API and the Rust topology crate
+application. Python's generic topology API and the topology module in `rivlet-core`
 are separate implementations; see [topology complexity](./topology_complexity.md).
 
 ## Python boundary

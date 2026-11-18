@@ -6,7 +6,7 @@ use std::sync::Arc;
 use crate::concurrency::SessionConcurrency;
 use crate::execution::{CompiledExecutionGraph, ConditionId, ExecutionNodeKind, Prerequisite};
 use crate::failure::{BlockCause, ConditionSite, FailureCause};
-use rivlet_topology::NodeId;
+use crate::topology::NodeId;
 
 /// Runtime state of one compiled execution node.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -856,7 +856,7 @@ mod tests {
         CompiledExecutionGraph, ConditionId, ExecutionNode, Prerequisite, RuntimeCondition,
     };
     use crate::failure::{BlockCause, ConditionSite, FailureCause};
-    use rivlet_topology::NodeId;
+    use crate::topology::NodeId;
 
     fn node(index: usize) -> NodeId {
         NodeId::new(index)

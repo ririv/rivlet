@@ -8,8 +8,5 @@ license.workspace = true
 repository.workspace = true
 description = "Shared graph compiler and execution state machine for Rivlet"
 
-[dependencies]
-rivlet-topology.workspace = true
-
 [lints]
 workspace = true

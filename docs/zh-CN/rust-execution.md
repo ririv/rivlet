@@ -2,7 +2,7 @@
 
 [English](../rust-execution.md) | 简体中文
 
-workspace 的 `execution` crate 提供同步、单次使用的纯 Rust 执行入口。它组合
+`rivlet::execution` 模块 提供同步、单次使用的纯 Rust 执行入口。它组合
 `graph::Compilation`、core 的 `ExecutionSession` 和 `action::ActionExecutor`，
 不依赖 Python，不新增调度器，也不把执行策略放进图声明层。
 
@@ -24,7 +24,7 @@ action 完成后，只用实际空出的槽调度后续 ready 节点。
 从仓库根目录运行完整的类型化结果示例：
 
 ```sh
-cargo run --locked -p rivlet-execution --example typed_results
+cargo run --locked -p rivlet --example typed_results
 ```
 
 示例通过 `Edge::results` 声明 `design → apply`，共享未实现 Clone 的 Rust Plan，
@@ -110,7 +110,7 @@ let outcome = Execution::new(compilation, options).run()?;
 `outcome.condition(id)` 返回 `ConditionOutcome::{NotEvaluated, Resolved, Failed}`；
 失败保留原始 `ActionError`。谓词在宿主驱动线程执行，不占动作 worker 名额。
 完整规则见 [Rust 运行时谓词](./rust-conditions.md)，可运行示例位于
-`crates/execution/examples/conditions.rs`。
+`crates/rivlet/examples/conditions.rs`。
 
 ## 边界与开销
 

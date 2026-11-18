@@ -2,8 +2,8 @@
 
 English | [简体中文](./zh-CN/rust-conditions.md)
 
-The `graph` crate declares synchronous, typed Rust predicates. The `execution`
-crate evaluates them through the same core `ExecutionSession` used by the other
+The `rivlet::graph` module declares synchronous, typed Rust predicates. The `rivlet::execution`
+module evaluates them through the same core `ExecutionSession` used by the other
 frontends. No Python callback, Tokio dependency, extra Step, or serialized value
 is involved. This is runtime selection, not compile-time static pruning.
 
@@ -78,7 +78,7 @@ by a callable is still shared according to that state's own Rust synchronization
 Run the complete example:
 
 ```sh
-cargo run --locked -p rivlet-execution --example conditions
+cargo run --locked -p rivlet --example conditions
 ```
 
 It prints:

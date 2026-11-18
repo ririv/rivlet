@@ -247,9 +247,6 @@ dependencies = [
 [[package]]
 name = "rivlet-core"
 version = "0.5.0"
-dependencies = [
- "rivlet-topology",
-]
 
 [[package]]
 name = "rivlet-node"
@@ -262,10 +259,6 @@ dependencies = [
  "serde",
  "serde_json",
 ]
-
-[[package]]
-name = "rivlet-topology"
-version = "0.5.0"
 
 [[package]]
 name = "rustc-hash"

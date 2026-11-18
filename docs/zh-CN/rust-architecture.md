@@ -8,27 +8,20 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
 
 ## crate 边界
 
-当前 crate 的职责如下，Node 适配器使用独立 workspace：
+Rust 发行只需要两个 crate：
 
-- `crates/action`
-  - 定义带输入/输出关联类型的 `Action`、原生值与稳定错误边界
-  - 提供不回调 Python 的进程 action
-  - 不依赖 PyO3、Tokio 或 Graph core
-- `crates/graph`
-  - 提供真实 Rust `Step/Graph`、共同 `Node` trait、类型化端口/边/谓词与错误
-- `crates/execution`
-  - 组合 graph/action/core，提供单次使用的同步 Rust Execution、类型化终态与同步谓词求值
-  - 不依赖 Python 或第三方 runtime；图声明和 Python adapter 不依赖它
-- `crates/topology`
-  - 只依赖 Rust 标准库，持有整数节点、邻接索引和 DAG 算法
-  - 不认识 action、条件或宿主领域
 - `crates/core`
-  - package 名为 `rivlet-core`
-  - 依赖 workspace 内的 topology，不依赖第三方库
-  - 持有声明编译、编译执行图、端口解析和调度状态机
+  - 包名为 `rivlet-core`，由 Python、Node.js 和 Rust 共同使用
+  - 持有声明编译、编译执行图、端口解析和调度状态机；整数节点、邻接索引和 DAG 算法位于内部 `topology` 模块
+  - 只依赖 Rust 标准库，不解释任何语言的动作或谓词
 - `crates/rivlet`
-  - 对外统一导出图声明、动作和执行 API，不新增编译器或调度器
+  - `rivlet::action` 提供类型化动作、结果值和进程动作
+  - `rivlet::graph` 提供 `Step/Graph`、`Node` trait，以及类型化端口、边和谓词
+  - `rivlet::execution` 组合图、动作和 core，提供 Rust 执行入口和类型化结果
   - 宿主需要低阶接口时显式使用 `rivlet::core`
+
+绑定与实验 crate 不发布到 crates.io：
+
 - `crates/python`
   - 私有 Python adapter
   - 独占 PyO3 依赖
@@ -93,7 +86,7 @@ Python driver 使用 core 的 start/advance 交换批量动作、条件和事件
 线程池和事件循环。父动作等待子图期间不占动作名额。显式子图限额使用 core 的共享
 计数，动态子图继承父范围，不另设一套限额算法。
 
-纯 Rust Step/Graph 由 graph crate 投影，再进入同一 core 编译器；execution crate
+纯 Rust Step/Graph 由 `rivlet::graph` 投影，再进入同一 core 编译器；`rivlet::execution`
 提供同步 Execution::run，拥有自己的 Rust 动作执行和类型化结果，不依赖 Python。
 Node.js 前端同样独立接入 core，使用自己的 JS 回调和事件循环。
 
@@ -137,7 +130,7 @@ prerequisite 同样使用和类型区分：
 ## 领域边界
 
 core 不解释应用数据，也不实现特定业务的解析与持久化策略；action 与 predicate 由应用提供。
-Python 通用拓扑 API 与 Rust topology crate 是两套独立实现，详见
+Python 通用拓扑 API 与 `rivlet-core` 的 topology 模块是两套独立实现，详见
 [拓扑复杂度](./topology_complexity.md)。
 
 ## Python 边界

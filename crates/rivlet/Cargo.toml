@@ -9,10 +9,7 @@ description = "Composable task graphs with typed Rust actions and explicit depen
 readme = "README.md"
 
 [dependencies]
-rivlet-action.workspace = true
 rivlet-core.workspace = true
-rivlet-execution.workspace = true
-rivlet-graph.workspace = true
 
 [lints]
 workspace = true

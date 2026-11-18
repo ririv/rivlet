@@ -1,12 +1,8 @@
 [workspace]
 members = [
-    "crates/action",
     "crates/core",
-    "crates/execution",
-    "crates/graph",
     "crates/python",
     "crates/rivlet",
-    "crates/topology",
     "crates/tokio-runtime",
 ]
 exclude = ["crates/node"]
@@ -20,11 +16,7 @@ license = "MIT"
 repository = "https://github.com/ririv/rivlet"
 
 [workspace.dependencies]
-rivlet-action = { path = "crates/action", version = "=0.5.0" }
 rivlet-core = { path = "crates/core", version = "=0.5.0" }
-rivlet-execution = { path = "crates/execution", version = "=0.5.0" }
-rivlet-graph = { path = "crates/graph", version = "=0.5.0" }
-rivlet-topology = { path = "crates/topology", version = "=0.5.0" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

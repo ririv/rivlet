@@ -11,7 +11,7 @@ Python 哈希表操作按平均 O(1) 计，宿主自定义节点的 hash / equal
 | 入口 | 实现 | 用途 |
 | --- | --- | --- |
 | `rivlet.topology` | Python，DAG 校验使用 `graphlib` | 可哈希领域节点的通用有向图 |
-| `crates/topology` | Rust，整数节点与邻接索引 | 执行图声明校验和编译后 DAG 校验 |
+| `crates/core/src/topology.rs` | Rust，整数节点与邻接索引 | 执行图声明校验和编译后 DAG 校验 |
 
 Python 的 `DirectedTopology` 并不是 Rust topology 的逐方法 FFI 包装。
 执行 `Graph` 也不会先创建 Python `DirectedTopology` 再交给 Rust。

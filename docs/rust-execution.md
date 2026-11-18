@@ -2,7 +2,7 @@
 
 English | [简体中文](./zh-CN/rust-execution.md)
 
-The workspace `execution` crate provides a synchronous, single-use Rust execution
+The `rivlet::execution` module provides a synchronous, single-use Rust execution
 entry. It composes `graph::Compilation`, the core `ExecutionSession`, and
 `action::ActionExecutor`. It does not require Python, introduce another scheduler,
 or move execution policy into graph declarations.
@@ -26,7 +26,7 @@ pool. Completed actions free slots for the next ready batch.
 Run the complete typed-result example from the repository root:
 
 ```sh
-cargo run --locked -p rivlet-execution --example typed_results
+cargo run --locked -p rivlet --example typed_results
 ```
 
 The example declares `design → apply` through `Edge::results`, shares a Rust Plan
@@ -124,7 +124,7 @@ input results are ready. Predicate failure blocks only affected dependents.
 `outcome.condition(id)` returns `ConditionOutcome::{NotEvaluated, Resolved, Failed}`;
 failed predicates retain their original `ActionError`. Predicates run on the host
 driver, outside action worker capacity. See [Rust runtime predicates](./rust-conditions.md)
-and the runnable `crates/execution/examples/conditions.rs` example.
+and the runnable `crates/rivlet/examples/conditions.rs` example.
 
 ## Scope and costs
 
@@ -145,5 +145,5 @@ and the runnable `crates/execution/examples/conditions.rs` example.
 For the distinction from Python's on-demand recording and possible future
 retention policies (not implemented), see [result lifetime](./result_lifetime.md).
 
-Graph/action/core remain independently usable. The execution crate is a host
+Graph/action/core remain independently usable. The execution module is a host
 composition, not a dependency of graph declarations or the Python extension.

@@ -12,7 +12,7 @@ user-defined hash/equality costs are additional.
 | Entry point | Implementation | Purpose |
 | --- | --- | --- |
 | rivlet.topology | Python, with graphlib for DAG checks | Generic hashable domain nodes |
-| crates/topology | Rust, integer nodes and adjacency indexes | Execution declaration and compiled-DAG validation |
+| `crates/core/src/topology.rs` | Rust, integer nodes and adjacency indexes | Execution declaration and compiled-DAG validation |
 
 Python DirectedTopology is not a per-method FFI wrapper. Execution Graph does not
 construct a Python DirectedTopology before sending it to Rust.

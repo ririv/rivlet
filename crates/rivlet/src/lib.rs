@@ -22,21 +22,22 @@
 //! # }
 //! ```
 
-pub use rivlet_action as action;
-pub use rivlet_core as core;
-pub use rivlet_execution as execution;
-pub use rivlet_graph as graph;
+pub mod action;
+pub mod execution;
+pub mod graph;
 
-pub use rivlet_action::{
+pub use rivlet_core as core;
+
+pub use action::{
     Action, ActionContext, ActionError, ActionHandle, ActionInputs, ProcessAction, Value, ValueType,
 };
-pub use rivlet_core::NodeId;
-pub use rivlet_execution::{
+pub use execution::{
     ConditionOutcome, Execution, ExecutionError, ExecutionOptions, ExecutionOutcome,
     ExecutionStatus, NodeFailure, NodeOutcome,
 };
-pub use rivlet_graph::{
+pub use graph::{
     Compilation, Condition, Edge, Graph, GraphError, GraphInterface, GraphInterfaceView,
     InputEndpoint, InputPort, Node, NodeKind, OutputEndpoint, OutputPort, PortName, ResultSources,
     ResultTarget, Step,
 };
+pub use rivlet_core::NodeId;

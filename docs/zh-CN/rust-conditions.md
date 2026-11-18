@@ -2,7 +2,7 @@
 
 [English](../rust-conditions.md) | 简体中文
 
-`graph` crate 声明同步、类型化的 Rust 谓词，`execution` crate 通过已有 core
+`rivlet::graph` 声明同步、类型化的 Rust 谓词，`rivlet::execution` 通过已有 core
 `ExecutionSession` 求值。没有 Python 回调、Tokio 依赖、额外 Step 或值序列化。
 这是运行时判断，不是编译时的静态裁剪。
 
@@ -68,7 +68,7 @@ false 不取消独立工作。结果边仍是完整的有序动作参数组，�
 运行完整示例：
 
 ```sh
-cargo run --locked -p rivlet-execution --example conditions
+cargo run --locked -p rivlet --example conditions
 ```
 
 输出：

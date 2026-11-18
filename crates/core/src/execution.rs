@@ -2,7 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
-use rivlet_topology::{Arc, DagTopology, DirectedTopology, NodeId, TopologyError};
+use crate::topology::{Arc, DagTopology, DirectedTopology, NodeId, TopologyError};
 
 /// Stable identity of one opaque runtime predicate inside a compiled graph.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -534,7 +534,7 @@ mod tests {
         CompiledExecutionGraph, ConditionId, ExecutionGraphError, ExecutionNode, ExecutionNodeKind,
         PortConnection, Prerequisite, RuntimeCondition,
     };
-    use rivlet_topology::NodeId;
+    use crate::topology::NodeId;
 
     fn node(index: usize) -> NodeId {
         NodeId::new(index)
