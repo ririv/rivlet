@@ -108,6 +108,9 @@ pipeline = make_pipeline(prepare, label="pipeline")
 run(pipeline)
 ```
 
+裸 `@step` 默认用函数名作为标签。`@step(label="install")` 指定展示名，
+`@step(label=None)` 则明确不设标签。直接构造 `Step(fn)` 时仍不自动取函数名。
+
 这是普通 Python 函数，不会隐式调用、扫描接线，也不会在执行阶段重新构图。
 图元信息和接口通过 Graph、Graph.from_wiring 或 DSL 的 .graph() 方法显式指定。
 

@@ -123,6 +123,10 @@ pipeline = make_pipeline(prepare, label="pipeline")
 run(pipeline)
 ```
 
+Bare `@step` uses the function name as its label. Use `@step(label="install")`
+to set a display label or `@step(label=None)` to leave the step unlabeled.
+Direct construction with `Step(fn)` does not infer a label.
+
 The function is ordinary Python, with no implicit invocation, wiring discovery or
 execution-time reconstruction. Set graph metadata and interfaces explicitly using
 Graph, Graph.from_wiring or the DSL's .graph() method.

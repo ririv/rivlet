@@ -348,6 +348,37 @@ def test_step_function_accepts_normalized_step_action() -> None:
     assert declaration.action is _noop
 
 
+def test_step_decorator_accepts_custom_and_absent_labels() -> None:
+    calls: list[str] = []
+
+    @step(label="install")
+    def install_action() -> None:
+        calls.append("install")
+
+    @step(label=None)
+    def finish_action() -> None:
+        calls.append("finish")
+
+    assert install_action.label == "install"
+    assert finish_action.label is None
+    assert calls == []
+    run_execution((install_action >> finish_action).graph(), max_workers=1)
+    assert calls == ["install", "finish"]
+
+
+def test_step_with_empty_decorator_options_keeps_the_function_label() -> None:
+    @step()
+    def prepare() -> None:
+        pass
+
+    assert prepare.label == "prepare"
+
+
+def test_step_function_accepts_explicit_labels() -> None:
+    assert step(_noop, label="install").label == "install"
+    assert step(_noop, label=None).label is None
+
+
 def test_step_function_wraps_structure_without_inventing_a_label() -> None:
     child = Graph()
 

@@ -5,7 +5,8 @@ from __future__ import annotations
 import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypeGuard
+from enum import Enum, auto
+from typing import TYPE_CHECKING, TypeGuard, overload
 
 from ..errors import GraphError
 from .metadata import _NodeMeta
@@ -158,9 +159,36 @@ class Step:
                 raise GraphError("action requires result inputs")
 
 
-def step(action: StepCallable) -> Step:
-    """Declare a step, using a named callable's name as its presentation label."""
+class _LabelDefault(Enum):
+    FUNCTION_NAME = auto()
 
-    name = getattr(action, "__name__", None)
-    label = name if isinstance(name, str) and name != "<lambda>" else None
+
+@overload
+def step(action: StepCallable, *, label: str | None = ...) -> Step: ...
+
+
+@overload
+def step(*, label: str | None = ...) -> Callable[[StepCallable], Step]: ...
+
+
+def step(
+    action: StepCallable | None = None,
+    *,
+    label: str | None | _LabelDefault = _LabelDefault.FUNCTION_NAME,
+) -> Step | Callable[[StepCallable], Step]:
+    """Declare a step directly or as a decorator; an explicit None leaves it unlabeled."""
+
+    if action is not None:
+        return _declare_step(action, label)
+
+    def decorate(fn: StepCallable) -> Step:
+        return _declare_step(fn, label)
+
+    return decorate
+
+
+def _declare_step(action: StepCallable, label: str | None | _LabelDefault) -> Step:
+    if label is _LabelDefault.FUNCTION_NAME:
+        name = getattr(action, "__name__", None)
+        label = name if isinstance(name, str) and name != "<lambda>" else None
     return Step(action, label=label)
