@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING
 from ..events import EventDeliveryError, NodeExecutionEvent, NodeExecutionState
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable, Mapping
+    from collections.abc import Callable, Iterable, Mapping
     from pathlib import Path
 
     from ..events import (
@@ -64,6 +64,7 @@ class ExecutionState:
     _lock: threading.Lock
     _started: bool
     _skip_revision: int
+    _skip_wake: Callable[[], None] | None
     _events: _StepEvents | None
 
     def __init__(
@@ -87,6 +88,7 @@ class ExecutionState:
         self._lock = threading.Lock()
         self._started = False
         self._skip_revision = 0
+        self._skip_wake = None
         self._events = None
 
     def _register_event_paths(self, paths: Iterable[tuple[NodePath, NodeId]]) -> None:
@@ -192,9 +194,17 @@ class ExecutionState:
             )
             if any(_is_same_or_descendant(item, node_path) for item in started):
                 raise RuntimeError(f"cannot skip an already started step: {node_path}")
-            if node_path not in self._skip_requests:
-                self._skip_requests.add(node_path)
-                self._skip_revision += 1
+            if node_path in self._skip_requests:
+                return
+            self._skip_requests.add(node_path)
+            self._skip_revision += 1
+            wake = self._skip_wake
+        if wake is not None:
+            wake()
+
+    def _set_skip_wake(self, wake: Callable[[], None] | None) -> None:
+        with self._lock:
+            self._skip_wake = wake
 
     def request_skips(self, step_paths: Iterable[NodePath]) -> None:
         for node_path in step_paths:

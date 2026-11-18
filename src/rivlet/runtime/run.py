@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
+    from ..admission import _Permit
     from ..model import (
         Graph,
         GraphObservationMessages,
@@ -75,6 +76,7 @@ class CompiledGraphRun:
         *,
         shared: object | None = None,
         execution_control: ExecutionControl,
+        permit: _Permit | None = None,
     ) -> NodeRunContext:
         step = runtime_step.step
         context = step.context
@@ -85,6 +87,7 @@ class CompiledGraphRun:
                 _execution_control=execution_control,
             ),
             _shared=shared,
+            _permit=permit,
         )
 
     def step_log_path_for(

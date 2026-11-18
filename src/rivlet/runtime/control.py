@@ -52,6 +52,10 @@ class ExecutionControl:
         if stopped:
             handler()
 
+    def unregister_stop_handler(self, handler: StopHandler) -> None:
+        with self._handler_lock:
+            self._stop_handlers.remove(handler)
+
     def request_stop(self) -> None:
         with self._handler_lock:
             if self._stop_event.is_set():

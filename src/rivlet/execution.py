@@ -6,6 +6,7 @@ from dataclasses import InitVar, dataclass, field
 from threading import Lock
 from typing import TYPE_CHECKING
 
+from .admission import Limit
 from .compile import (
     GraphCompilation,
     _compile_graph_scope,
@@ -52,7 +53,7 @@ class Execution:
 
     dynamic / compiled 仅控制展示记录，不是线程 / 异步模式。
     模块级 run/arun 提供创建及关闭 Python 线程池的高阶封装。
-    四个入口均可显式配置 max_concurrency，额度按实际图祖先共同约束各语言动作。
+    四个入口均可显式配置 max_concurrency，额度按实际图祖先共同约束动作。
     """
 
     root: NodeKind
@@ -206,32 +207,31 @@ class Execution:
         return self.compile()
 
     def _resolve_concurrency[LimitedNode: NodeKind](
-        self, requested: Mapping[LimitedNode, int] | None
-    ) -> dict[NodePath, int]:
+        self, requested: Mapping[LimitedNode, int | Limit] | None
+    ) -> dict[NodePath, Limit]:
         from .model import Graph, Step
 
         if not requested:
             return {}
         # 先复制请求，外部修改字典不会改变本次执行的额度。
         snapshot = dict(requested)
-        for node, maximum in snapshot.items():
+        for node in snapshot:
             if not isinstance(node, (Step, Graph)):
                 raise GraphError("concurrency limits require declared Nodes")
-            if type(maximum) is not int or maximum < 1:
-                raise GraphError("concurrency limits must be positive integers")
         mounted_paths = self._index_mounted_step_paths()
         return {
             self._require_unique_mounted_step_path(
                 node, mounted_step_paths=mounted_paths
-            ): maximum
-            for node, maximum in snapshot.items()
+            ): value if isinstance(value, Limit) else Limit(value)
+            for node, value in snapshot.items()
         }
 
     def run[LimitedNode: NodeKind](
         self,
         *,
         pool: ThreadPoolExecutor,
-        max_concurrency: Mapping[LimitedNode, int] | None = None,
+        max_concurrency: Mapping[LimitedNode, int | Limit] | None = None,
+        max_submitted: int | None = None,
         observer: GraphObserver | None = None,
         mode: GraphMode = "dynamic",
     ) -> ExecutionState:
@@ -256,6 +256,7 @@ class Execution:
                 action_log=self.action_log,
                 record_composites_as_steps=mode == "dynamic",
                 max_concurrency=limits,
+                max_submitted=max_submitted,
             ).execute(target_graph, pool=pool)
         except BaseException as execution_error:
             self._write_execution_output(mode=mode, execution_error=execution_error)
@@ -267,7 +268,8 @@ class Execution:
         self,
         *,
         pool: ThreadPoolExecutor,
-        max_concurrency: Mapping[LimitedNode, int] | None = None,
+        max_concurrency: Mapping[LimitedNode, int | Limit] | None = None,
+        max_submitted: int | None = None,
         observer: GraphObserver | None = None,
         mode: GraphMode = "dynamic",
     ) -> ExecutionState:
@@ -286,6 +288,7 @@ class Execution:
                 action_log=self.action_log,
                 record_composites_as_steps=mode == "dynamic",
                 max_concurrency=limits,
+                max_submitted=max_submitted,
             ).aexecute(target_graph, pool=pool)
         except BaseException as execution_error:
             self._write_execution_output(mode=mode, execution_error=execution_error)
@@ -298,7 +301,7 @@ def run[LimitedNode: NodeKind](
     root: NodeKind | Execution,
     *,
     max_workers: int = 1,
-    max_concurrency: Mapping[LimitedNode, int] | None = None,
+    max_concurrency: Mapping[LimitedNode, int | Limit] | None = None,
     observer: GraphObserver | None = None,
     mode: GraphMode = "dynamic",
 ) -> ExecutionState:
@@ -309,7 +312,11 @@ def run[LimitedNode: NodeKind](
         max_workers=max_workers, thread_name_prefix="GraphWorker"
     ) as pool:
         return execution.run(
-            pool=pool, max_concurrency=max_concurrency, observer=observer, mode=mode
+            pool=pool,
+            max_concurrency=max_concurrency,
+            max_submitted=max_workers,
+            observer=observer,
+            mode=mode,
         )
 
 
@@ -317,7 +324,7 @@ async def arun[LimitedNode: NodeKind](
     root: NodeKind | Execution,
     *,
     max_workers: int = 1,
-    max_concurrency: Mapping[LimitedNode, int] | None = None,
+    max_concurrency: Mapping[LimitedNode, int | Limit] | None = None,
     observer: GraphObserver | None = None,
     mode: GraphMode = "dynamic",
 ) -> ExecutionState:
@@ -328,5 +335,9 @@ async def arun[LimitedNode: NodeKind](
         max_workers=max_workers, thread_name_prefix="GraphWorker"
     ) as pool:
         return await execution.arun(
-            pool=pool, max_concurrency=max_concurrency, observer=observer, mode=mode
+            pool=pool,
+            max_concurrency=max_concurrency,
+            max_submitted=max_workers,
+            observer=observer,
+            mode=mode,
         )

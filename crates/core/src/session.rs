@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 use std::sync::Arc;
@@ -102,6 +102,7 @@ pub enum SessionStatus {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ExecutionBatch {
     actions: Vec<NodeId>,
+    candidates: Vec<NodeId>,
     conditions: Vec<ConditionRequest>,
     events: Vec<ExecutionEvent>,
     status: SessionStatus,
@@ -111,6 +112,12 @@ impl ExecutionBatch {
     #[must_use]
     pub fn actions(&self) -> &[NodeId] {
         &self.actions
+    }
+
+    /// Ready actions requiring host confirmation before execution.
+    #[must_use]
+    pub fn candidates(&self) -> &[NodeId] {
+        &self.candidates
     }
 
     #[must_use]
@@ -238,6 +245,7 @@ pub struct ExecutionSession {
     started: bool,
     remaining_children: Vec<usize>,
     concurrency: Option<SessionConcurrency>,
+    offered: Option<HashSet<NodeId>>,
 }
 
 impl ExecutionSession {
@@ -279,6 +287,7 @@ impl ExecutionSession {
             graph,
             started: false,
             concurrency: None,
+            offered: None,
         })
     }
 
@@ -301,6 +310,65 @@ impl ExecutionSession {
         }
         self.concurrency = Some(concurrency);
         Ok(self)
+    }
+
+    /// Leaves offered actions Ready until the host confirms dispatch.
+    ///
+    /// # Errors
+    /// Returns an error if the session has already started.
+    pub fn with_host_dispatch(mut self) -> Result<Self, SessionError> {
+        if self.started {
+            return Err(SessionError::AlreadyStarted);
+        }
+        self.offered = Some(HashSet::new());
+        Ok(self)
+    }
+
+    /// Checks a candidate without reserving local capacity. If a scope is full,
+    /// the session takes the candidate back and offers it again after a release.
+    pub fn check_dispatch(&mut self, node: NodeId) -> bool {
+        self.admit_candidate(node, false)
+    }
+
+    /// Confirms dispatch, acquiring all local scope capacity together.
+    pub fn confirm_dispatch(&mut self, node: NodeId) -> bool {
+        self.admit_candidate(node, true)
+    }
+
+    fn admit_candidate(&mut self, node: NodeId, confirm: bool) -> bool {
+        let Some(offered) = &mut self.offered else {
+            return false;
+        };
+        if !offered.contains(&node) {
+            return false;
+        }
+        let allowed = self.concurrency.as_mut().is_none_or(|limit| {
+            if confirm {
+                limit.acquire(node)
+            } else {
+                limit.check(node)
+            }
+        });
+        if confirm || !allowed {
+            offered.remove(&node);
+        }
+        if allowed && confirm {
+            self.states[node.index()] = NodeState::Running;
+        }
+        allowed
+    }
+
+    /// Records a host-side admission failure without starting the action.
+    pub fn fail_candidate(&mut self, node: NodeId) -> bool {
+        if !self
+            .offered
+            .as_mut()
+            .is_some_and(|offered| offered.remove(&node))
+        {
+            return false;
+        }
+        self.finish_action(node, Err(()));
+        true
     }
 
     /// Releases an action's admission while its returned subgraph is running.
@@ -348,10 +416,12 @@ impl ExecutionSession {
         if !self.started {
             return Err(SessionError::NotStarted);
         }
+        let mut skips_changed = false;
         for node in update.skipped {
             let Some(slot) = self.explicit_skips.get_mut(node.index()) else {
                 return Err(SessionError::UnknownNode(node));
             };
+            skips_changed |= !*slot;
             *slot = true;
             self.queue_evaluation(node);
         }
@@ -382,21 +452,37 @@ impl ExecutionSession {
             if self.states[node.index()] != NodeState::Running {
                 return Err(SessionError::NodeNotRunning(node));
             }
-            if let Some(concurrency) = &mut self.concurrency {
-                concurrency.release(node);
+            self.finish_action(node, outcome);
+        }
+        if skips_changed && let Some(offered) = &self.offered {
+            // 只在新增跳过请求时查看外部持有的候选，不在每批重扫。
+            let mut skipped: Vec<_> = offered
+                .iter()
+                .copied()
+                .filter(|node| self.is_explicitly_skipped(*node))
+                .collect();
+            skipped.sort_unstable_by_key(|node| node.index());
+            for node in skipped {
+                self.skip_node(node, false);
             }
-            self.states[node.index()] = if outcome.is_ok() {
-                NodeState::Finished
-            } else {
-                self.pending_events.push(ExecutionEvent::NodeFailed {
-                    node,
-                    cause: FailureCause::Action,
-                });
-                NodeState::Failed
-            };
-            self.notify_terminal(node);
         }
         self.drive(max_actions)
+    }
+
+    fn finish_action(&mut self, node: NodeId, outcome: Result<(), ()>) {
+        if let Some(concurrency) = &mut self.concurrency {
+            concurrency.release(node);
+        }
+        self.states[node.index()] = if outcome.is_ok() {
+            NodeState::Finished
+        } else {
+            self.pending_events.push(ExecutionEvent::NodeFailed {
+                node,
+                cause: FailureCause::Action,
+            });
+            NodeState::Failed
+        };
+        self.notify_terminal(node);
     }
 
     #[must_use]
@@ -410,7 +496,8 @@ impl ExecutionSession {
             concurrency.retry(&mut self.ready);
         }
         let mut actions = Vec::new();
-        while actions.len() < max_actions {
+        let mut candidates = Vec::new();
+        while actions.len() + candidates.len() < max_actions {
             let Some(node) = self.ready.pop_front() else {
                 break;
             };
@@ -420,6 +507,12 @@ impl ExecutionSession {
             if self.is_explicitly_skipped(node) {
                 self.skip_node(node, false);
                 self.drain_evaluations();
+                continue;
+            }
+            if let Some(offered) = &mut self.offered {
+                // 局部限额在确认时才占用；等待外部资源不影响同一范围的其它动作。
+                offered.insert(node);
+                candidates.push(node);
                 continue;
             }
             if let Some(concurrency) = &mut self.concurrency {
@@ -441,6 +534,7 @@ impl ExecutionSession {
         // 异步宿主可能先回传最后一个动作的完成，再回传谓词结果。
         if !finished
             && actions.is_empty()
+            && self.offered.as_ref().is_none_or(HashSet::is_empty)
             && conditions.is_empty()
             && !self.condition_requested.contains(&true)
             && !self.states.contains(&NodeState::Running)
@@ -462,6 +556,7 @@ impl ExecutionSession {
         }
         Ok(ExecutionBatch {
             actions,
+            candidates,
             conditions,
             events,
             status: if !finished {
@@ -679,6 +774,9 @@ impl ExecutionSession {
     }
 
     fn skip_node(&mut self, node: NodeId, condition_skip: bool) {
+        if let Some(offered) = &mut self.offered {
+            offered.remove(&node);
+        }
         if condition_skip {
             self.pending_events
                 .push(ExecutionEvent::ConditionSkipped(node));
@@ -872,6 +970,40 @@ mod tests {
             .advance(ExecutionUpdate::new([(node(1), Ok(()))], [], []), 8)
             .unwrap();
         assert_eq!(last.status(), SessionStatus::Finished);
+    }
+
+    #[test]
+    fn offered_actions_stay_ready_until_confirmed_and_can_be_skipped() {
+        let graph = Arc::new(
+            CompiledExecutionGraph::new(
+                [
+                    ExecutionNode::step(None, [], None),
+                    ExecutionNode::step(None, [], None),
+                    ExecutionNode::step(None, [Prerequisite::Required(node(1))], None),
+                ],
+                [],
+            )
+            .unwrap(),
+        );
+        let mut session = ExecutionSession::new(graph, [])
+            .unwrap()
+            .with_host_dispatch()
+            .unwrap();
+        let first = session.start(8).unwrap();
+        assert_eq!(first.candidates(), [node(0), node(1)]);
+        assert!(first.actions().is_empty());
+        assert!(session.check_dispatch(node(0)));
+        assert_eq!(session.state(node(0)), Some(NodeState::Ready));
+        assert!(session.confirm_dispatch(node(1)));
+        assert_eq!(session.state(node(1)), Some(NodeState::Running));
+        let second = session
+            .advance(ExecutionUpdate::new([(node(1), Ok(()))], [], [node(0)]), 8)
+            .unwrap();
+        assert_eq!(second.candidates(), [node(2)]);
+        assert_eq!(session.state(node(0)), Some(NodeState::Skipped));
+        assert!(session.fail_candidate(node(2)));
+        let last = session.advance(ExecutionUpdate::default(), 8).unwrap();
+        assert_eq!(last.status(), SessionStatus::Failed);
     }
 
     #[test]

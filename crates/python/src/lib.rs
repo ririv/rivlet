@@ -29,6 +29,7 @@ struct CompiledExecutionGraph {
 #[pyclass(frozen, module = "rivlet._native")]
 pub(crate) struct ExecutionBatch {
     pub(crate) actions: Vec<usize>,
+    candidates: Vec<usize>,
     pub(crate) conditions: Vec<(usize, usize)>,
     pub(crate) events: Vec<EncodedEvent>,
     pub(crate) finished: bool,
@@ -38,6 +39,7 @@ impl From<CoreExecutionBatch> for ExecutionBatch {
     fn from(batch: CoreExecutionBatch) -> Self {
         Self {
             actions: batch.actions().iter().map(|node| node.index()).collect(),
+            candidates: node_indexes(batch.candidates()),
             conditions: batch
                 .conditions()
                 .iter()
@@ -51,6 +53,10 @@ impl From<CoreExecutionBatch> for ExecutionBatch {
 
 #[pymethods]
 impl ExecutionBatch {
+    fn candidates(&self) -> Vec<usize> {
+        self.candidates.clone()
+    }
+
     #[allow(clippy::type_complexity)]
     fn parts(&self) -> (Vec<usize>, Vec<(usize, usize)>, Vec<EncodedEvent>, bool) {
         (
@@ -69,6 +75,18 @@ struct ExecutionSession {
 
 #[pymethods]
 impl ExecutionSession {
+    fn check_dispatch(&mut self, node: usize) -> bool {
+        self.session.check_dispatch(NodeId::new(node))
+    }
+
+    fn confirm_dispatch(&mut self, node: usize) -> bool {
+        self.session.confirm_dispatch(NodeId::new(node))
+    }
+
+    fn fail_candidate(&mut self, node: usize) -> bool {
+        self.session.fail_candidate(NodeId::new(node))
+    }
+
     fn suspend_action(&mut self, node: usize) -> PyResult<Vec<usize>> {
         self.session
             .suspend_action(NodeId::new(node))
@@ -347,11 +365,12 @@ impl CompiledExecutionGraph {
         node_indexes(self.graph.dependency_topology().topological_order())
     }
 
-    #[pyo3(signature = (initially_skipped, concurrency=None))]
+    #[pyo3(signature = (initially_skipped, concurrency=None, *, host_dispatch=false))]
     fn session(
         &self,
         initially_skipped: Vec<usize>,
         concurrency: Option<(PyRef<'_, concurrency::ConcurrencyLimits>, Vec<Vec<usize>>)>,
+        host_dispatch: bool,
     ) -> PyResult<ExecutionSession> {
         let mut session = CoreExecutionSession::new(
             Arc::clone(&self.graph),
@@ -365,6 +384,11 @@ impl CompiledExecutionGraph {
                 .map_err(PyValueError::new_err)?;
             session = session
                 .with_concurrency(binding)
+                .map_err(|error| PyValueError::new_err(error.to_string()))?;
+        }
+        if host_dispatch {
+            session = session
+                .with_host_dispatch()
                 .map_err(|error| PyValueError::new_err(error.to_string()))?;
         }
         Ok(ExecutionSession { session })

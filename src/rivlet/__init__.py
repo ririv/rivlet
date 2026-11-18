@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from . import static as static
+    from .admission import Lease, Limit, Source
     from .compile import (
         CompiledComposite,
         CompiledCompositeRef,
@@ -131,6 +132,7 @@ if TYPE_CHECKING:
     from .topology import Arc, DAGTopology, DirectedTopology, TopologyCycleError
 
 _EXPORT_GROUPS = (
+    (".admission", ("Lease", "Limit", "Source")),
     (
         ".structure",
         ("CompilationDocument", "DeclarationDocument", "GraphDocument", "export_graph"),
@@ -369,6 +371,9 @@ __all__ = [
     "GraphRenderFormat",
     "GraphRenderOptions",
     "Execution",
+    "Lease",
+    "Limit",
+    "Source",
     "run",
     "arun",
     "ExecutionOutput",

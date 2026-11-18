@@ -352,7 +352,7 @@ def test_private_callback_experiment_keeps_its_synchronous_bridge():
         compilation,
         ExecutionState(),
         observer=None,
-        run_step=lambda _step: calls.append("action"),
+        run_step=lambda _step, _permit: calls.append("action"),
     )
     _experimental_run_tokio_callbacks(compilation._execution_graph, host, 1)
     assert calls == ["predicate", "action"]

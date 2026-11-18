@@ -7,6 +7,7 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Protocol
 
 from .._native import _ConcurrencyLimits
+from ..errors import GraphError
 
 if TYPE_CHECKING:
     from .._native import (
@@ -14,6 +15,7 @@ if TYPE_CHECKING:
         EncodedExecutionEvent,
         ExecutionSession,
     )
+    from ..admission import Source, _Permit
     from ..model import NodePath
     from .concurrency import SessionLimits
 
@@ -35,7 +37,7 @@ class BatchExecutionHost(Protocol):
     ) -> None: ...
     def raise_failures(self) -> None: ...
     def apply_events(self, events: list[EncodedExecutionEvent]) -> None: ...
-    def run_step(self, node: int) -> StepInvocation: ...
+    def run_step(self, node: int, permit: _Permit | None = None) -> StepInvocation: ...
     def stop_requested(self) -> bool: ...
     def request_stop(self) -> None: ...
     def require_running(self) -> None: ...
@@ -80,6 +82,7 @@ class SessionRun:
     definition: SessionDefinition
     engine: ExecutionSession
     owner: RootSession | ChildSession
+    sources: dict[int, Source[object]] = field(default_factory=dict)
     phase: SessionPhase = SessionPhase.NEW
     python_running: int = 0
     completed: list[tuple[int, bool]] = field(default_factory=list)
@@ -105,7 +108,7 @@ class ConditionWork:
 class SessionTree:
     """Advance related sessions with optional, shared subtree admission limits."""
 
-    def __init__(self, root: SessionDefinition) -> None:
+    def __init__(self, root: SessionDefinition, *, host_dispatch: bool = False) -> None:
         self.host = root.host
         self.finished = False
         self._ready: deque[SessionRun] = deque()
@@ -118,6 +121,8 @@ class SessionTree:
             else _ConcurrencyLimits(list(root.limits.maxima))
         )
         self._limit_revision = 0
+        self._sources = {} if root.limits is None else root.limits.sources
+        self.host_dispatch = host_dispatch or bool(self._sources)
         self._add(root, RootSession())
 
     def _add(
@@ -128,23 +133,34 @@ class SessionTree:
     ) -> None:
         # 显式限额由公共调度器在真正派发前准入，动态子 session 继承父范围。
         concurrency = None
+        sources: dict[int, Source[object]] = {}
         if self._limits is not None:
             if definition.limits is None:
                 raise RuntimeError("limited child session has no concurrency binding")
-            concurrency = (
-                self._limits,
-                [
-                    [*inherited_scopes, *scopes]
-                    for scopes in definition.limits.node_scopes
-                ],
-            )
+            memberships = [
+                [*inherited_scopes, *scopes] for scopes in definition.limits.node_scopes
+            ]
+            if self._sources:
+                for node in definition.limits.action_nodes:
+                    for scope in memberships[node]:
+                        source = self._sources.get(scope)
+                        if (
+                            source is not None
+                            and sources.setdefault(node, source) is not source
+                        ):
+                            raise GraphError(
+                                "overlapping concurrency limits use different slot sources"
+                            )
+            concurrency = self._limits, memberships
         run = SessionRun(
             definition,
             definition.graph.session(
                 definition.host.skipped_nodes(),
                 concurrency=concurrency,
+                host_dispatch=self.host_dispatch,
             ),
             owner,
+            sources,
         )
         self._active.add(run)
         self.wake(run)
@@ -201,13 +217,30 @@ class SessionTree:
             run.completed.append((work.node, False))
             self.wake(run)
 
+    def confirm(self, work: PythonWork) -> bool:
+        run = work.session
+        if not run.engine.confirm_dispatch(work.node):
+            return False
+        run.python_running += 1
+        return True
+
+    def fail_candidate(self, work: PythonWork, error: Exception) -> None:
+        run = work.session
+        if run.engine.fail_candidate(work.node):
+            run.definition.host.record_failure(work.node, error)
+            self.wake(run)
+
     @property
     def has_ready(self) -> bool:
         return bool(self._ready)
 
+    @property
+    def has_sources(self) -> bool:
+        return bool(self._sources)
+
     def poll(self) -> list[PythonWork | ConditionWork]:
         self.host.require_running()
-        if len(self._active) > 1:
+        if self.has_sources or len(self._active) > 1:
             revision = self.host.skip_revision()
             if revision != self._skip_revision:
                 self._skip_revision = revision
@@ -244,6 +277,8 @@ class SessionTree:
                 ConditionWork(run, node, condition) for node, condition in conditions
             )
             work.extend(PythonWork(run, node) for node in actions)
+            if self.host_dispatch:
+                work.extend(PythonWork(run, node) for node in batch.candidates())
             run.python_running += len(actions)
             run.conditions_running += len(conditions)
             if finished and not run.conditions_running:

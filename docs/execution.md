@@ -94,8 +94,8 @@ state = run(workflow, max_workers=4)
 ```
 
 These high-level functions create and shut down their Python thread pool.
-`max_workers` defaults to 1 and limits only synchronous Python worker threads, not in-flight
-coroutines. The pool starts threads lazily. Pass a Node or an already prepared
+`max_workers` defaults to 1 and bounds both synchronous Python worker threads and
+outstanding synchronous submissions, not in-flight coroutines. The pool starts threads lazily. Pass a Node or an already prepared
 Execution; the latter preserves its compilation, results, events and host bindings.
 `observer=...` is optional and has the same meaning for both entry points.
 
@@ -118,7 +118,8 @@ Inside an async function, use `await execution.arun(pool=pool)`. No loop argumen
 is needed. `execution.run` rejects calls from an already running event loop;
 use `arun` there. Both lower-level methods borrow the pool and never shut it down,
 even after an action failure or cancellation. They wait for their own submitted
-work to exit, not unrelated work belonging to the pool's owner.
+work to exit, not unrelated work belonging to the pool's owner. An optional
+`max_submitted` bounds this execution's outstanding synchronous submissions.
 
 Only same-interpreter ThreadPoolExecutor instances are supported. Process pools
 and InterpreterPoolExecutor are not interchangeable: closures, contexts, shared
@@ -129,14 +130,15 @@ Runtime-generated subgraphs use the same Python pool and event loop as their
 parent execution. Returning a child graph releases the parent worker rather than
 waiting recursively inside it. Independent branches have no promised order.
 Without explicit `max_concurrency`, there is no automatic bound on outstanding coroutine
-tasks or queued synchronous submissions. Apply resource-specific limits explicitly,
+tasks. Apply resource-specific limits explicitly,
 for example an asyncio semaphore around network requests; never assume `max_workers`
 is a download/API/memory budget.
 
 ## Optional subtree concurrency limits
 
 Keep limits outside the graph declaration. All four entry points accept the same flat
-`max_concurrency` mapping from a declared Step or Graph to a positive integer:
+`max_concurrency` mapping from a declared Step or Graph to a positive integer
+or a `Limit` that can also bind an [external slot source](./zh-CN/resource_admission.md):
 
 ```python
 downloads = (download_a | download_b | download_c).graph()
@@ -156,8 +158,8 @@ accept it identically. The graph and its cached compilation do not change. No ex
 Python pools are created for subgraphs. Existing Rust worker ownership is unchanged.
 
 An action is in flight from admission until completion or failure, including time
-queued in a worker pool and time awaiting I/O. Synchronous Python, coroutine and Rust
-actions consume the same scoped allowance. A step must have room in every configured
+queued in a worker pool and time awaiting I/O. Synchronous Python and coroutine actions
+consume the same scoped allowance. A step must have room in every configured
 ancestor scope as well as its own scope. In this example, downloads can use at most 2
 slots and processing at most 3, with at most 4 in total. Limits are ceilings, not
 reservations or promises of parallelism; independent branches have no fairness guarantee.
@@ -170,12 +172,12 @@ return slots and block only related dependents. Cancellation stops new admission
 drains submitted work, without closing a borrowed pool or forcibly interrupting actions.
 
 Node references must be declared in the execution root and uniquely mounted there.
-For shared structures, configure distinct `Graph(shared_structure)` instances, not an
+For shared structures, configure distinct Graph instances, not an
 ambiguous internal Step mounted in both. Unknown or ambiguous references and non-positive
 limits are errors before any action starts. Limits for declared nodes removed by static
 pruning are valid but perform no work. Dynamically created, undeclared nodes cannot be
 preconfigured; they inherit the producing step's scopes. Omitting the mapping (or passing
-an empty mapping) means no admission limits. The mapping is snapshotted before dispatch.
+an empty mapping) means no scoped limits. The mapping is snapshotted before dispatch.
 
 Only graph actions are counted, not threads, requests or subprocesses spawned inside
 one action. A limit can deadlock application code that waits for another action excluded

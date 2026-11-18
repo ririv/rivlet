@@ -96,6 +96,14 @@ impl SessionConcurrency {
     }
 
     pub(crate) fn acquire(&mut self, node: NodeId) -> bool {
+        self.admit(node, true)
+    }
+
+    pub(crate) fn check(&mut self, node: NodeId) -> bool {
+        self.admit(node, false)
+    }
+
+    fn admit(&mut self, node: NodeId, reserve: bool) -> bool {
         let mut state = self.limits.0.lock().expect("concurrency counters poisoned");
         let memberships = &self.memberships[node.index()];
         // D 为此动作的受限祖先数。O(D) 原子检查及占用，不逐项持有后等待。
@@ -106,7 +114,7 @@ impl SessionConcurrency {
             self.waiting.entry(*scope).or_default().push_back(node);
             return false;
         }
-        if !memberships.is_empty() {
+        if reserve && !memberships.is_empty() {
             for scope in memberships {
                 state.scopes[*scope].occupied += 1;
             }

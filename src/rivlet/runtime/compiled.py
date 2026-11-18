@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from .._native import EncodedExecutionEvent
+    from ..admission import _Permit
     from ..model import NodePath
     from ..observe import GraphObserver
     from .control import ExecutionControl
@@ -47,7 +48,7 @@ class CompiledExecutionHost:
         state: ExecutionState,
         *,
         observer: GraphObserver | None,
-        run_step: Callable[[CompiledPythonStep], StepInvocation],
+        run_step: Callable[[CompiledPythonStep, _Permit | None], StepInvocation],
         execution_control: ExecutionControl | None = None,
         record_composites_as_steps: bool = False,
     ) -> None:
@@ -301,13 +302,13 @@ class CompiledExecutionHost:
             phase=GraphObservationPhase.AFTER_SUCCESS,
         )
 
-    def run_step(self, node: int) -> StepInvocation:
+    def run_step(self, node: int, permit: _Permit | None = None) -> StepInvocation:
         compiled_node = self.compilation._execution_node(node)
         if not isinstance(compiled_node, CompiledPythonStep):
             raise GraphError(
                 f"native scheduler submitted non-step node: {compiled_node.path}"
             )
-        return self.run_step_callback(compiled_node)
+        return self.run_step_callback(compiled_node, permit)
 
     def stop_requested(self) -> bool:
         return (

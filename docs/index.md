@@ -37,6 +37,7 @@ domain workflows are connected explicitly, not read from implicit global facilit
 - [Static selection during compilation](./static_selection.md)
 - [Topology complexity and implementation costs](./topology_complexity.md)
 - [Execution semantics](./execution.md)
+- [External resource admission (简体中文)](./zh-CN/resource_admission.md)
 - [Rust graph declarations](./rust-graphs.md)
 - [Running Rust graphs](./rust-execution.md)
 - [Rust runtime predicates](./rust-conditions.md)

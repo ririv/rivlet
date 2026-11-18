@@ -6,6 +6,7 @@ import threading
 from contextvars import Context, copy_context
 from typing import TYPE_CHECKING
 
+from ..errors import GraphError
 from .action_log import NO_ACTION_LOG, ActionLog
 from .batch_driver import arun_session, run_session
 from .executor_common import step_thread_name
@@ -18,6 +19,7 @@ if TYPE_CHECKING:
     from concurrent.futures import ThreadPoolExecutor
     from pathlib import Path
 
+    from ..admission import Limit
     from ..model import NodePath, Step
     from ..observe import GraphObserver
     from ..option import Option
@@ -90,10 +92,16 @@ class GraphExecutor:
         observer: GraphObserver | None = None,
         action_log: ActionLog = NO_ACTION_LOG,
         record_composites_as_steps: bool = False,
-        max_concurrency: Mapping[NodePath, int] | None = None,
+        max_concurrency: Mapping[NodePath, Limit] | None = None,
+        max_submitted: int | None = None,
     ) -> None:
         self.state = state or ExecutionState()
         self.execution_control = execution_control
+        if max_submitted is not None and (
+            type(max_submitted) is not int or max_submitted < 1
+        ):
+            raise GraphError("max_submitted must be a positive integer")
+        self.max_submitted = max_submitted
         self._runtime = PythonActionRuntime(
             self.state,
             execution_control,
@@ -119,12 +127,24 @@ class GraphExecutor:
         self, graph: ExecutableGraph, *, pool: ThreadPoolExecutor
     ) -> ExecutionState:
         require_shared_thread_pool(pool)
-        run_session(self._prepare(graph), pool)
+        run_session(
+            self._prepare(graph),
+            pool,
+            self.execution_control,
+            self.state,
+            self.max_submitted,
+        )
         return self._finish(graph)
 
     async def aexecute(
         self, graph: ExecutableGraph, *, pool: ThreadPoolExecutor
     ) -> ExecutionState:
         require_shared_thread_pool(pool)
-        await arun_session(self._prepare(graph), pool)
+        await arun_session(
+            self._prepare(graph),
+            pool,
+            self.execution_control,
+            self.state,
+            self.max_submitted,
+        )
         return self._finish(graph)

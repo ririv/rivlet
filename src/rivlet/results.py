@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from .option import Some
 from .runtime.control import ExecutionControl
@@ -10,6 +10,7 @@ from .runtime.control import ExecutionControl
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from .admission import Source, _Permit
     from .model import Node, NodeId, NodePath
 
 
@@ -106,6 +107,14 @@ class NodeRunContext:
     node_path: NodePath
     control: NodeControl
     _shared: object | None = field(default=None, repr=False, kw_only=True)
+    _permit: _Permit | None = field(default=None, repr=False, kw_only=True)
+
+    def permit[T](self, source: Source[T]) -> T:
+        """Return the slot's borrowed value, not its release capability."""
+        permit = self._permit
+        if permit is None or permit.source is not source:
+            raise RuntimeError("the action has no permit from this source")
+        return cast("T", permit.value)
 
     def shared[T](self, expected: type[T]) -> T:
         """Return the explicitly injected shared object with a checked type."""

@@ -102,8 +102,8 @@ state = run(workflow, max_workers=4)
 # state = await arun(workflow, max_workers=4)
 ```
 
-高阶函数创建并关闭自己的 Python 线程池。`max_workers` 默认 1，只限制同步 Python
-工作线程，不限制在途协程；线程按需启动。传入 Node 时创建新 Execution，也可以
+高阶函数创建并关闭自己的 Python 线程池。`max_workers` 默认 1，限制同步 Python
+工作线程和本次执行已提交但尚未收尾的同步调用，不限制在途协程；线程按需启动。传入 Node 时创建新 Execution，也可以
 直接传入已准备的 Execution，保留同一次编译、结果、事件及宿主绑定。
 两个入口都可显式传 `observer=...`；不传时不发出 graph observation。
 
@@ -125,6 +125,7 @@ with ThreadPoolExecutor(max_workers=4) as pool:
 在 async 函数中使用 `await execution.arun(pool=pool)`，不用再传 loop。已经运行
 事件循环的线程不能调用 `execution.run`，应使用 arun。低阶方法从不关闭借入的池，
 失败和取消时也一样；返回前只等待本次提交的工作退出，不等待池中无关任务。
+借用时可传 `max_submitted` 限制本次执行的同步提交数；不传则不额外限制。
 
 这里只支持同一解释器中的 ThreadPoolExecutor。ProcessPoolExecutor 和
 InterpreterPoolExecutor 不可直接替换：闭包、上下文、共享状态和扩展对象没有建立
@@ -132,13 +133,14 @@ InterpreterPoolExecutor 不可直接替换：闭包、上下文、共享状态�
 
 运行时返回的子图复用父执行的 Python 池和事件循环。父动作返回子图后释放线程，
 不在线程里递归等待子图；独立分支不保证先后顺序。不传 `max_concurrency` 时，不自动限制
-在途协程数或等待线程池的提交数量。下载、API、内存等预算由业务显式限制，例如
+在途协程数。下载、API、内存等预算由业务显式限制，例如
 在网络请求周围组合 asyncio semaphore，不能把 `max_workers` 当作这些资源的预算。
 
 ## 可选的子图并发上限
 
 限额属于执行策略，不写进 Graph 声明。四个执行入口都接受同一种平铺
-`max_concurrency` 字典，key 是已声明的 Step 或 Graph，value 是正整数：
+`max_concurrency` 字典，key 是已声明的 Step 或 Graph，value 是正整数或
+用于[绑定外部名额来源](./resource_admission.md)的 `Limit`：
 
 ```python
 downloads = (download_a | download_b | download_c).graph()
@@ -168,7 +170,7 @@ action 返回运行时子图后，归还自己的额度，子图 action 跨 sess
 借入的池，也不强制中断已经开始的动作。
 
 配置中的 Node 必须在根声明内且只有一个挂载位置。复用结构时可以分别配置
-`Graph(shared_structure)` 实例，不能用两处挂载共享的内部 Step 作为歧义 key。
+不同的 Graph 实例，不能用两处挂载共享的内部 Step 作为歧义 key。
 未知引用、歧义引用及非正整数在 action 开始前报错。已声明但被静态裁剪的节点允许配置，
 只是没有工作可执行。运行时才创建、未在根声明中出现的节点不能提前配置，继承生产它的
 action 所在范围。不传或传空字典时不限流；派发前会对配置取快照。

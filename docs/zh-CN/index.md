@@ -34,6 +34,7 @@
 - [图内静态选择](./static_selection.md)
 - [拓扑复杂度与实现开销](./topology_complexity.md)
 - [执行语义](./execution.md)
+- [动作派发前的资源准入](./resource_admission.md)
 - [失败事件与直接原因](./failure_events.md)
 - [Rust 图声明](./rust-graphs.md)
 - [执行 Rust 图](./rust-execution.md)

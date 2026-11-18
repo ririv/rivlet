@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
     from pathlib import Path
 
+    from ..admission import Limit, _Permit
     from ..model import NodePath, Step
     from ..observe import GraphObserver
     from ..results import NodeRunContext
@@ -50,7 +51,7 @@ class PythonActionRuntime:
         ],
         object,
     ]
-    max_concurrency: Mapping[NodePath, int] = field(default_factory=dict)
+    max_concurrency: Mapping[NodePath, Limit] = field(default_factory=dict)
 
     def prepare(
         self, compilation: GraphCompilation, *, step_log_path: Path | None = None
@@ -71,7 +72,7 @@ class PythonActionRuntime:
             observer=self.observer,
             execution_control=self.control,
             record_composites_as_steps=self.record_composites_as_steps,
-            run_step=lambda step: self._run_step(run, step),
+            run_step=lambda step, permit: self._run_step(run, step, permit),
         )
         return SessionDefinition(
             compilation._execution_graph,
@@ -98,7 +99,7 @@ class PythonActionRuntime:
         )
 
     def _run_step(
-        self, run: CompiledGraphRun, step: CompiledPythonStep
+        self, run: CompiledGraphRun, step: CompiledPythonStep, permit: _Permit | None
     ) -> StepInvocation:
         self.control.require_running()
         context = step.context
@@ -113,6 +114,7 @@ class PythonActionRuntime:
             runtime_step,
             shared=self.shared,
             execution_control=self.control,
+            permit=permit,
         )
         # 日志路径仅在执行器内部解析一次，不作为 action 的公开运行能力。
         step_log_path = run.step_log_path_for(self.state, step)
