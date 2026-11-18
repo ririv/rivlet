@@ -33,11 +33,22 @@ use a new patch or minor version instead of a post-release. Run
 `--tag v0.4.0` to check the proposed current tag. The script supports final releases
 and their canonical `.postN` forms; it rejects unsupported version forms.
 
-### Unreleased API migration
+### Version 0.5.0
 
 Graph directly accepts nodes, edges, interface definitions and static declarations.
 The separate GraphStructure declaration is removed without a compatibility alias.
 This breaking change requires a new minor release; existing published files stay unchanged.
+
+Mixed Python/Rust execution remains outside mainline. Python supports awaitable
+runtime predicates and [external resource admission](./zh-CN/resource_admission.md).
+Rust consumers import `Graph`, `Step` and `Execution` from `rivlet`; the low-level
+compiler and scheduler are available through `rivlet::core`. Rust 1.88 is the
+minimum supported version. The npm root and its native platform packages share a
+version and do not require Python.
+
+Publish the channels separately after validating their artifacts. Run
+`python scripts/check_release.py --all-channels --tag v0.5.0` from the checkout
+to verify the synchronized release identity.
 
 ### Version 0.4.0
 

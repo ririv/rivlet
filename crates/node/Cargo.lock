@@ -246,14 +246,14 @@ dependencies = [
 
 [[package]]
 name = "rivlet-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "rivlet-topology",
 ]
 
 [[package]]
 name = "rivlet-node"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "napi",
  "napi-build",
@@ -265,7 +265,7 @@ dependencies = [
 
 [[package]]
 name = "rivlet-topology"
-version = "0.4.0"
+version = "0.5.0"
 
 [[package]]
 name = "rustc-hash"

@@ -27,9 +27,18 @@ macOS arm64（macOS 11 起）与 Windows x86_64（`win_amd64`，MSVC）。同时
 加上 `--tag v0.4.0` 可验证当前准备创建的标签。脚本支持正式版及其规范的 `.postN`
 形式，不接受其它未支持的版本写法。
 
-### 尚未发布的 API 迁移
+### 0.5.0
 
 Graph 直接接收节点、边、接口与静态声明，删除独立的 GraphStructure，不保留兼容别名。
+此前依赖混合执行入口的代码须保留在原版本或迁往独立的语言执行入口；实验性混合执行
+不随主线发行。Python 增加可等待的运行时条件和[派发前资源准入](./resource_admission.md)。
+
+Rust 调用方可只依赖 `rivlet` 并直接导入 `Graph`、`Step`、`Execution`；低阶
+编译与调度接口移至 `rivlet::core`。Rust 最低版本为 1.88。Node.js 发行主包与
+各平台原生子包采用相同的版本号，不依赖已安装的 Python。
+
+三个渠道独立上传；发版前从仓库根目录运行
+`python scripts/check_release.py --all-channels --tag v0.5.0` 核对版本一致。
 这是公开 API 变更，需要下一个次版本发布；不修改现有发行文件。
 
 ### 0.4.0

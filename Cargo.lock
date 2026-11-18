@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "python"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "pyo3",
  "rivlet-core",
@@ -118,7 +118,7 @@ dependencies = [
 
 [[package]]
 name = "rivlet"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "rivlet-action",
  "rivlet-core",
@@ -128,18 +128,18 @@ dependencies = [
 
 [[package]]
 name = "rivlet-action"
-version = "0.4.0"
+version = "0.5.0"
 
 [[package]]
 name = "rivlet-core"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "rivlet-topology",
 ]
 
 [[package]]
 name = "rivlet-execution"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "rivlet-action",
  "rivlet-core",
@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "rivlet-graph"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "rivlet-action",
  "rivlet-core",
@@ -156,7 +156,7 @@ dependencies = [
 
 [[package]]
 name = "rivlet-topology"
-version = "0.4.0"
+version = "0.5.0"
 
 [[package]]
 name = "syn"
@@ -186,7 +186,7 @@ dependencies = [
 
 [[package]]
 name = "tokio-runtime"
-version = "0.4.0"
+version = "0.5.0"
 dependencies = [
  "rivlet-core",
  "tokio",

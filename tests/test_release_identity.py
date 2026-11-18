@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
@@ -11,18 +12,45 @@ SCRIPT = Path(__file__).resolve().parents[1] / "scripts" / "check_release.py"
 
 
 def check_identity(
-    root: Path, version: str, cargo: str, tag: str | None
+    root: Path,
+    version: str,
+    cargo: str,
+    tag: str | None,
+    *,
+    node: str | None = None,
+    crate_pin: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     (root / "pyproject.toml").write_text(
         f'[project]\nname = "rivlet"\nversion = "{version}"\n'
     )
-    (root / "Cargo.toml").write_text(f'[workspace.package]\nversion = "{cargo}"\n')
+    cargo_manifest = f'[workspace.package]\nversion = "{cargo}"\n'
+    if node is not None:
+        cargo_manifest += (
+            "\n[workspace.dependencies]\n"
+            f'rivlet-core = {{ path = "crates/core", version = "={crate_pin or cargo}" }}\n'
+        )
+        binding = root / "bindings/node"
+        binding.mkdir(parents=True)
+        (binding / "package.json").write_text(
+            json.dumps({"name": "rivlet", "version": node})
+        )
+        (binding / "package-lock.json").write_text(
+            json.dumps(
+                {"name": "rivlet", "version": node, "packages": {"": {"version": node}}}
+            )
+        )
+        addon = root / "crates/node"
+        addon.mkdir(parents=True)
+        (addon / "Cargo.toml").write_text(f'[package]\nversion = "{node}"\n')
+    (root / "Cargo.toml").write_text(cargo_manifest)
     env = dict(os.environ)
     env.pop("GITHUB_REF_TYPE", None)
     env.pop("GITHUB_REF_NAME", None)
     args = [sys.executable, str(SCRIPT), "--root", str(root)]
     if tag is not None:
         args.extend(("--tag", tag))
+    if node is not None:
+        args.append("--all-channels")
     return subprocess.run(args, env=env, capture_output=True, text=True, check=False)
 
 
@@ -62,3 +90,24 @@ def test_release_identity_rejects_invalid_publication_metadata(
     result = check_identity(tmp_path, version, cargo, tag)
     assert result.returncode != 0
     assert message in result.stderr
+
+
+@pytest.mark.parametrize(
+    ("node", "crate_pin", "error"),
+    [
+        ("0.5.0", "0.5.0", None),
+        ("0.4.0", "0.5.0", "Node addon and Cargo versions must agree"),
+        ("0.5.0", "0.4.0", "Cargo dependency rivlet-core must require exactly 0.5.0"),
+    ],
+)
+def test_check_all_channels_with_python_post_release(
+    tmp_path: Path, node: str, crate_pin: str, error: str | None
+) -> None:
+    result = check_identity(
+        tmp_path, "0.5.0.post1", "0.5.0", "v0.5.0.post1", node=node, crate_pin=crate_pin
+    )
+    if error is None:
+        assert result.returncode == 0, result.stderr
+    else:
+        assert result.returncode != 0
+        assert error in result.stderr
