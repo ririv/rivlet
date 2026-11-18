@@ -68,8 +68,8 @@ threads, not the number of coroutine tasks.
 execution. Use ordinary functions returning Graph for parameterized composition.
 
 Step executes a callable; Graph contains a substructure. Both own identity, label
-and condition and support the same wire/DSL operations. Node is their common
-protocol, not another wrapper. Only Graph exposes an interface.
+and condition and support the same wire/DSL operations. In Python, `Node` is
+the `Step | Graph` type alias, not a wrapper. Only Graph exposes an interface.
 
 Graph directly holds a complete declaration. Explicitly create distinct Graph
 nodes to reuse their inner nodes and edges:

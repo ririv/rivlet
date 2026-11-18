@@ -17,7 +17,8 @@ spelling but do not resolve that ownership gap.
 ## Adopted model
 
 Step and Graph are actual nodes, each composing common metadata. Only Graph exposes
-an interface. Node is their shared protocol; NodeKind is their closed union.
+an interface. Python's `Node` is their closed union; `NodeLike` describes the
+shared shape without extending the set of graph members.
 Graph directly holds the complete declaration. Edges reference actual nodes, and result
 edges can reference typed ports obtained from that actual graph:
 

@@ -1,6 +1,6 @@
 use rivlet_core::NodeIdentity;
 
-use super::{Condition, GraphError, InputPort, Node, OutputEndpoint, OutputPort, Step};
+use super::{Condition, GraphError, HasNodeId, InputPort, OutputEndpoint, OutputPort, Step};
 
 /// A nonempty immutable group, constructed only by [`Edge::results`].
 #[derive(Clone, Debug)]
@@ -69,7 +69,7 @@ pub enum Edge {
 
 impl Edge {
     #[must_use]
-    pub fn new(source: &(impl Node + ?Sized), target: &(impl Node + ?Sized)) -> Self {
+    pub fn new(source: &(impl HasNodeId + ?Sized), target: &(impl HasNodeId + ?Sized)) -> Self {
         Self::Completion {
             source: source.id(),
             target: target.id(),
@@ -83,8 +83,8 @@ impl Edge {
 
     #[must_use]
     pub fn with_condition(
-        source: &(impl Node + ?Sized),
-        target: &(impl Node + ?Sized),
+        source: &(impl HasNodeId + ?Sized),
+        target: &(impl HasNodeId + ?Sized),
         condition: Condition,
     ) -> Self {
         Self::ConditionalCompletion {

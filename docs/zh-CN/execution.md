@@ -454,7 +454,7 @@ Rust compiler 会转换所有声明期已知子图：
 - 运行期返回图通过嵌套 compilation/session 执行
 
 不要依赖两个互不相干 Node 的隐式顺序；如果顺序有业务意义，必须通过
-`Node.wire(after=...)`、Graph edge 或 `>>` 显式声明。
+`Step.wire(after=...)`、`Graph.wire(after=...)`、边或 `>>` 显式声明。
 
 ## 并发边界
 

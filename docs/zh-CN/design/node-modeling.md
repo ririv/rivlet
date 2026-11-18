@@ -14,7 +14,8 @@ Graph 的接口却在内层。这统一了生命周期，但隐藏了具体能�
 ## 当前采用的方案
 
 Step/Graph 直接成为节点，内部组合共同元信息；只有 Graph 暴露 interface。
-Node 是共同协议，NodeKind 是封闭联合，Graph 直接承载完整声明。
+Python 的 `Node` 是封闭联合；`NodeLike` 描述公共形状，不扩展图的成员范围。
+Graph 直接承载完整声明。
 Edge 连接实际节点，结果边可从实际图获取有方向的端口引用：
 
 ```python

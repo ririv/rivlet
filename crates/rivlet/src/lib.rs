@@ -36,8 +36,8 @@ pub use execution::{
     ExecutionStatus, NodeFailure, NodeOutcome,
 };
 pub use graph::{
-    Compilation, Condition, Edge, Graph, GraphError, GraphInterface, GraphInterfaceView,
-    InputEndpoint, InputPort, Node, NodeKind, OutputEndpoint, OutputPort, PortName, ResultSources,
+    Compilation, Condition, Edge, Graph, GraphError, GraphInterface, GraphInterfaceView, HasNodeId,
+    InputEndpoint, InputPort, Node, OutputEndpoint, OutputPort, PortName, ResultSources,
     ResultTarget, Step,
 };
 pub use rivlet_core::NodeId;

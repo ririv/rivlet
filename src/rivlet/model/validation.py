@@ -11,11 +11,12 @@ from ..interface import InputPort, OutputPort, _declared_interface
 from .edge import _condition_uses, _ResultConnection
 from .graph import Graph
 from .identity import NodePath
-from .node import Node, resolve_node_label
+from .node import resolve_node_label
 from .step import Step
 
 if TYPE_CHECKING:
     from ..interface import GraphInterface, InputEndpoint, PortName
+    from . import Node
     from .edge import _ResultGroup
 
 

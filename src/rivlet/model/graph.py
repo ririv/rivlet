@@ -25,12 +25,11 @@ if TYPE_CHECKING:
         ConditionInput,
         GraphWiringInput,
         GraphWiringOperand,
-        NodeKind,
+        Node,
         NodePrerequisite,
     )
     from .condition import _RuntimeCondition
     from .identity import NodeId
-    from .node import Node
     from .wiring import GraphWiring, NodeWiring
 
 
@@ -47,7 +46,7 @@ class GraphObservationMessages:
 class Graph:
     """One graph node; metadata and exposed ports belong to this declaration."""
 
-    nodes: tuple[NodeKind, ...]
+    nodes: tuple[Node, ...]
     edges: tuple[GraphEdge, ...]
     observation: GraphObservationMessages
     static: tuple[StaticConditions, ...]
@@ -60,7 +59,7 @@ class Graph:
     def __init__(
         self,
         *,
-        nodes: tuple[NodeKind, ...] = (),
+        nodes: tuple[Node, ...] = (),
         edges: tuple[GraphEdge, ...] = (),
         interface: GraphInterfaceInput | None = None,
         observation: GraphObservationMessages | None = None,

@@ -1,4 +1,4 @@
-use super::{Edge, Graph, GraphError, InputEndpoint, Node, OutputEndpoint};
+use super::{Edge, Graph, GraphError, InputEndpoint, OutputEndpoint};
 use rivlet_core::{Arc as TopologyArc, DagTopology, DirectedTopology, NodeId, NodeIdentity};
 use std::collections::HashMap;
 

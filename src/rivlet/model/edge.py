@@ -19,9 +19,8 @@ from .step import Step
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from . import ConditionInput, NodePrerequisite
+    from . import ConditionInput, Node, NodePrerequisite
     from .graph import Graph
-    from .node import Node
 
 
 @dataclass(frozen=True, slots=True, init=False)

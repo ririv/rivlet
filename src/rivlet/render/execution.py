@@ -7,7 +7,6 @@ from ..model import (
     Graph,
     GraphMode,
     Node,
-    NodeKind,
     NodePath,
     node_paths_for_mount,
     resolve_node_label,
@@ -40,7 +39,7 @@ class ExecutionRenderStatus(StrEnum):
 
 
 def render_execution(
-    root: NodeKind,
+    root: Node,
     state: ExecutionState,
     *,
     mode: GraphMode = "dynamic",
@@ -57,7 +56,7 @@ def render_execution(
 
 
 def render_live_execution(
-    root: NodeKind,
+    root: Node,
     state: ExecutionState,
     *,
     mode: GraphMode = "dynamic",

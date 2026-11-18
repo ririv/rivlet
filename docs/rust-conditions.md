@@ -52,7 +52,7 @@ let readiness = Edge::ports_with_condition(
 `Step::new` / `Graph::new` continue to construct unconditional nodes.
 `with_condition` is a complete associated constructor, not a mutating method:
 it allocates a new declaration identity and never overrides an existing node.
-The common `Node` trait exposes `condition()` along with identity and label.
+`Step`, `Graph`, and `Node` each expose `condition()` along with identity and label.
 
 | Use | True | False |
 | --- | --- | --- |

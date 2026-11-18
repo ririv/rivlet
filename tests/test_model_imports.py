@@ -19,7 +19,7 @@ def test_model_and_root_exports_identify_the_same_declarations():
         "Step",
         "step",
         "ConditionInput",
-        "NodeKind",
+        "NodeLike",
     )
     for name in names:
         assert getattr(model, name) is getattr(rivlet, name)
@@ -27,7 +27,7 @@ def test_model_and_root_exports_identify_the_same_declarations():
 
 def test_public_union_aliases_resolve_real_types_at_runtime():
     names = (
-        "NodeKind",
+        "Node",
         "ConditionInput",
         "NodePrerequisite",
         "GraphWiringOperand",
@@ -37,3 +37,14 @@ def test_public_union_aliases_resolve_real_types_at_runtime():
         alias = getattr(model, name)
         assert isinstance(alias, TypeAliasType)
         assert alias.__value__ is not None
+
+    assert model.Node.__value__ == model.Step | model.Graph
+
+
+def test_node_like_describes_both_concrete_nodes():
+    def label_of(node: model.NodeLike) -> str | None:
+        return node.label
+
+    step = model.Step(lambda: None, label="step")
+    graph = model.Graph(nodes=(step,), label="graph")
+    assert (label_of(step), label_of(graph)) == ("step", "graph")

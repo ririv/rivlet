@@ -3,7 +3,7 @@
 English | [简体中文](./zh-CN/core_model.md)
 
 ```text
-Node (shared protocol)
+Node (Step | Graph)
 ├── Step: identity + label + condition + callable
 └── Graph: identity + label + condition + complete declaration
                                          ├── nodes: Step | Graph
@@ -15,11 +15,11 @@ Node (shared protocol)
                    ExecutionState
 ```
 
-There is no generic node wrapper: Step holds an action, not a Graph. Step and Graph
-compose shared internal metadata; neither
-inherits implementation from Node. Node describes common operations;
-`NodeKind = Step | Graph` is the closed set accepted by structures and execution.
-Implementing a lookalike protocol does not register another executable kind.
+In Python, `Node = Step | Graph` is the closed set accepted by graph declarations
+and execution; it adds no wrapper. Step holds an action, not a Graph. Both
+declarations compose shared internal metadata. The separate `NodeLike` protocol
+describes their common shape for helpers; conforming to it does not make an
+object an executable node.
 The former wrapper's ownership problem and this decision are described separately
 in the [node modeling discussion](./design/node-modeling.md).
 

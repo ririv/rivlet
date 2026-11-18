@@ -26,11 +26,19 @@ impl Metadata {
     }
 }
 
-/// Common node references; concrete contents remain a closed [`NodeKind`] union.
-pub trait Node {
+mod sealed {
+    pub trait Sealed {}
+
+    impl Sealed for super::Step {}
+    impl Sealed for super::Graph {}
+    impl Sealed for super::Node {}
+}
+
+/// Supplies a declaration identity when wiring a step, graph, or stored node.
+///
+/// This trait is sealed: only Rivlet's concrete graph nodes can implement it.
+pub trait HasNodeId: sealed::Sealed {
     fn id(&self) -> NodeIdentity;
-    fn label(&self) -> &str;
-    fn condition(&self) -> Option<&Condition>;
 }
 
 /// One Rust action with declaration-local metadata.
@@ -88,15 +96,9 @@ impl Step {
     }
 }
 
-impl Node for Step {
+impl HasNodeId for Step {
     fn id(&self) -> NodeIdentity {
         self.id()
-    }
-    fn label(&self) -> &str {
-        self.label()
-    }
-    fn condition(&self) -> Option<&Condition> {
-        self.condition()
     }
 }
 
@@ -104,7 +106,7 @@ impl Node for Step {
 #[derive(Clone, Debug)]
 pub struct Graph {
     metadata: Metadata,
-    nodes: Arc<[NodeKind]>,
+    nodes: Arc<[Node]>,
     edges: Arc<[Edge]>,
     interface: GraphInterface,
 }
@@ -116,7 +118,7 @@ impl Graph {
     /// Returns an error for an invalid label, membership or topology.
     pub fn new(
         label: impl Into<String>,
-        nodes: impl IntoIterator<Item = NodeKind>,
+        nodes: impl IntoIterator<Item = Node>,
         edges: impl IntoIterator<Item = Edge>,
     ) -> Result<Self, GraphError> {
         Self::declare(label, nodes, edges, GraphInterface::default(), None)
@@ -128,7 +130,7 @@ impl Graph {
     /// Returns an error for an invalid declaration.
     pub fn with_interface(
         label: impl Into<String>,
-        nodes: impl IntoIterator<Item = NodeKind>,
+        nodes: impl IntoIterator<Item = Node>,
         edges: impl IntoIterator<Item = Edge>,
         interface: GraphInterface,
     ) -> Result<Self, GraphError> {
@@ -141,7 +143,7 @@ impl Graph {
     /// Returns an error for an invalid declaration.
     pub fn with_condition(
         label: impl Into<String>,
-        nodes: impl IntoIterator<Item = NodeKind>,
+        nodes: impl IntoIterator<Item = Node>,
         edges: impl IntoIterator<Item = Edge>,
         interface: GraphInterface,
         condition: Condition,
@@ -151,7 +153,7 @@ impl Graph {
 
     fn declare(
         label: impl Into<String>,
-        nodes: impl IntoIterator<Item = NodeKind>,
+        nodes: impl IntoIterator<Item = Node>,
         edges: impl IntoIterator<Item = Edge>,
         interface: GraphInterface,
         condition: Option<Condition>,
@@ -179,7 +181,7 @@ impl Graph {
         &self.metadata.label
     }
     #[must_use]
-    pub fn nodes(&self) -> &[NodeKind] {
+    pub fn nodes(&self) -> &[Node] {
         &self.nodes
     }
     #[must_use]
@@ -204,39 +206,36 @@ impl Graph {
     }
 }
 
-impl Node for Graph {
+impl HasNodeId for Graph {
     fn id(&self) -> NodeIdentity {
         self.id()
     }
-    fn label(&self) -> &str {
-        self.label()
-    }
-    fn condition(&self) -> Option<&Condition> {
-        self.condition()
-    }
 }
 
-/// The supported concrete node kinds, not an implementation-inheritance hierarchy.
+/// A concrete graph member: an action step or a composable subgraph.
 #[derive(Clone, Debug)]
-pub enum NodeKind {
+pub enum Node {
     Step(Step),
     Graph(Graph),
 }
 
-impl Node for NodeKind {
-    fn id(&self) -> NodeIdentity {
+impl Node {
+    #[must_use]
+    pub fn id(&self) -> NodeIdentity {
         match self {
             Self::Step(value) => value.id(),
             Self::Graph(value) => value.id(),
         }
     }
-    fn label(&self) -> &str {
+    #[must_use]
+    pub fn label(&self) -> &str {
         match self {
             Self::Step(value) => value.label(),
             Self::Graph(value) => value.label(),
         }
     }
-    fn condition(&self) -> Option<&Condition> {
+    #[must_use]
+    pub const fn condition(&self) -> Option<&Condition> {
         match self {
             Self::Step(value) => value.condition(),
             Self::Graph(value) => value.condition(),
@@ -244,12 +243,18 @@ impl Node for NodeKind {
     }
 }
 
-impl From<Step> for NodeKind {
+impl HasNodeId for Node {
+    fn id(&self) -> NodeIdentity {
+        self.id()
+    }
+}
+
+impl From<Step> for Node {
     fn from(value: Step) -> Self {
         Self::Step(value)
     }
 }
-impl From<Graph> for NodeKind {
+impl From<Graph> for Node {
     fn from(value: Graph) -> Self {
         Self::Graph(value)
     }

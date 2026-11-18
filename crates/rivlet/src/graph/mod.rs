@@ -1,7 +1,7 @@
 //! Composable Rust graph declarations lowering into the shared execution core.
 //!
-//! Step/Graph own metadata; `Graph` is reusable. Node is their common
-//! reference interface and `NodeKind` is the closed concrete union. Result edges
+//! Step/Graph own metadata; `Graph` is reusable. `Node` holds either concrete
+//! declaration, and `HasNodeId` provides the identity used when wiring. Result edges
 //! bind typed action inputs; typed runtime predicates remain Rust-owned.
 //!
 //! ```
@@ -48,7 +48,7 @@ pub use interface::{
     GraphInterface, GraphInterfaceView, InputEndpoint, InputPort, OutputEndpoint, OutputPort,
     PortName,
 };
-pub use node::{Graph, Node, NodeKind, Step};
+pub use node::{Graph, HasNodeId, Node, Step};
 pub use projection::{
     Compilation, ProjectedCondition, ProjectedKind, ProjectedNode, ProjectedScope, Projection,
 };

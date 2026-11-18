@@ -65,9 +65,9 @@ performance guarantee for the latest release.
 | --- | --- |
 | `Graph` | Composite node with identity, lifecycle, and a reusable body |
 | `Execution` | A declaration and one execution scope |
-| `Node` / `NodeKind` | Shared Step/Graph protocol / closed executable union |
+| `Node` / `NodeLike` | Closed Step/Graph union / shared Python protocol for helpers |
 | `Graph.edges` | Explicit wiring within a reusable structure |
-| `Node.wire(after=(Results(...),))` / `Edge.results(...)` | Ordered action results; conditions declare their own sources |
+| `Step.wire(after=(Results(...),))` / `Edge.results(...)` | Ordered action results; conditions declare their own sources |
 | `NodeWiring` / `GraphWiring` | Declaration-time composition |
 | `GraphCompilation` | Runtime execution structure and composite boundaries |
 

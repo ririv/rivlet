@@ -45,8 +45,8 @@ let readiness = Edge::ports_with_condition(
 ```
 
 `Step::new` / `Graph::new` 继续创建无条件节点。`with_condition` 是完整的关联构造函数，
-不是修改已有节点的方法；它分配新的声明身份，不覆盖原节点。共同的 Node trait 在
-identity、label 之外提供 `condition()`。
+不是修改已有节点的方法；它分配新的声明身份，不覆盖原节点。`Step`、`Graph` 和
+`Node` 都提供 `condition()`，以及读取身份和 label 的方法。
 
 | 位置 | true | false |
 | --- | --- | --- |

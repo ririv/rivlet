@@ -7,15 +7,16 @@ compiler and scheduler. Mainline does not import Rust nodes into Python workflow
 
 ## Rust declaration API
 
-The `graph` crate exposes actual `Step` and `Graph` nodes. Both compose common
-identity/label metadata and implement `Node`; `NodeKind` is the closed
-`Step | Graph` enum. The trait does not introduce implementation inheritance or
-arbitrary executable node kinds. Only `Graph` has an interface.
+The `rivlet::graph` module exposes `Step` and `Graph`. The closed `Node` enum
+holds either declaration; `Graph::nodes()` returns a slice of these values.
+Wire a `Step` or `Graph` directly with `Edge::new(&source, &target)`: its sealed
+`HasNodeId` trait only supplies declaration identities. Convert with `.into()`
+when adding the concrete values to a parent graph. Only `Graph` exposes an interface.
 
 ```rust
 use std::sync::Arc;
 use rivlet::{Action, ActionContext, ActionError, ActionHandle};
-use rivlet::{Edge, Graph, GraphInterface, Step};
+use rivlet::{Compilation, Edge, Graph, GraphError, GraphInterface, Step};
 
 struct Work;
 impl Action for Work {
@@ -27,7 +28,7 @@ impl Action for Work {
     }
 }
 
-fn workflow() -> Result<graph::Compilation, graph::GraphError> {
+fn workflow() -> Result<Compilation, GraphError> {
     let task = Step::new("task", ActionHandle::new(Work))?;
     let body = Arc::new(Graph::with_interface("scope",
         [task.clone().into()], [],

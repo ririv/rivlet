@@ -17,10 +17,9 @@ if TYPE_CHECKING:
     from ..interface import GraphInterfaceInput, OutputEndpoint
     from ..static import StaticSelection
     from ..static_conditions import StaticConditions, StaticConditionsInput
-    from . import ConditionInput, GraphWiringOperand, NodeKind, NodePrerequisite
+    from . import ConditionInput, GraphWiringOperand, Node, NodePrerequisite
     from .edge import GraphEdge
     from .graph import Graph, GraphObservationMessages
-    from .node import Node
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -41,7 +40,7 @@ class NodeWiring:
     引用真实 `Node` 对象的边，运行期不保留该包装器。
     """
 
-    node: NodeKind
+    node: Node
     after: tuple[NodePrerequisite | Results, ...] = ()
 
 
@@ -49,7 +48,7 @@ class NodeWiring:
 class GraphWiring:
     """由组合 DSL 产生、尚未物化为 Graph 的规范化接线。"""
 
-    nodes: tuple[NodeKind, ...]
+    nodes: tuple[Node, ...]
     edges: tuple[GraphEdge, ...] = ()
     static: tuple[StaticConditions, ...] = ()
     static_selections: tuple[StaticSelection, ...] = ()

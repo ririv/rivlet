@@ -28,7 +28,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from .events import NodeEventSink
-    from .model import Graph, GraphMode, Node, NodeKind, NodePath
+    from .model import Graph, GraphMode, Node, NodePath
     from .observe import GraphObserver
     from .option import Some
 
@@ -56,7 +56,7 @@ class Execution:
     四个入口均可显式配置 max_concurrency，额度按实际图祖先共同约束动作。
     """
 
-    root: NodeKind
+    root: Node
     _declaration_graph: Graph = field(init=False, repr=False, compare=False)
     shared: object | None = field(default=None, kw_only=True, repr=False)
     execution_state: ExecutionState = field(default_factory=ExecutionState)
@@ -65,7 +65,7 @@ class Execution:
     )
     action_log: ActionLog = NO_ACTION_LOG
     execution_output: ExecutionOutput = NO_EXECUTION_OUTPUT
-    node_log_paths: InitVar[Mapping[NodeKind, Path] | None] = field(
+    node_log_paths: InitVar[Mapping[Node, Path] | None] = field(
         default=None, kw_only=True
     )
     events: InitVar[NodeEventSink | None] = field(default=None, kw_only=True)
@@ -87,7 +87,7 @@ class Execution:
 
     def __post_init__(
         self,
-        node_log_paths: Mapping[NodeKind, Path] | None,
+        node_log_paths: Mapping[Node, Path] | None,
         events: NodeEventSink | None,
     ) -> None:
         from .model import Graph, Step
@@ -206,7 +206,7 @@ class Execution:
             raise GraphError(f"unsupported graph mode: {mode}")
         return self.compile()
 
-    def _resolve_concurrency[LimitedNode: NodeKind](
+    def _resolve_concurrency[LimitedNode: Node](
         self, requested: Mapping[LimitedNode, int | Limit] | None
     ) -> dict[NodePath, Limit]:
         from .model import Graph, Step
@@ -226,7 +226,7 @@ class Execution:
             for node, value in snapshot.items()
         }
 
-    def run[LimitedNode: NodeKind](
+    def run[LimitedNode: Node](
         self,
         *,
         pool: ThreadPoolExecutor,
@@ -264,7 +264,7 @@ class Execution:
         self._write_execution_output(mode=mode)
         return result
 
-    async def arun[LimitedNode: NodeKind](
+    async def arun[LimitedNode: Node](
         self,
         *,
         pool: ThreadPoolExecutor,
@@ -297,8 +297,8 @@ class Execution:
         return result
 
 
-def run[LimitedNode: NodeKind](
-    root: NodeKind | Execution,
+def run[LimitedNode: Node](
+    root: Node | Execution,
     *,
     max_workers: int = 1,
     max_concurrency: Mapping[LimitedNode, int | Limit] | None = None,
@@ -320,8 +320,8 @@ def run[LimitedNode: NodeKind](
         )
 
 
-async def arun[LimitedNode: NodeKind](
-    root: NodeKind | Execution,
+async def arun[LimitedNode: Node](
+    root: Node | Execution,
     *,
     max_workers: int = 1,
     max_concurrency: Mapping[LimitedNode, int | Limit] | None = None,

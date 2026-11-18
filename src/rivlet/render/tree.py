@@ -6,7 +6,6 @@ from ..model import (
     Graph,
     GraphMode,
     Node,
-    NodeKind,
     NodePath,
     Step,
     node_paths_for_mount,
@@ -26,7 +25,7 @@ from .formatting import (
 
 
 def render_graph(
-    subject: NodeKind | GraphCompilation,
+    subject: Node | GraphCompilation,
     *,
     root_label: str,
     mode: GraphMode = "dynamic",

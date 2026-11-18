@@ -12,7 +12,7 @@ from .selection import (
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
-    from .model import GraphWiring, Node, NodeKind
+    from .model import GraphWiring, Node
 
 
 @dataclass(frozen=True, slots=True, init=False)
@@ -20,12 +20,12 @@ class Case:
     """Bind one complete static boolean condition to a mounted Node."""
 
     condition: bool
-    node: NodeKind
+    node: Node
 
     def __init__(
         self,
         condition: bool,
-        component: NodeKind,
+        component: Node,
     ) -> None:
         if not isinstance(condition, bool):
             raise TypeError("Case condition must be a bool")

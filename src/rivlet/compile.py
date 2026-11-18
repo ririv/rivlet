@@ -24,7 +24,6 @@ if TYPE_CHECKING:
     from .model import (
         ConditionalEdgePredicate,
         Node,
-        NodeKind,
         NodeLabelPath,
         Step,
     )
@@ -581,7 +580,7 @@ def _materialize_execution_graph(
 
 
 def compile_graph(
-    root: NodeKind,
+    root: Node,
     *,
     root_label: str,
 ) -> GraphCompilation:

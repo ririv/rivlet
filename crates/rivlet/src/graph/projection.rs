@@ -9,8 +9,8 @@ use rivlet_core::{
 };
 
 use super::{
-    Condition, Edge, Graph, GraphError, InputEndpoint, InputPort, Node, NodeKind, OutputEndpoint,
-    OutputPort, PortName, ResultTarget,
+    Condition, Edge, Graph, GraphError, InputEndpoint, InputPort, Node, OutputEndpoint, OutputPort,
+    PortName, ResultTarget,
 };
 
 /// Action ownership and composite membership are mutually exclusive.
@@ -164,7 +164,7 @@ impl Projection {
     ///
     /// # Errors
     /// Returns an error for an invalid interface reference.
-    pub fn from_node(node: NodeKind) -> Result<Self, GraphError> {
+    pub fn from_node(node: Node) -> Result<Self, GraphError> {
         Self::from_declaration(Arc::new(Graph::new("<root scope>", [node], [])?))
     }
 
@@ -271,8 +271,8 @@ impl Projection {
             let mut path = prefix.to_vec();
             path.push(index);
             let kind = match node {
-                NodeKind::Step(step) => ProjectedKind::Step(step.action().clone()),
-                NodeKind::Graph(_) => ProjectedKind::Graph(GraphId::new(self.scopes.len())),
+                Node::Step(step) => ProjectedKind::Step(step.action().clone()),
+                Node::Graph(_) => ProjectedKind::Graph(GraphId::new(self.scopes.len())),
             };
             self.nodes.push(ProjectedNode {
                 identity: node.id(),
@@ -286,7 +286,7 @@ impl Projection {
             });
             self.scopes[scope.index()].nodes.push(id);
             self.scopes[scope.index()].local.insert(node.id(), id);
-            if let NodeKind::Graph(graph) = node {
+            if let Node::Graph(graph) = node {
                 self.visit(Arc::new(graph.clone()), Some(id), &path)?;
             }
         }

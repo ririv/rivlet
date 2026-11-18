@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use rivlet_core::NodeIdentity;
 
-use super::{Graph, GraphError, Node};
+use super::{Graph, GraphError, HasNodeId};
 
 /// An anonymous endpoint is distinct from every user-defined name.
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -105,12 +105,12 @@ pub enum OutputEndpoint {
     Port(OutputPort),
 }
 
-impl<T: Node + ?Sized> From<&T> for InputEndpoint {
+impl<T: HasNodeId + ?Sized> From<&T> for InputEndpoint {
     fn from(value: &T) -> Self {
         Self::Node(value.id())
     }
 }
-impl<T: Node + ?Sized> From<&T> for OutputEndpoint {
+impl<T: HasNodeId + ?Sized> From<&T> for OutputEndpoint {
     fn from(value: &T) -> Self {
         Self::Node(value.id())
     }

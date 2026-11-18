@@ -18,8 +18,8 @@ from .graph import (
 )
 from .identity import NodeId, NodePath
 from .node import (
-    Node,
     NodeLabelPath,
+    NodeLike,
     node_paths_for_mount,
     resolve_node_label,
 )
@@ -32,12 +32,12 @@ from .wiring import (
 
 # 跨模块的联合类型在装配入口定义一次。此时真实声明类型已加载，
 # 类型检查和运行时读取 TypeAliasType.__value__ 使用同一组类型身份。
-type NodeKind = Step | Graph
+type Node = Step | Graph
 type ConditionInput = (
     ConditionalEdgePredicate | tuple[ConditionalEdgePredicate, Node, *tuple[Node, ...]]
 )
 type NodePrerequisite = Node | ConditionalPrerequisite
-type GraphWiringOperand = NodeKind | GraphWiring
+type GraphWiringOperand = Node | GraphWiring
 type GraphWiringInput = tuple[NodeWiring, ...] | GraphWiring
 
 __all__ = [
@@ -50,7 +50,7 @@ __all__ = [
     "StepCallable",
     "Step",
     "Node",
-    "NodeKind",
+    "NodeLike",
     "ConditionalEdgePredicate",
     "ConditionInput",
     "ConditionalPrerequisite",

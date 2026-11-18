@@ -194,7 +194,7 @@ still retain their dependency boundary.
 
 ## Inputs versus action prerequisites
 
-`Results(...)` in `Node.wire(after=...)` binds action arguments only. Conditions declare their own
+`Results(...)` in `Step.wire(after=...)` binds action arguments only. Conditions declare their own
 sources in `(predicate, source_step, ...)`. A node condition waits only for its
 sources; after it enables the node, action inputs and `after` constrain execution.
 Both kinds of inputs must reference nodes in the current graph and participate

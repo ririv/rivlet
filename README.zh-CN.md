@@ -56,7 +56,7 @@ prepare 完成后，checks 中的 validate/test 可并发执行；finish 等待�
 需要参数化组合时，使用返回 Graph 的普通函数。
 
 Step 是执行函数的节点，Graph 是包含子结构的节点。二者都持有身份、label 和
-condition，并支持相同的 wire/DSL 操作。Node 只是共同协议，不需要手动包装；
+condition，并支持相同的 wire/DSL 操作。Python 的 `Node` 是 `Step | Graph` 的类型别名，不需要包装；
 只有 Graph 有 interface。
 
 Graph 直接承载完整声明。复用内部节点和边时，显式创建两个独立 Graph：

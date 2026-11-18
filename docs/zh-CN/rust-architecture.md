@@ -16,7 +16,7 @@ Rust 发行只需要两个 crate：
   - 只依赖 Rust 标准库，不解释任何语言的动作或谓词
 - `crates/rivlet`
   - `rivlet::action` 提供类型化动作、结果值和进程动作
-  - `rivlet::graph` 提供 `Step/Graph`、`Node` trait，以及类型化端口、边和谓词
+  - `rivlet::graph` 提供 `Step/Graph`、封闭的 `Node` 枚举，以及类型化端口、边和谓词
   - `rivlet::execution` 组合图、动作和 core，提供 Rust 执行入口和类型化结果
   - 宿主需要低阶接口时显式使用 `rivlet::core`
 

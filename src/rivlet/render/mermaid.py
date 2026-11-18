@@ -7,7 +7,6 @@ from ..model import (
     Graph,
     GraphMode,
     Node,
-    NodeKind,
     NodePath,
     Step,
     _condition_uses,
@@ -29,7 +28,7 @@ from .formatting import (
 
 
 def render_graph_mermaid(
-    subject: NodeKind | GraphCompilation,
+    subject: Node | GraphCompilation,
     *,
     root_label: str,
     mode: GraphMode = "dynamic",

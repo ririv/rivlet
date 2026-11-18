@@ -72,6 +72,27 @@ fn run(compilation: &Compilation) -> (SessionStatus, ExecutionSession) {
 }
 
 #[test]
+fn mixed_nodes_have_the_same_edge_identities_before_and_after_storage() {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let prepare = step("prepare", &events);
+    let child = Graph::new("child", [step("task", &events).into()], []).unwrap();
+    let edge = Edge::new(&prepare, &child);
+    let root = Graph::new("root", [prepare.into(), child.into()], [edge]).unwrap();
+
+    let [Node::Step(prepare), Node::Graph(child)] = root.nodes() else {
+        panic!("expected a step followed by a graph");
+    };
+    assert_eq!(root.edges()[0].sources(), [prepare.id()]);
+    assert_eq!(root.edges()[0].target(), child.id());
+
+    let edge_from_members = Edge::new(&root.nodes()[0], &root.nodes()[1]);
+    assert_eq!(edge_from_members.sources(), [prepare.id()]);
+    assert_eq!(edge_from_members.target(), child.id());
+    assert_eq!(run(&root.compile().unwrap()).0, SessionStatus::Finished);
+    assert_eq!(*events.lock().unwrap(), ["prepare", "task"]);
+}
+
+#[test]
 fn nested_shared_structure_preserves_identity_paths_and_real_composites() {
     let events = Arc::new(Mutex::new(Vec::new()));
     let task = step("task", &events);

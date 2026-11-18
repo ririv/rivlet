@@ -62,11 +62,11 @@
   - 有身份与生命周期、组合可复用结构的复合节点
 - `Execution`
   - 声明图与一次执行作用域
-- `Node` / `NodeKind`
-  - Step/Graph 的共同协议，以及封闭的可执行联合
+- `Node` / `NodeLike`
+  - Step/Graph 的封闭联合，以及供 Python 辅助函数使用的共同协议
 - `Graph.edges`
   - 可复用结构内的显式接线关系
-- `Node.wire(after=(Results(...),))` / `Edge.results(...)`
+- `Step.wire(after=(Results(...),))` / `Edge.results(...)`
   - 按顺序绑定 action 参数的结果依赖；条件独立声明自己的来源
 - `NodeWiring` / `GraphWiring`
   - 声明期组合结构

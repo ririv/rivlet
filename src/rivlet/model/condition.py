@@ -9,8 +9,7 @@ from typing import TYPE_CHECKING
 from ..errors import GraphError
 
 if TYPE_CHECKING:
-    from . import ConditionInput
-    from .node import Node
+    from . import ConditionInput, Node
 
 
 # 参数按声明顺序接收 Option[object]，不按类型标注猜测调用约定。

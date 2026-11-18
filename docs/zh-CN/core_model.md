@@ -3,7 +3,7 @@
 [English](../core_model.md) | 简体中文
 
 ```text
-Node（共同协议）
+Node（Step | Graph）
 ├── Step：身份 + label + condition + callable
 └── Graph：身份 + label + condition + 完整图声明
                                       ├── nodes: Step | Graph
@@ -15,10 +15,10 @@ Node（共同协议）
                    ExecutionState
 ```
 
-不再有通用节点包装：Step 只承载 action，不承载 Graph。Step/Graph 内部组合共同元信息，
-不继承 Node 的实现。Node 描述
-共同操作；`NodeKind = Step | Graph` 是结构和执行支持的封闭联合，仅实现外形相同
-的协议不会注册新的执行类型。旧包装的归属问题和选择理由见[建模讨论](./design/node-modeling.md)。
+在 Python 中，`Node = Step | Graph` 是构图与执行接受的封闭联合，不增加运行时包装。
+Step 只承载动作，不承载 Graph；两者内部组合共同元信息。`NodeLike` 协议供辅助函数
+描述两者的公共形状，符合协议不会让对象成为可执行节点。旧包装的归属问题和选择理由见
+[建模讨论](./design/node-modeling.md)。
 
 ## 节点与可复用结构
 

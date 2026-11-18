@@ -172,7 +172,7 @@ observation 与 condition。激活后才释放直接子节点；空 composite �
 
 ## inputs 与执行前置
 
-`Node.wire(after=...)` 中的 `Results(...)` 只绑定 action 参数。条件在 `(predicate, source_step, ...)`
+`Step.wire(after=...)` 中的 `Results(...)` 只绑定 action 参数。条件在 `(predicate, source_step, ...)`
 中声明自己的来源。节点条件只等待自己的输入；节点启用后，action 才等待自己的输入
 以及 after 指定的前置步骤。两类输入均引用当前图的 Node，参与 DAG 校验和接线边界计算。
 

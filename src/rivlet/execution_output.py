@@ -10,7 +10,7 @@ from .render.execution import render_execution
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from .model import GraphMode, NodeKind
+    from .model import GraphMode, Node
     from .runtime import ExecutionState
 
 
@@ -19,7 +19,7 @@ class ExecutionOutput(Protocol):
 
     def write(
         self,
-        root: NodeKind,
+        root: Node,
         state: ExecutionState,
         *,
         mode: GraphMode,
@@ -32,7 +32,7 @@ class NoExecutionOutput:
 
     def write(
         self,
-        root: NodeKind,
+        root: Node,
         state: ExecutionState,
         *,
         mode: GraphMode,
@@ -62,7 +62,7 @@ class TreeFileExecutionOutput:
 
     def write(
         self,
-        root: NodeKind,
+        root: Node,
         state: ExecutionState,
         *,
         mode: GraphMode,

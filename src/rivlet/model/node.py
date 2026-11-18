@@ -7,13 +7,15 @@ from typing import TYPE_CHECKING, Protocol
 from .identity import NodeId, NodePath
 
 if TYPE_CHECKING:
-    from . import GraphWiringOperand, NodePrerequisite
+    from . import GraphWiringOperand, Node, NodePrerequisite
     from .condition import _RuntimeCondition
     from .graph import Graph
     from .wiring import GraphWiring, NodeWiring
 
 
-class Node(Protocol):
+class NodeLike(Protocol):
+    """Common node shape for helpers that do not require graph membership."""
+
     @property
     def id(self) -> NodeId: ...
 
@@ -50,5 +52,5 @@ def node_paths_for_mount(
     }
 
 
-def resolve_node_label(node: Node, path: NodePath) -> str:
+def resolve_node_label(node: NodeLike, path: NodePath) -> str:
     return str(path) if node.label is None else node.label

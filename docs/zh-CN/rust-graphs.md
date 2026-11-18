@@ -7,14 +7,15 @@ Rust 的 Step 与 Graph 直接组成原生工作流，使用同一 core 编译�
 
 ## Rust 声明 API
 
-`graph` crate 提供真实的 `Step` 和 `Graph` 节点，二者内部组合共同身份和 label，
-实现 `Node` trait；`NodeKind` 是封闭的 `Step | Graph` 枚举。协议不引入实现继承，
-也不意味着可以任意扩展可执行节点类型。只有 `Graph` 可以获取接口。
+`rivlet::graph` 提供 `Step` 和 `Graph`；封闭的 `Node` 枚举保存这两种声明，
+`Graph::nodes()` 返回 `&[Node]`。接线时可直接把步骤或子图的引用传给
+`Edge::new(&source, &target)`：封闭的 `HasNodeId` trait 只负责提供声明身份。
+把具体声明放进父图时才用 `.into()` 转为 `Node`。只有 `Graph` 可以获取接口。
 
 ```rust
 use std::sync::Arc;
 use rivlet::{Action, ActionContext, ActionError, ActionHandle};
-use rivlet::{Edge, Graph, GraphInterface, Step};
+use rivlet::{Compilation, Edge, Graph, GraphError, GraphInterface, Step};
 
 struct Work;
 impl Action for Work {
@@ -26,7 +27,7 @@ impl Action for Work {
     }
 }
 
-fn workflow() -> Result<graph::Compilation, graph::GraphError> {
+fn workflow() -> Result<Compilation, GraphError> {
     let task = Step::new("task", ActionHandle::new(Work))?;
     let body = Arc::new(Graph::with_interface("scope",
         [task.clone().into()], [],
@@ -71,7 +72,7 @@ let wrapper = Graph::with_interface("wrapper", [child.into()], [], interface)?;
 composite 不会作为空 action 提交。`Graph::compile()` 保留真实根节点；
 原始声明仍然保留，编译不会把它替换成展开后的执行图。
 
-workspace 的 `execution` crate 还提供组合好的同步入口
+`rivlet::execution` 模块还提供组合好的同步入口
 `Execution::new(compilation, options).run()`，直接执行这份 Compilation，不重新编译。
 低阶宿主仍可自行驱动 session/worker。完整示例与结果规则见[执行 Rust 图](./rust-execution.md)。
 
