@@ -35,7 +35,7 @@ and their canonical `.postN` forms; it rejects unsupported version forms.
 
 ## Rust source releases
 
-Future Rust releases package only `rivlet-core` and `rivlet`. Verify both
+Rust releases package only `rivlet-core` and `rivlet`. Verify both
 source packages, publish `rivlet-core` first, and wait until crates.io indexes
 it before publishing `rivlet`. Rust users only need `rivlet`; the Python and
 Node.js bindings continue to use only `rivlet-core`.
@@ -44,12 +44,12 @@ Node.js bindings continue to use only `rivlet-core`.
 cargo package --locked -p rivlet-core -p rivlet
 ```
 
-The published Rust 0.5.0 remains unchanged. When upgrading, direct users of the
-former component crates should use `rivlet::{action, graph, execution}` or
-`rivlet::core`. Users already importing through `rivlet` do not need to change
-their imports.
-
 ## Version history
+
+### Version 0.6.0
+
+The Rust distribution uses two crates, `rivlet-core` and `rivlet`, and keeps
+the existing `rivlet::` import paths. The published Rust 0.5.0 remains unchanged.
 
 ### Version 0.5.0
 

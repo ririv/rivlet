@@ -246,11 +246,11 @@ dependencies = [
 
 [[package]]
 name = "rivlet-core"
-version = "0.5.0"
+version = "0.6.0"
 
 [[package]]
 name = "rivlet-node"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "napi",
  "napi-build",
