@@ -23,9 +23,12 @@ Rust 持有完整的编译图、调度索引和单次执行状态；Python 保�
   - 只依赖 Rust 标准库，持有整数节点、邻接索引和 DAG 算法
   - 不认识 action、条件或宿主领域
 - `crates/core`
-  - package 名为 `rivlet`
+  - package 名为 `rivlet-core`
   - 依赖 workspace 内的 topology，不依赖第三方库
   - 持有声明编译、编译执行图、端口解析和调度状态机
+- `crates/rivlet`
+  - 对外统一导出图声明、动作和执行 API，不新增编译器或调度器
+  - 宿主需要低阶接口时显式使用 `rivlet::core`
 - `crates/python`
   - 私有 Python adapter
   - 独占 PyO3 依赖

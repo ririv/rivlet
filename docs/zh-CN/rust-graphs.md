@@ -13,8 +13,8 @@ Rust 的 Step 与 Graph 直接组成原生工作流，使用同一 core 编译�
 
 ```rust
 use std::sync::Arc;
-use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, Graph, GraphInterface, Step};
+use rivlet::{Action, ActionContext, ActionError, ActionHandle};
+use rivlet::{Edge, Graph, GraphInterface, Step};
 
 struct Work;
 impl Action for Work {

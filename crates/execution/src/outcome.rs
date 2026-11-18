@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use action::{ActionError, Value};
-use graph::Compilation;
-use rivlet::{BlockCause, ConditionId, NodeId};
+use rivlet_action::{ActionError, Value};
+use rivlet_core::{BlockCause, ConditionId, NodeId};
+use rivlet_graph::Compilation;
 
 /// One direct failure witness; child failures retain their compiled node identity.
 #[derive(Debug)]

@@ -1,9 +1,9 @@
 use std::error::Error;
 use std::sync::Arc;
 
-use action::{Action, ActionContext, ActionError, ActionHandle};
-use execution::{Execution, ExecutionOptions, ExecutionStatus, NodeOutcome};
-use graph::{Edge, Graph, Step};
+use rivlet_action::{Action, ActionContext, ActionError, ActionHandle};
+use rivlet_execution::{Execution, ExecutionOptions, ExecutionStatus, NodeOutcome};
+use rivlet_graph::{Edge, Graph, Step};
 
 // 故意不实现 Clone，验证跨节点共享原始 Rust 结果，而不是复制载荷。
 struct Plan {

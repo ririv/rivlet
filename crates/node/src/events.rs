@@ -1,6 +1,6 @@
 //! Lossless direct failure witnesses in a private tagged wire protocol.
 
-use rivlet::{
+use rivlet_core::{
     BlockCause, ConditionSite, ExecutionBatch, ExecutionEvent, FailureCause, SessionStatus,
 };
 use serde_json::{Value, json};

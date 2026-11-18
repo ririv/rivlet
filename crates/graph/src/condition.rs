@@ -2,7 +2,7 @@ use std::fmt::{self, Debug, Formatter};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 
-use action::{ActionError, ActionInputs, Value, ValueType};
+use rivlet_action::{ActionError, ActionInputs, Value, ValueType};
 
 use crate::{GraphError, OutputEndpoint};
 

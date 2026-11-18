@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Condition, Edge, Graph, GraphError, Step};
+use rivlet_action::{Action, ActionContext, ActionError, ActionHandle};
+use rivlet_graph::{Condition, Edge, Graph, GraphError, Step};
 
 struct Number;
 impl Action for Number {

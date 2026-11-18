@@ -1,7 +1,7 @@
 //! Tagged tuple encoding for the private batched Python boundary.
 
 use pyo3::prelude::*;
-use rivlet::{BlockCause, ConditionSite, ExecutionEvent, FailureCause};
+use rivlet_core::{BlockCause, ConditionSite, ExecutionEvent, FailureCause};
 
 // 不为无载荷事件传占位字段；失败只携带索引，不跨语言传递异常或业务结果。
 #[derive(Clone, IntoPyObject)]

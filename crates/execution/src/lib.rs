@@ -5,8 +5,8 @@
 //! executions, each with its own workers and results. No Python runtime is involved.
 //!
 //! ```
-//! use execution::{Execution, ExecutionOptions, ExecutionStatus};
-//! use graph::Graph;
+//! use rivlet_execution::{Execution, ExecutionOptions, ExecutionStatus};
+//! use rivlet_graph::Graph;
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let compilation = Graph::new("scope", [], [])?.compile()?;
 //! let outcome = Execution::new(compilation, ExecutionOptions::new(4)?).run()?;
@@ -22,8 +22,8 @@ mod outcome;
 use std::num::NonZeroUsize;
 use std::sync::Arc;
 
-use graph::Compilation;
-use rivlet::NodeId;
+use rivlet_core::NodeId;
+use rivlet_graph::Compilation;
 
 pub use error::ExecutionError;
 pub use outcome::{ConditionOutcome, ExecutionOutcome, ExecutionStatus, NodeFailure, NodeOutcome};

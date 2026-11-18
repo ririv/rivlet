@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use action::ActionHandle;
-use rivlet::NodeIdentity;
+use rivlet_action::ActionHandle;
+use rivlet_core::NodeIdentity;
 
 use crate::{Condition, Edge, GraphError, GraphInterface, GraphInterfaceView, Projection};
 

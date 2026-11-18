@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, HashSet};
 
-use rivlet::NodeIdentity;
+use rivlet_core::NodeIdentity;
 
 use crate::{Graph, GraphError, Node};
 

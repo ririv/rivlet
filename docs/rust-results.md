@@ -10,8 +10,8 @@ There is no implicit JSON conversion and no result lookup added to action contex
 
 ```rust
 use std::sync::Arc;
-use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, Graph, Step};
+use rivlet::{Action, ActionContext, ActionError, ActionHandle};
+use rivlet::{Edge, Graph, Step};
 
 struct Plan { count: i64 }
 struct Design;

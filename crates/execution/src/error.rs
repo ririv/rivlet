@@ -1,8 +1,8 @@
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
-use action::ActionError;
-use rivlet::{NodeId, SessionError};
+use rivlet_action::ActionError;
+use rivlet_core::{NodeId, SessionError};
 
 /// Infrastructure failures, distinct from action failures in an execution outcome.
 #[derive(Debug)]

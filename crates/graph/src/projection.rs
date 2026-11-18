@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
-use action::{ActionError, ActionHandle, Value, ValueType};
-use rivlet::{
+use rivlet_action::{ActionError, ActionHandle, Value, ValueType};
+use rivlet_core::{
     CompiledExecutionGraph, ConditionId, DeclarationNode, DeclarationPrerequisite, DeclaredGraph,
     DeclaredNodeKind, GraphCompilation, GraphDeclaration, GraphId, NodeActivation, NodeId,
     NodeIdentity, PortConnection, Prerequisite, RuntimeCondition,

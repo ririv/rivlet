@@ -2,13 +2,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use action::{Action, ActionContext, ActionError, ActionHandle};
-use execution::{
+use rivlet_action::{Action, ActionContext, ActionError, ActionHandle};
+use rivlet_core::{BlockCause, NodeId};
+use rivlet_execution::{
     Execution, ExecutionError, ExecutionOptions, ExecutionOutcome, ExecutionStatus, NodeFailure,
     NodeOutcome,
 };
-use graph::{Compilation, Edge, Graph, GraphInterface, Step};
-use rivlet::{BlockCause, NodeId};
+use rivlet_graph::{Compilation, Edge, Graph, GraphInterface, Step};
 
 fn node_id(compilation: &Compilation, path: &[usize]) -> NodeId {
     (0..compilation.graph().nodes().len())

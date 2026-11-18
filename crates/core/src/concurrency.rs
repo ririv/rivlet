@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::num::NonZeroUsize;
 use std::sync::{Arc, Mutex};
 
-use topology::NodeId;
+use rivlet_topology::NodeId;
 
 struct Scope {
     maximum: usize,

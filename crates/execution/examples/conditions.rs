@@ -1,9 +1,11 @@
 use std::sync::Arc;
 
-use action::{Action, ActionContext, ActionError, ActionHandle};
-use execution::{ConditionOutcome, Execution, ExecutionOptions, ExecutionStatus, NodeOutcome};
-use graph::{Condition, Edge, Graph, Step};
-use rivlet::NodeId;
+use rivlet_action::{Action, ActionContext, ActionError, ActionHandle};
+use rivlet_core::NodeId;
+use rivlet_execution::{
+    ConditionOutcome, Execution, ExecutionOptions, ExecutionStatus, NodeOutcome,
+};
+use rivlet_graph::{Condition, Edge, Graph, Step};
 
 struct Number(i64);
 impl Action for Number {

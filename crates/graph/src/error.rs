@@ -2,7 +2,7 @@ use std::error::Error;
 use std::fmt::{self, Display, Formatter};
 
 use crate::PortName;
-use rivlet::NodeIdentity;
+use rivlet_core::NodeIdentity;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum GraphError {
@@ -32,8 +32,8 @@ pub enum GraphError {
         expected: &'static str,
         actual: &'static str,
     },
-    Topology(rivlet::TopologyError),
-    Declaration(rivlet::DeclarationError),
+    Topology(rivlet_core::TopologyError),
+    Declaration(rivlet_core::DeclarationError),
 }
 
 impl Display for GraphError {

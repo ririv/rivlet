@@ -1,7 +1,7 @@
 //! Direct witnesses for failed and blocked execution transitions.
 
 use crate::execution::ConditionId;
-use topology::NodeId;
+use rivlet_topology::NodeId;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum FailureCause {

@@ -6,8 +6,8 @@
 //!
 //! ```
 //! use std::sync::Arc;
-//! use action::{Action, ActionContext, ActionError, ActionHandle};
-//! use graph::{Edge, Graph, GraphInterface, Step};
+//! use rivlet_action::{Action, ActionContext, ActionError, ActionHandle};
+//! use rivlet_graph::{Edge, Graph, GraphInterface, Step};
 //!
 //! struct Work;
 //! impl Action for Work {

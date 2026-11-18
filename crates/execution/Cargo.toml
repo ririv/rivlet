@@ -1,14 +1,16 @@
 [package]
-name = "execution"
+name = "rivlet-execution"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Rust execution driver and typed outcomes for Rivlet"
 
 [dependencies]
-action = { path = "../action" }
-graph = { path = "../graph" }
-rivlet = { path = "../core" }
+rivlet-action.workspace = true
+rivlet-graph.workspace = true
+rivlet-core.workspace = true
 
 [lints]
 workspace = true

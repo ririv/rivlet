@@ -7,7 +7,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-rivlet = { path = "../core" }
+rivlet-core.workspace = true
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "sync"] }
 
 [lints]

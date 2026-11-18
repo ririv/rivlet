@@ -1,9 +1,11 @@
 [package]
-name = "action"
+name = "rivlet-action"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Typed Rust actions and workers for Rivlet"
 
 [lints]
 workspace = true

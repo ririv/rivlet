@@ -245,10 +245,10 @@ dependencies = [
 ]
 
 [[package]]
-name = "rivlet"
+name = "rivlet-core"
 version = "0.4.0"
 dependencies = [
- "topology",
+ "rivlet-topology",
 ]
 
 [[package]]
@@ -258,10 +258,14 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
- "rivlet",
+ "rivlet-core",
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "rivlet-topology"
+version = "0.4.0"
 
 [[package]]
 name = "rustc-hash"
@@ -334,10 +338,6 @@ dependencies = [
  "quote",
  "unicode-ident",
 ]
-
-[[package]]
-name = "topology"
-version = "0.4.0"
 
 [[package]]
 name = "unicode-ident"

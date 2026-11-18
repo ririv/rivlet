@@ -9,7 +9,7 @@ workspace 的 `execution` crate 提供同步、单次使用的纯 Rust 执行入
 ## 公共入口
 
 ```rust,ignore
-use execution::{Execution, ExecutionOptions, ExecutionStatus};
+use rivlet::{Execution, ExecutionOptions, ExecutionStatus};
 
 let compilation = graph.compile()?;
 let outcome = Execution::new(compilation, ExecutionOptions::new(4)?).run()?;
@@ -24,7 +24,7 @@ action 完成后，只用实际空出的槽调度后续 ready 节点。
 从仓库根目录运行完整的类型化结果示例：
 
 ```sh
-cargo run --locked -p execution --example typed_results
+cargo run --locked -p rivlet-execution --example typed_results
 ```
 
 示例通过 `Edge::results` 声明 `design → apply`，共享未实现 Clone 的 Rust Plan，
@@ -67,7 +67,7 @@ NodeOutcome 是封闭的终态联合：
 读取成功值继续使用已有的类型校验接口 `Value::downcast::<T>()`：
 
 ```rust,ignore
-use execution::NodeOutcome;
+use rivlet::NodeOutcome;
 
 match outcome.node(id) {
     Some(NodeOutcome::Succeeded(value)) => {

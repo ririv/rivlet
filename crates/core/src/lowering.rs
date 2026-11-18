@@ -5,7 +5,7 @@ use crate::execution::{
     CompiledExecutionGraph, ConditionId, ExecutionGraphError, ExecutionNode, PortConnection,
     Prerequisite, RuntimeCondition,
 };
-use topology::NodeId;
+use rivlet_topology::NodeId;
 
 /// Stable identity of one graph scope in a hierarchical declaration.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -271,7 +271,7 @@ fn validate_hierarchy(
 #[cfg(test)]
 mod tests {
     use super::{DeclaredGraph, DeclaredNode, ExecutionGraphDeclaration, GraphId, LoweringError};
-    use topology::NodeId;
+    use rivlet_topology::NodeId;
 
     #[test]
     fn declaration_derives_nested_ownership() {

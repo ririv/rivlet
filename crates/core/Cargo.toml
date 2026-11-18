@@ -1,15 +1,15 @@
 [package]
-name = "rivlet"
+name = "rivlet-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
-[lib]
-name = "rivlet"
+repository.workspace = true
+description = "Shared graph compiler and execution state machine for Rivlet"
 
 [dependencies]
-topology = { path = "../topology" }
+rivlet-topology.workspace = true
 
 [lints]
 workspace = true

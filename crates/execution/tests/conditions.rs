@@ -2,12 +2,12 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
-use action::{Action, ActionContext, ActionError, ActionHandle};
-use execution::{
+use rivlet_action::{Action, ActionContext, ActionError, ActionHandle};
+use rivlet_core::{BlockCause, NodeId};
+use rivlet_execution::{
     ConditionOutcome, Execution, ExecutionOptions, ExecutionOutcome, ExecutionStatus, NodeOutcome,
 };
-use graph::{Compilation, Condition, Edge, Graph, GraphInterface, Projection, Step};
-use rivlet::{BlockCause, NodeId};
+use rivlet_graph::{Compilation, Condition, Edge, Graph, GraphInterface, Projection, Step};
 
 fn id(compilation: &Compilation, path: &[usize]) -> NodeId {
     // 原先只编译内部结构；现在完整 Graph 根也具有自己的挂载路径。

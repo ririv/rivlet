@@ -3,27 +3,6 @@
 version = 4
 
 [[package]]
-name = "action"
-version = "0.4.0"
-
-[[package]]
-name = "execution"
-version = "0.4.0"
-dependencies = [
- "action",
- "graph",
- "rivlet",
-]
-
-[[package]]
-name = "graph"
-version = "0.4.0"
-dependencies = [
- "action",
- "rivlet",
-]
-
-[[package]]
 name = "heck"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -124,7 +103,7 @@ name = "python"
 version = "0.4.0"
 dependencies = [
  "pyo3",
- "rivlet",
+ "rivlet-core",
  "tokio-runtime",
 ]
 
@@ -141,8 +120,43 @@ dependencies = [
 name = "rivlet"
 version = "0.4.0"
 dependencies = [
- "topology",
+ "rivlet-action",
+ "rivlet-core",
+ "rivlet-execution",
+ "rivlet-graph",
 ]
+
+[[package]]
+name = "rivlet-action"
+version = "0.4.0"
+
+[[package]]
+name = "rivlet-core"
+version = "0.4.0"
+dependencies = [
+ "rivlet-topology",
+]
+
+[[package]]
+name = "rivlet-execution"
+version = "0.4.0"
+dependencies = [
+ "rivlet-action",
+ "rivlet-core",
+ "rivlet-graph",
+]
+
+[[package]]
+name = "rivlet-graph"
+version = "0.4.0"
+dependencies = [
+ "rivlet-action",
+ "rivlet-core",
+]
+
+[[package]]
+name = "rivlet-topology"
+version = "0.4.0"
 
 [[package]]
 name = "syn"
@@ -174,13 +188,9 @@ dependencies = [
 name = "tokio-runtime"
 version = "0.4.0"
 dependencies = [
- "rivlet",
+ "rivlet-core",
  "tokio",
 ]
-
-[[package]]
-name = "topology"
-version = "0.4.0"
 
 [[package]]
 name = "unicode-ident"

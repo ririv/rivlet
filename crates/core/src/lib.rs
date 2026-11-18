@@ -28,8 +28,8 @@ pub use ports::{
     ComponentId, PortId, PortRequirement, PortResolutionError, ProviderSelection, RequirementId,
     ResolvedPortConnection, resolve_ports,
 };
+pub use rivlet_topology::{Arc, DagTopology, DirectedTopology, NodeId, TopologyError};
 pub use session::{
     ConditionRequest, ConditionResolution, ExecutionBatch, ExecutionEvent, ExecutionSession,
     ExecutionUpdate, NodeState, SessionError, SessionStatus,
 };
-pub use topology::{Arc, DagTopology, DirectedTopology, NodeId, TopologyError};

@@ -11,7 +11,7 @@ is involved. This is runtime selection, not compile-time static pruning.
 
 ```rust,ignore
 use std::sync::Arc;
-use graph::Condition;
+use rivlet::Condition;
 
 let approved = Condition::new(
     |(flag,): (Option<Arc<bool>>,)| Ok(flag.is_some_and(|flag| *flag)),
@@ -78,7 +78,7 @@ by a callable is still shared according to that state's own Rust synchronization
 Run the complete example:
 
 ```sh
-cargo run --locked -p execution --example conditions
+cargo run --locked -p rivlet-execution --example conditions
 ```
 
 It prints:

@@ -1,9 +1,13 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use action::{Action, ActionContext, ActionError, ActionExecutor, ActionHandle, Value};
-use graph::{Compilation, Edge, Graph, GraphError, GraphInterface, PortName, ProjectedKind, Step};
-use rivlet::{ExecutionEvent, ExecutionSession, ExecutionUpdate, NodeId, NodeState, SessionStatus};
+use rivlet_action::{Action, ActionContext, ActionError, ActionExecutor, ActionHandle, Value};
+use rivlet_core::{
+    ExecutionEvent, ExecutionSession, ExecutionUpdate, NodeId, NodeState, SessionStatus,
+};
+use rivlet_graph::{
+    Compilation, Edge, Graph, GraphError, GraphInterface, PortName, ProjectedKind, Step,
+};
 
 // 测试宿主只管理值与 worker，依赖状态完全由正式 ExecutionSession 推进。
 fn run(compilation: &Compilation, skipped: Vec<NodeId>) -> (SessionStatus, HashMap<NodeId, Value>) {

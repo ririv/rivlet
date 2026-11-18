@@ -1,5 +1,5 @@
 use crate::{Edge, Graph, GraphError, InputEndpoint, Node, OutputEndpoint};
-use rivlet::{Arc as TopologyArc, DagTopology, DirectedTopology, NodeId, NodeIdentity};
+use rivlet_core::{Arc as TopologyArc, DagTopology, DirectedTopology, NodeId, NodeIdentity};
 use std::collections::HashMap;
 
 pub(crate) fn validate_graph(graph: &Graph) -> Result<(), GraphError> {

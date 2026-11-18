@@ -8,7 +8,7 @@ mod experiment;
 use events::{EncodedEvent, encode_event};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rivlet::{
+use rivlet_core::{
     Arc as TopologyArc, CompiledExecutionGraph as CoreCompiledExecutionGraph, ComponentId,
     ConditionId, ConditionResolution, DagTopology, DeclaredGraph, DeclaredNode, DirectedTopology,
     ExecutionBatch as CoreExecutionBatch, ExecutionGraphDeclaration,
@@ -134,7 +134,7 @@ impl ExecutionSession {
 /// Allocates a declaration identity from the language-independent core.
 #[pyfunction]
 fn allocate_node_id() -> u64 {
-    rivlet::NodeIdentity::allocate().value()
+    rivlet_core::NodeIdentity::allocate().value()
 }
 
 /// Validates one complete DAG projection and returns its cycle when present.

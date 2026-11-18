@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use pyo3::prelude::*;
-use rivlet::{ConditionRequest, ConditionResolution, ExecutionEvent, NodeId};
+use rivlet_core::{ConditionRequest, ConditionResolution, ExecutionEvent, NodeId};
 use tokio_runtime::CallbackHost;
 
 use crate::{CompiledExecutionGraph, encode_event};
@@ -49,7 +49,7 @@ impl CallbackHost for PythonCallbackHost {
                     resolutions
                         .into_iter()
                         .map(|(condition, value)| {
-                            let condition = rivlet::ConditionId::new(condition);
+                            let condition = rivlet_core::ConditionId::new(condition);
                             match value {
                                 Some(value) => ConditionResolution::new(condition, value),
                                 None => ConditionResolution::failed(condition),

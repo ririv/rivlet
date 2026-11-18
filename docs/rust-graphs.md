@@ -14,8 +14,8 @@ arbitrary executable node kinds. Only `Graph` has an interface.
 
 ```rust
 use std::sync::Arc;
-use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{Edge, Graph, GraphInterface, Step};
+use rivlet::{Action, ActionContext, ActionError, ActionHandle};
+use rivlet::{Edge, Graph, GraphInterface, Step};
 
 struct Work;
 impl Action for Work {

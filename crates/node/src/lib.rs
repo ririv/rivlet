@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use napi::bindgen_prelude::{BigInt, Error, Result, Status};
 use napi_derive::napi;
-use rivlet::{
+use rivlet_core::{
     CompiledExecutionGraph, ConcurrencyLimits, ConditionId, ConditionResolution, ExecutionSession,
     ExecutionUpdate, GraphDeclaration, NodeId, NodeState,
 };
@@ -194,7 +194,7 @@ impl Session {
 #[must_use]
 #[napi]
 pub fn allocate_node_id() -> BigInt {
-    rivlet::NodeIdentity::allocate().value().into()
+    rivlet_core::NodeIdentity::allocate().value().into()
 }
 
 #[must_use]

@@ -1,4 +1,4 @@
-use rivlet::NodeIdentity;
+use rivlet_core::NodeIdentity;
 
 use crate::{Condition, GraphError, InputPort, Node, OutputEndpoint, OutputPort, Step};
 

@@ -1,10 +1,10 @@
 use std::sync::{Arc, Mutex};
 
-use action::{Action, ActionContext, ActionError, ActionHandle};
-use graph::{
+use rivlet_action::{Action, ActionContext, ActionError, ActionHandle};
+use rivlet_core::{ExecutionSession, ExecutionUpdate, NodeState, SessionStatus};
+use rivlet_graph::{
     Compilation, Edge, Graph, GraphError, GraphInterface, Node, PortName, ProjectedKind, Step,
 };
-use rivlet::{ExecutionSession, ExecutionUpdate, NodeState, SessionStatus};
 
 // 使用普通 Rust 函数对象，不依赖 shell、Python 或独立调度器。
 struct Record {
@@ -313,7 +313,7 @@ fn failed_output_blocks_only_its_consumers_and_not_independent_work() {
         .iter()
         .enumerate()
         .find_map(|(index, _)| {
-            let id = rivlet::NodeId::new(index);
+            let id = rivlet_core::NodeId::new(index);
             (compilation.node(id).identity() == blocked.id()).then_some(id)
         })
         .unwrap();

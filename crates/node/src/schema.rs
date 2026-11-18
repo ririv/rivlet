@@ -1,6 +1,6 @@
 //! Tagged declarations at the Node-API boundary; callbacks and values remain in JS.
 
-use rivlet::{
+use rivlet_core::{
     ConditionId, DeclarationNode, DeclarationPrerequisite, DeclaredGraph, DeclaredNodeKind,
     GraphDeclaration, GraphId, NodeActivation, NodeId, PortConnection, RuntimeCondition,
 };

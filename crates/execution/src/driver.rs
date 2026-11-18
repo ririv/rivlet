@@ -1,11 +1,11 @@
 use std::sync::Arc;
 
-use action::{ActionContext, ActionExecutor, Value};
-use graph::{Compilation, ProjectedKind};
-use rivlet::{
+use rivlet_action::{ActionContext, ActionExecutor, Value};
+use rivlet_core::{
     ConditionRequest, ConditionResolution, ExecutionEvent, ExecutionSession, ExecutionUpdate,
     FailureCause, NodeId, SessionStatus,
 };
+use rivlet_graph::{Compilation, ProjectedKind};
 
 use crate::{
     ConditionOutcome, ExecutionError, ExecutionOptions, ExecutionOutcome, NodeFailure, NodeOutcome,

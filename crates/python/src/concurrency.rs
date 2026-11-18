@@ -7,7 +7,7 @@ use std::num::NonZeroUsize;
 /// Shared admission counters owned by one Python execution driver.
 #[pyclass(frozen, module = "rivlet._native", name = "_ConcurrencyLimits")]
 pub(crate) struct ConcurrencyLimits {
-    pub(crate) limits: rivlet::ConcurrencyLimits,
+    pub(crate) limits: rivlet_core::ConcurrencyLimits,
 }
 
 #[pymethods]
@@ -22,7 +22,7 @@ impl ConcurrencyLimits {
             })
             .collect::<PyResult<Vec<_>>>()?;
         Ok(Self {
-            limits: rivlet::ConcurrencyLimits::new(maxima),
+            limits: rivlet_core::ConcurrencyLimits::new(maxima),
         })
     }
 

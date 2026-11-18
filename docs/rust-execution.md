@@ -10,7 +10,7 @@ or move execution policy into graph declarations.
 ## Public entry
 
 ```rust,ignore
-use execution::{Execution, ExecutionOptions, ExecutionStatus};
+use rivlet::{Execution, ExecutionOptions, ExecutionStatus};
 
 let compilation = graph.compile()?;
 let outcome = Execution::new(compilation, ExecutionOptions::new(4)?).run()?;
@@ -26,7 +26,7 @@ pool. Completed actions free slots for the next ready batch.
 Run the complete typed-result example from the repository root:
 
 ```sh
-cargo run --locked -p execution --example typed_results
+cargo run --locked -p rivlet-execution --example typed_results
 ```
 
 The example declares `design → apply` through `Edge::results`, shares a Rust Plan
@@ -74,7 +74,7 @@ NodeOutcome is a closed terminal-state union:
 Read a successful result using the existing checked `Value::downcast::<T>()`:
 
 ```rust,ignore
-use execution::NodeOutcome;
+use rivlet::NodeOutcome;
 
 match outcome.node(id) {
     Some(NodeOutcome::Succeeded(value)) => {

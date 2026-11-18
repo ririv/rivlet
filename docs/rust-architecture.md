@@ -20,9 +20,12 @@ integration.
   runtime; declarations and the Python adapter do not depend on it.
 - `crates/topology` uses only the Rust standard library for integer nodes,
   adjacency indexes, and DAG algorithms. It knows nothing about actions or domains.
-- `crates/core` (package `rivlet`) depends on the workspace topology crate,
+- `crates/core` (package `rivlet-core`) depends on the workspace topology crate,
   not third-party libraries. It owns declaration compilation, port resolution,
   the compiled execution graph, and scheduling.
+- `crates/rivlet` is the public Rust entry. It re-exports graph, action and
+  execution APIs without introducing another compiler or scheduler. Advanced
+  hosts can use `rivlet::core`.
 - `crates/python` is the private PyO3 adapter. It converts declarations into integer
   IDs in batches, retains Python action/predicate/observation side tables, connects
   host control.

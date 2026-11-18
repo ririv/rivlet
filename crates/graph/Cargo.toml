@@ -1,13 +1,15 @@
 [package]
-name = "graph"
+name = "rivlet-graph"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Composable Rust graph declarations for Rivlet"
 
 [dependencies]
-action = { path = "../action" }
-rivlet = { path = "../core" }
+rivlet-action.workspace = true
+rivlet-core.workspace = true
 
 [lints]
 workspace = true

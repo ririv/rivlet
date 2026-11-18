@@ -2,7 +2,7 @@
 
 [English](../releasing.md) | 简体中文
 
-发行包、Python 导入包和 Rust 核心 crate 统一叫 `rivlet`，公开仓库为
+Python 发行包、导入包和 Rust 对外入口 crate 统一叫 `rivlet`，公开仓库为
 <https://github.com/ririv/rivlet>。不保留旧的 `rivetoo_graph` 导入别名。
 
 ## 交付范围

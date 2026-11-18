@@ -9,7 +9,7 @@ use crate::lowering::{
     DeclaredGraph, DeclaredNode, DeclaredNodeKind, ExecutionGraphDeclaration, GraphId,
     LoweringError,
 };
-use topology::NodeId;
+use rivlet_topology::NodeId;
 
 /// A declaration node that either participates in this projection or is absent.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -780,7 +780,7 @@ mod tests {
     use super::{DeclarationNode, DeclarationPrerequisite, GraphDeclaration, NodeActivation};
     use crate::execution::{ConditionId, PortConnection, RuntimeCondition};
     use crate::lowering::{DeclaredGraph, DeclaredNodeKind, GraphId};
-    use topology::NodeId;
+    use rivlet_topology::NodeId;
 
     #[test]
     fn conditional_port_keeps_and_projects_its_condition() {

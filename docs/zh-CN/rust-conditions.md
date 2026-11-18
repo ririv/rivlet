@@ -10,7 +10,7 @@
 
 ```rust,ignore
 use std::sync::Arc;
-use graph::Condition;
+use rivlet::Condition;
 
 let approved = Condition::new(
     |(flag,): (Option<Arc<bool>>,)| Ok(flag.is_some_and(|flag| *flag)),
@@ -68,7 +68,7 @@ false 不取消独立工作。结果边仍是完整的有序动作参数组，�
 运行完整示例：
 
 ```sh
-cargo run --locked -p execution --example conditions
+cargo run --locked -p rivlet-execution --example conditions
 ```
 
 输出：

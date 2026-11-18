@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
-use rivlet::{
+use rivlet_core::{
     ConditionId, DeclarationNode, DeclarationPrerequisite, DeclaredGraph, DeclaredNodeKind,
     GraphDeclaration, GraphId, NodeActivation, NodeId, PortConnection, RuntimeCondition,
 };

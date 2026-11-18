@@ -2,7 +2,7 @@
 
 English | [简体中文](./zh-CN/releasing.md)
 
-The distribution, import package, and Rust core crate are named `rivlet`.
+The Python distribution, import package, and public Rust entry crate are named `rivlet`.
 The public repository is <https://github.com/ririv/rivlet>. The previous
 `rivetoo_graph` import is not retained as an alias.
 
