@@ -3,13 +3,13 @@
 [English](../node-api.md) | 简体中文
 
 实验性源码包位于 `bindings/node`，通过 `crates/node` 的 Node-API 直接连接现有
-Rust 编译器和调度器，不经过 Python 或子进程。包仍为 private，尚未发布 npm；
-当前 PyPI 发行版不包含此适配器。
+Rust 编译器和调度器，不经过 Python 或子进程。源码工作区包保持私有，
+npm 发行包单独组装；PyPI 包不包含此适配器。
 
 ## 构建与检查
 
-使用 Node.js 22.13+ 和仓库当前构建工具链 Rust 1.95。适配器最低要求 Rust 1.88；
-无第三方依赖的 core 仍独立声明 Rust 1.85 下限。在仓库根目录执行：
+使用 Node.js 22.13+ 和仓库当前构建工具链 Rust 1.95。Rust 清单的最低版本为 1.88。
+在仓库根目录执行：
 
 ```sh
 cd bindings/node
@@ -25,9 +25,9 @@ Python wheel 的跨平台验收不能代替 Node 的 Windows/Linux 验收。
 手动 `Node-API checks` 工作流已准备 Linux/macOS/Windows 的同一套 npm 构建与测试；
 不发布包，也不随普通 push 自动运行。
 
-产物为 `native/rivlet.node` 和 `lib/`。加载器只读取该二进制，并核对其版本与
-`package.json` 一致；没有 Python 或纯 JS 兜底。同一未发布版本号下协议也可能变化，
-不要混用不同源码修订的 JS 和二进制。
+源码工作区加载本地 `native/rivlet.node`；发行主包加载当前平台对应的原生子包，
+缺失或不支持的平台明确报错。两者都校验二进制版本，不回退到源码编译、
+Python、WASM 或纯 JS。命令见 [组装 npm 发行候选](../../bindings/node/README.md#组装-npm-发行候选)。
 
 ## 动作、条件与结果边
 

@@ -3,14 +3,13 @@
 English | [简体中文](./zh-CN/node-api.md)
 
 The experimental source package lives in `bindings/node`. It uses Node-API through
-`crates/node`, not Python or a subprocess. It is private and not published to npm;
-the current PyPI release does not include this adapter.
+`crates/node`, not Python or a subprocess. The workspace package remains private;
+the npm distribution is staged separately. The PyPI package does not include this adapter.
 
 ## Build and check
 
 Use Node.js 22.13+ and Rust 1.95, the repository's current build toolchain.
-The adapter requires Rust 1.88 or later; the dependency-free core still declares
-its own Rust 1.85 minimum. From the repository root:
+The Rust manifests require Rust 1.88 or later. From the repository root:
 
 ```sh
 cd bindings/node
@@ -27,10 +26,10 @@ do not infer Windows/Linux Node validation from the Python wheel matrix.
 The manual `Node-API checks` workflow prepares the same npm build/tests on Linux,
 macOS and Windows. It neither publishes packages nor runs on ordinary pushes.
 
-The build produces `native/rivlet.node` and `lib/`. The loader requires that exact
-binary and checks its version against `package.json`; there is no Python or
-JavaScript-only fallback. Do not mix artifacts from different revisions of the
-private protocol, even if their package versions are equal.
+The workspace build produces `native/rivlet.node` and `lib/`. A staged release
+loads the matching optional platform package instead, with a hard error when it
+is missing. Both modes check the native version; there is no Python, WASM, or
+JavaScript-only fallback. See [the package assembly commands](../bindings/node/README.md#组装-npm-发行候选).
 
 ## Actions, conditions and result edges
 
