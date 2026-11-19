@@ -54,7 +54,11 @@ leaves the step unlabeled. Bare `@step` continues to use the function name.
 
 Rust's closed `NodeKind` enum is now `Node`. The former node trait is
 replaced by the sealed `HasNodeId` trait, which only exposes identity.
-Edges still accept `&Step` and `&Graph` directly. No Node.js public API changes.
+Edges still accept `&Step` and `&Graph` directly.
+
+Node.js exposes `Node = Step | Graph` without a separate `StepNode` type.
+Construction and wiring are unchanged. The constructor checks callback inputs,
+and the node retains its result type.
 
 ### Version 0.6.0
 

@@ -75,25 +75,27 @@ new Edge(checks, publish, {
 通过 `.kind === 'some'` 解包。JS 对象、函数、symbol 和错误对象均留在 JS 侧，
 不复制、不序列化。成功结果由 outcome 保留，尚无消费后提前回收。
 
-TypeScript 中，Step 的第二个类型参数表示有序来源的值类型：
+TypeScript 从回调参数推导有序来源的值类型，从返回值推导 `Step<T>` 的 `T`：
 
 ```ts
-import { Step, type NodeRunContext, type Option } from './lib/index.js';
+import { Step, type Option } from './lib/index.js';
 
 interface Plan { count: number }
-const apply = new Step<number, [Plan]>(
-  (_context: NodeRunContext, plan: Option<Plan>) => plan.unwrap().count * 2,
+const apply = new Step(
+  (_context, plan: Option<Plan>) => plan.unwrap().count * 2,
 );
 ```
 
-类型标注不等于运行时业务 schema 校验，业务载荷仍由应用验证。
+构造时也可显式写 `new Step<number, [Plan]>(...)`。构造出的 `apply` 是
+`Step<number>`，`outcome.result(apply)` 返回 `Option<number>`；输入元组
+不属于节点类型。类型标注不等于运行时业务 schema 校验，业务载荷仍由应用验证。
 TypeScript 条件回调需显式标注参数，例如
 `condition: [(value: Option<boolean>) => value.unwrap(), enabled]`；
 Edge 不根据运行时生产者列表自动推导回调参数 schema。
 
 ## 子图与公开端口
 
-Step 和 Graph 都是节点。Graph 保存可复用拓扑，Graph 提供独立身份、
+公开的 `Node` 类型是 `Step | Graph`。Graph 保存可复用拓扑，提供独立身份、
 标签、条件和接口视图。只有 Graph 提供公开输入、输出端口。
 
 ```js

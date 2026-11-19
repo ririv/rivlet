@@ -19,7 +19,8 @@ export interface NodeRunContext {
 type OptionInputs<T extends readonly unknown[]> = {
   [K in keyof T]: Option<T[K]>;
 };
-export interface StepNode<T = unknown> {
+/** An action node retaining its output type independently of its callback inputs. */
+export interface Step<T = unknown> {
   readonly kind: "step";
   readonly id: bigint;
   readonly label: string;
@@ -30,9 +31,9 @@ export interface StepNode<T = unknown> {
     inputs: readonly Option<unknown>[],
   ): Promise<unknown>;
 }
-export type Node = StepNode | Graph;
-export type ResultSource<T = unknown> = StepNode<T> | OutputPort<T>;
-export type ResultTarget = StepNode | InputPort;
+export type Node = Step | Graph;
+export type ResultSource<T = unknown> = Step<T> | OutputPort<T>;
+export type ResultTarget = Step | InputPort;
 export type Predicate = (...inputs: never[]) => Awaitable<boolean>;
 export type Condition =
   Predicate | readonly [Predicate, ResultSource, ...ResultSource[]];
@@ -49,11 +50,21 @@ function snapshotCondition(
     : (Object.freeze([...condition]) as Condition);
 }
 
-/** An actual action node; construction does not execute its callback. */
-export class Step<
+interface StepConstructor {
+  new <T, Inputs extends readonly unknown[] = []>(
+    action: (
+      context: NodeRunContext,
+      ...inputs: OptionInputs<Inputs>
+    ) => Awaitable<T>,
+    options?: NodeOptions,
+  ): Step<T>;
+}
+
+/** Constructs an action node without calling its callback. */
+export const Step: StepConstructor = class Step<
   T,
   Inputs extends readonly unknown[] = [],
-> implements StepNode<T> {
+> {
   readonly kind = "step";
   readonly id = native.allocateNodeId();
   readonly label: string;
@@ -83,7 +94,7 @@ export class Step<
     // 异构图只在调用边界擦除参数类型；值本身不复制、不序列化。
     return this.#action(context, ...(inputs as OptionInputs<Inputs>));
   }
-}
+};
 
 export interface GraphOptions extends NodeOptions {
   readonly nodes: readonly Node[];

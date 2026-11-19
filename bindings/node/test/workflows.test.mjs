@@ -27,6 +27,7 @@ test("native session preserves arbitrary JS results and awaits promises", async 
     },
     { label: "prepare" },
   );
+  assert.ok(prepare instanceof Step);
   const apply = new Step((_context, value) => {
     assert.ok(value instanceof Some);
     assert.strictEqual(value.unwrap(), payload);

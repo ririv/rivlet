@@ -1,8 +1,10 @@
 import {
   Edge,
+  type ExecutionOutcome,
   Graph,
   GraphInterface,
   Step,
+  type Node,
   type NodeRunContext,
   type Option,
 } from "../src/index.js";
@@ -32,3 +34,21 @@ new Edge(consumer.interface.input(), provider.interface.output());
 Edge.results([design], consumer);
 // @ts-expect-error 不提供空的结果参数组声明分支。
 Edge.results([], apply);
+
+const inferred = new Step((_ctx, plan: Option<Plan>) => plan.unwrap().count);
+const typedStep: Step<number> = inferred;
+const nodes: Node[] = [design, apply, typedStep, consumer];
+new Graph({ nodes, edges: [Edge.results([design], inferred)] });
+
+export function checkResult(outcome: ExecutionOutcome): Option<number> {
+  return outcome.result(inferred);
+}
+
+export function checkNodeNarrowing(node: Node): string | readonly Node[] {
+  return node instanceof Step ? node.label : node.nodes;
+}
+
+export function checkWrongResult(outcome: ExecutionOutcome): Option<string> {
+  // @ts-expect-error 步骤的结果仍然关联到构造时推导的 number。
+  return outcome.result(inferred);
+}

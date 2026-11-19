@@ -81,17 +81,21 @@ objects, functions, symbols and error objects stay in JS without serialization o
 cloning. Successful values remain retained by the outcome; there is no early
 consumer-based reclamation.
 
-In TypeScript, the second `Step` generic describes the ordered source values:
+TypeScript infers the ordered source value types from the callback's parameters
+and the `T` in `Step<T>` from its return value:
 
 ```ts
-import { Step, type NodeRunContext, type Option } from './lib/index.js';
+import { Step, type Option } from './lib/index.js';
 
 interface Plan { count: number }
-const apply = new Step<number, [Plan]>(
-  (_context: NodeRunContext, plan: Option<Plan>) => plan.unwrap().count * 2,
+const apply = new Step(
+  (_context, plan: Option<Plan>) => plan.unwrap().count * 2,
 );
 ```
 
+You can also write `new Step<number, [Plan]>(...)` explicitly. Either way, the
+node is a `Step<number>` and `outcome.result(apply)` returns `Option<number>`.
+The input tuple is not part of the public node type.
 These annotations do not validate arbitrary user payload schemas at runtime.
 Applications remain responsible for domain validation.
 In TypeScript conditions, annotate callback parameters explicitly, for example
@@ -100,7 +104,7 @@ infer a callback's parameter schema from its runtime producer list.
 
 ## Subgraphs and public ports
 
-Both `Step` and `Graph` are nodes. `Graph` holds reusable topology;
+The public `Node` type is `Step | Graph`. `Graph` holds reusable topology;
 `Graph` supplies a distinct identity, label, condition and interface view.
 Only a Graph has public input and output ports.
 

@@ -1,7 +1,6 @@
 export { Step, Graph, Edge, Results } from "./model.js";
 export type {
   Node,
-  StepNode,
   NodeRunContext,
   NodeOptions,
   GraphOptions,

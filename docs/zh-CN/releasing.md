@@ -47,7 +47,9 @@ Python 的 `Node` 现在是 `Step | Graph`，原来的形状协议改名为 `Nod
 
 Rust 的封闭枚举 `NodeKind` 改名为 `Node`；原节点 trait 由只负责取身份、
 不开放外部实现的 `HasNodeId` 取代。直接用 `&Step` 或 `&Graph` 接线的写法不变。
-Node.js 没有新的公开 API 变更。
+
+Node.js 的 `Node` 统一为 `Step | Graph`，不再公开 `StepNode`，构造器和接线写法
+不变。回调的输入类型只在构造时检查，节点保留结果类型。
 
 ### 0.6.0
 
