@@ -46,6 +46,16 @@ cargo package --locked -p rivlet-core -p rivlet
 
 ## Version history
 
+### Version 0.7.0
+
+Python's `Node` is now `Step | Graph`; the structural protocol is `NodeLike`.
+`@step(label="…")` sets a display label, and `@step(label=None)` explicitly
+leaves the step unlabeled. Bare `@step` continues to use the function name.
+
+Rust's closed `NodeKind` enum is now `Node`. The former node trait is
+replaced by the sealed `HasNodeId` trait, which only exposes identity.
+Edges still accept `&Step` and `&Graph` directly. No Node.js public API changes.
+
 ### Version 0.6.0
 
 The Rust distribution uses two crates, `rivlet-core` and `rivlet`, and keeps

@@ -100,7 +100,7 @@ dependencies = [
 
 [[package]]
 name = "python"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "pyo3",
  "rivlet-core",
@@ -118,14 +118,14 @@ dependencies = [
 
 [[package]]
 name = "rivlet"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "rivlet-core",
 ]
 
 [[package]]
 name = "rivlet-core"
-version = "0.6.0"
+version = "0.7.0"
 
 [[package]]
 name = "syn"
@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "tokio-runtime"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "rivlet-core",
  "tokio",

@@ -39,6 +39,16 @@ cargo package --locked -p rivlet-core -p rivlet
 
 ## 版本记录
 
+### 0.7.0
+
+Python 的 `Node` 现在是 `Step | Graph`，原来的形状协议改名为 `NodeLike`。
+`@step(label="…")` 可指定标签，`@step(label=None)` 可明确不设标签；裸
+`@step` 仍使用函数名。
+
+Rust 的封闭枚举 `NodeKind` 改名为 `Node`；原节点 trait 由只负责取身份、
+不开放外部实现的 `HasNodeId` 取代。直接用 `&Step` 或 `&Graph` 接线的写法不变。
+Node.js 没有新的公开 API 变更。
+
 ### 0.6.0
 
 Rust 发行收敛为 `rivlet-core` 与 `rivlet` 两个 crate，保留 `rivlet::`
